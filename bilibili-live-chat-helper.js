@@ -1398,18 +1398,17 @@ let replacementMap = null
           return
         }
 
-        sonioxLastSendTime = Date.now()
         const result = await sendDanmaku(segment, roomId, csrfToken)
+        sonioxLastSendTime = Date.now() // Update after request completes
         if (result.success) {
           appendToLimitedLog(msgLogs, `✅ 同传: ${segment}`, maxLogLines)
         } else {
           appendToLimitedLog(msgLogs, `❌ 同传: ${segment}，原因：${result.error}`, maxLogLines)
 
-          // Try AI evasion if enabled - update timestamp after retry attempt
+          // Try AI evasion if enabled
           const evasionResult = await tryAiEvasion(segment, roomId, csrfToken, '同传')
           if (evasionResult.evadedMessage !== undefined) {
-            // A send attempt was made, update the timestamp
-            sonioxLastSendTime = Date.now()
+            sonioxLastSendTime = Date.now() // Update after retry attempt
           }
         }
       } catch (error) {
