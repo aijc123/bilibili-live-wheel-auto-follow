@@ -1464,14 +1464,16 @@ let replacementMap = null
           // Add text to buffer
           sonioxSendBuffer += item
 
-          // Reset flush timeout - will flush after delay of no new text
+          // Reset flush timeout - will flush after delay of no new text (only if still running)
           if (sonioxFlushTimeout) {
             clearTimeout(sonioxFlushTimeout)
           }
-          sonioxFlushTimeout = setTimeout(() => {
-            sonioxTextQueue.push(null) // Signal flush
-            processTextQueue()
-          }, SONIOX_FLUSH_DELAY_MS)
+          if (sonioxState === 'running') {
+            sonioxFlushTimeout = setTimeout(() => {
+              sonioxTextQueue.push(null) // Signal flush
+              processTextQueue()
+            }, SONIOX_FLUSH_DELAY_MS)
+          }
         }
         if (iterations >= maxIterations) {
           console.warn('[Soniox] Queue processing hit iteration limit, remaining items:', sonioxTextQueue.length)
