@@ -1282,17 +1282,15 @@ let replacementMap = null
     let sonioxSendBuffer = ''
     /** @type {number|null} */
     let sonioxFlushTimeout = null
-    /** @type {string[]} */
-    let sonioxTextQueue = []
     /** @type {boolean} */
-    let sonioxProcessingQueue = false
+    let sonioxIsFlushing = false
     /** @type {number} */
     let sonioxLastSendTime = 0
 
     // Minimum interval between danmaku sends (Bilibili rate limit is ~1 msg/sec)
     const SONIOX_SEND_INTERVAL_MS = 1100
-    // Flush buffer after this many ms of no new text
-    const SONIOX_FLUSH_DELAY_MS = 2000
+    // Safety fallback flush delay (endpoint detection usually triggers before this)
+    const SONIOX_FLUSH_DELAY_MS = 5000
 
     // API Key visibility toggle
     sonioxApiKeyToggle.addEventListener('click', () => {
@@ -1358,8 +1356,7 @@ let replacementMap = null
       sonioxState = 'stopped'
       sonioxRecordTranscribe = null
       sonioxSendBuffer = ''
-      sonioxTextQueue = []
-      sonioxProcessingQueue = false
+      sonioxIsFlushing = false
       sonioxLastSendTime = 0
       sonioxAccumulatedFinalText = ''
       sonioxAccumulatedTranslatedText = ''
@@ -1420,83 +1417,54 @@ let replacementMap = null
      * @returns {Promise<void>}
      */
     async function flushSonioxBuffer() {
-      if (sonioxFlushTimeout) {
-        clearTimeout(sonioxFlushTimeout)
-        sonioxFlushTimeout = null
-      }
-
-      if (!sonioxSendBuffer.trim()) return
-
-      const maxLen = parseInt(GM_getValue('sonioxMaxLength'), 10) || 40
-      const processedText = applyReplacements(sonioxSendBuffer.trim())
-      sonioxSendBuffer = ''
-
-      // Split into segments if too long, then send each
-      // Strip trailing punctuation from each segment (live CC style)
-      const segments = trimText(processedText, maxLen)
-      for (const segment of segments) {
-        const cleanSegment = stripTrailingPunctuation(segment)
-        if (cleanSegment) {
-          await sendSegmentAsDanmaku(cleanSegment)
-        }
-      }
-    }
-
-    /**
-     * Processes the text queue sequentially to avoid race conditions
-     * @returns {Promise<void>}
-     */
-    async function processTextQueue() {
-      if (sonioxProcessingQueue) return
-      sonioxProcessingQueue = true
+      // Prevent concurrent flushes
+      if (sonioxIsFlushing) return
+      sonioxIsFlushing = true
 
       try {
-        let iterations = 0
-        const maxIterations = 1000 // Safety limit to prevent infinite loops
-        while (sonioxTextQueue.length > 0 && iterations < maxIterations) {
-          iterations++
-          const item = sonioxTextQueue.shift()
-
-          // Special flush signal
-          if (item === null) {
-            await flushSonioxBuffer()
-            continue
-          }
-
-          // Add text to buffer
-          sonioxSendBuffer += item
-
-          // Reset flush timeout - will flush after delay of no new text (only if still running)
-          if (sonioxFlushTimeout) {
-            clearTimeout(sonioxFlushTimeout)
-          }
-          if (sonioxState === 'running') {
-            sonioxFlushTimeout = setTimeout(() => {
-              sonioxTextQueue.push(null) // Signal flush
-              if (!sonioxProcessingQueue) {
-                processTextQueue()
-              }
-              // If already processing, the current loop will pick up the null
-            }, SONIOX_FLUSH_DELAY_MS)
-          }
+        if (sonioxFlushTimeout) {
+          clearTimeout(sonioxFlushTimeout)
+          sonioxFlushTimeout = null
         }
-        if (iterations >= maxIterations) {
-          console.warn('[Soniox] Queue processing hit iteration limit, remaining items:', sonioxTextQueue.length)
+
+        if (!sonioxSendBuffer.trim()) return
+
+        const maxLen = parseInt(GM_getValue('sonioxMaxLength'), 10) || 40
+        const processedText = applyReplacements(sonioxSendBuffer.trim())
+        sonioxSendBuffer = ''
+
+        // Split into segments if too long, then send each
+        // Strip trailing punctuation from each segment (live CC style)
+        const segments = trimText(processedText, maxLen)
+        for (const segment of segments) {
+          const cleanSegment = stripTrailingPunctuation(segment)
+          if (cleanSegment) {
+            await sendSegmentAsDanmaku(cleanSegment)
+          }
         }
       } finally {
-        sonioxProcessingQueue = false
+        sonioxIsFlushing = false
       }
     }
 
     /**
-     * Enqueues text for sequential processing (avoids race conditions)
-     * @param {string} text - The finalized text to add
+     * Adds text to the send buffer and schedules a safety fallback flush
+     * @param {string} text - The text to add
      * @returns {void}
      */
-    function enqueueText(text) {
-      if (text) {
-        sonioxTextQueue.push(text)
-        processTextQueue()
+    function addToSendBuffer(text) {
+      if (!text) return
+
+      sonioxSendBuffer += text
+
+      // Reset safety fallback timeout (endpoint detection usually flushes before this)
+      if (sonioxFlushTimeout) {
+        clearTimeout(sonioxFlushTimeout)
+      }
+      if (sonioxState === 'running') {
+        sonioxFlushTimeout = setTimeout(() => {
+          flushSonioxBuffer()
+        }, SONIOX_FLUSH_DELAY_MS)
       }
     }
 
@@ -1598,9 +1566,9 @@ let replacementMap = null
               }
 
               if (translationEnabled) {
-                // Enqueue new translated final text for sending
+                // Add new translated final text to buffer
                 if (newTranslatedFinalText && autoSend) {
-                  enqueueText(newTranslatedFinalText)
+                  addToSendBuffer(newTranslatedFinalText)
                 }
 
                 // Accumulate for display
@@ -1615,9 +1583,9 @@ let replacementMap = null
                 sonioxFinalText.textContent = displayText
                 sonioxNonFinalText.textContent = translatedNonFinalText
               } else {
-                // Enqueue new final text for sending
+                // Add new final text to buffer
                 if (newFinalText && autoSend) {
-                  enqueueText(newFinalText)
+                  addToSendBuffer(newFinalText)
                 }
 
                 // Accumulate for display
@@ -1635,10 +1603,7 @@ let replacementMap = null
 
               // If endpoint detected, trigger immediate flush instead of waiting for timeout
               if (endpointDetected && autoSend) {
-                sonioxTextQueue.push(null) // Signal flush
-                if (!sonioxProcessingQueue) {
-                  processTextQueue()
-                }
+                flushSonioxBuffer()
               }
 
               // Auto-scroll to bottom
@@ -1648,22 +1613,14 @@ let replacementMap = null
               }
             },
             onFinished: async () => {
-              // Clear flush timeout to prevent it from adding to queue during wait
-              if (sonioxFlushTimeout) {
-                clearTimeout(sonioxFlushTimeout)
-                sonioxFlushTimeout = null
-              }
-
-              // Wait for current queue processing to finish (max 10s)
+              // Wait for any ongoing flush to complete (max 10s)
               let waitCount = 0
               const maxWait = 100 // 100 * 100ms = 10 seconds
-              while (sonioxProcessingQueue && waitCount < maxWait) {
+              while (sonioxIsFlushing && waitCount < maxWait) {
                 await new Promise(r => setTimeout(r, 100))
                 waitCount++
               }
-              if (waitCount >= maxWait) {
-                console.warn('[Soniox] Queue processing timed out, forcing flush')
-              }
+              // Final flush of any remaining buffer
               await flushSonioxBuffer()
               appendToLimitedLog(msgLogs, '🎤 同传已停止', maxLogLines)
               resetSonioxState()
