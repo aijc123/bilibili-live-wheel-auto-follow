@@ -1611,8 +1611,9 @@ let replacementMap = null
                     }
                     sonioxAccumulatedTranslatedText = totalTranslatedFinalText
                   } else {
-                    // Text doesn't match expected patterns - check if it's a new segment or correction
-                    // Find common prefix length to distinguish between new segment vs correction
+                    // Text doesn't match expected patterns - ambiguous case
+                    // Be aggressive to avoid missing text (duplicates are less bad than silence)
+                    // Only skip if clearly a minor correction (very high overlap)
                     let commonPrefixLen = 0
                     const minLen = Math.min(totalTranslatedFinalText.length, sonioxAccumulatedTranslatedText.length)
                     while (commonPrefixLen < minLen &&
@@ -1620,14 +1621,13 @@ let replacementMap = null
                       commonPrefixLen++
                     }
 
-                    // If less than 30% overlap, treat as new segment (Soniox reset)
-                    if (commonPrefixLen < sonioxAccumulatedTranslatedText.length * 0.3) {
-                      if (autoSend) {
-                        enqueueText(totalTranslatedFinalText)
-                      }
+                    // Only skip if > 80% overlap (clearly a minor correction)
+                    const isClearCorrection = minLen > 0 && commonPrefixLen > minLen * 0.8
+
+                    if (!isClearCorrection && autoSend) {
+                      enqueueText(totalTranslatedFinalText)
                     } else {
-                      // Significant overlap - likely a correction, skip to avoid duplicates
-                      console.warn('[Soniox] Translation correction detected, skipping send to avoid duplicates')
+                      console.warn('[Soniox] Translation correction detected, skipping send')
                     }
                     sonioxAccumulatedTranslatedText = totalTranslatedFinalText
                   }
