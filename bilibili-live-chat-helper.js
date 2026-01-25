@@ -389,17 +389,8 @@ let activeTemplateIndex = GM_getValue('activeTemplateIndex', 0)
 
 /** @type {Object.<string, number|boolean|string>} */
 const scriptInitVal = {
-  msgSendInterval: 1,
-  maxLength: 20,
-  maxLogLines: 1000,
-  randomColor: false,
-  randomInterval: false,
-  randomChar: false,
-  aiEvasion: false,
-  forceScrollDanmaku: false,
-  // Soniox 同传 settings
-  sonioxApiKey: '',
-  sonioxLanguageHints: ['zh'],
+/** @type {Object.<string, number|boolean|string|string[]>} */
+const scriptInitVal = {
   sonioxAutoSend: true,
   sonioxMaxLength: 40,
   // Soniox 同传 translation settings
