@@ -1548,7 +1548,8 @@ let replacementMap = null
               sonioxState = 'running'
               sonioxStartBtn.textContent = '停止同传'
               if (translationEnabled) {
-                sonioxStatus.textContent = `正在识别并翻译为${translationTarget === 'en' ? 'English' : translationTarget === 'zh' ? '中文' : '日本語'}…`
+                const langNames = { en: 'English', zh: '中文', ja: '日本語' }
+                sonioxStatus.textContent = `正在识别并翻译为${langNames[translationTarget] || translationTarget}…`
               } else {
                 sonioxStatus.textContent = '正在识别…'
               }
