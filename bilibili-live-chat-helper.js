@@ -1536,6 +1536,7 @@ let replacementMap = null
           const startConfig = {
             model: 'stt-rt-preview-v2',
             languageHints: languageHints,
+            enable_endpoint_detection: true,
             onStarted: () => {
               sonioxState = 'running'
               sonioxStartBtn.textContent = '停止同传'
