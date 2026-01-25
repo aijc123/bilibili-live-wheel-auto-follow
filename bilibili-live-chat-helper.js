@@ -387,8 +387,6 @@ const MsgTemplates = GM_getValue('MsgTemplates', [])
 /** @type {number} */
 let activeTemplateIndex = GM_getValue('activeTemplateIndex', 0)
 
-/** @type {Object.<string, number|boolean|string>} */
-const scriptInitVal = {
 /** @type {Object.<string, number|boolean|string|string[]>} */
 const scriptInitVal = {
   sonioxAutoSend: true,
@@ -1604,6 +1602,12 @@ let replacementMap = null
                     sonioxAccumulatedTranslatedText = totalTranslatedFinalText
                   } else if (sonioxAccumulatedTranslatedText.length === 0) {
                     // First batch of translated tokens
+                    if (autoSend) {
+                      enqueueText(totalTranslatedFinalText)
+                    }
+                    sonioxAccumulatedTranslatedText = totalTranslatedFinalText
+                  } else if (totalTranslatedFinalText.length < sonioxAccumulatedTranslatedText.length) {
+                    // Soniox reset (new text is shorter) - treat as fresh start
                     if (autoSend) {
                       enqueueText(totalTranslatedFinalText)
                     }
