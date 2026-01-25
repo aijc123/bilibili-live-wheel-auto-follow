@@ -1514,18 +1514,11 @@ let replacementMap = null
         sonioxLastProcessedFinalLength = 0
 
         sonioxStartBtn.textContent = '启动中…'
-        sonioxStatus.textContent = '正在请求麦克风权限…'
+        sonioxStatus.textContent = '正在连接…'
         sonioxStatus.style.color = '#666'
         sonioxState = 'starting'
 
         try {
-          // Request microphone permission first
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-          // Stop the stream immediately, RecordTranscribe will request it again
-          stream.getTracks().forEach(track => track.stop())
-
-          sonioxStatus.textContent = '正在连接 Soniox…'
-
           // Dynamically import Soniox Web SDK
           const { RecordTranscribe } = await import('https://unpkg.com/@soniox/speech-to-text-web?module')
 
