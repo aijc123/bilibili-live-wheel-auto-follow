@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LAPLACE 弹幕助手 - 哔哩哔哩直播间独轮车、弹幕发送
 // @namespace    https://greasyfork.org/users/1524935
-// @version      2.3.1
+// @version      2.3.2
 // @description  这是 bilibili 直播间简易版独轮车，基于 quiet/thusiant cmd 版本 https://greasyfork.org/scripts/421507 继续维护而来
 // @author       laplace-live
 // @license      AGPL-3.0
@@ -582,6 +582,21 @@ let replacementMap = null
       width: 300px;
     `
 
+    // Add scoped styles for buttons and inputs to prevent page style overrides
+    const scopedStyles = document.createElement('style')
+    scopedStyles.textContent = `
+      #toggleBtn,
+      #toggleBtn ~ div * {
+        font-size: 12px !important;
+      }
+
+      #toggleBtn ~ div input {
+        border: 1px solid;
+        outline: none;
+      }
+    `
+    document.head.appendChild(scopedStyles)
+
     list.innerHTML = `<div>
       <!-- Tab Navigation -->
       <div style="display: flex; margin-block: -5px .75em; margin-inline: -10px; padding: 0 10px; gap: .25em; border-bottom: 1px solid var(--Ga2, #ddd);">
@@ -602,7 +617,7 @@ let replacementMap = null
         <textarea id="msgList" placeholder="在这输入弹幕，每行一句话，超过可发送字数的会自动进行分割" style="box-sizing: border-box; height: 100px; width: 100%; resize: vertical;"></textarea>
         <div style="margin: .5em 0;">
           <span id="msgCount"></span><span>间隔</span>
-          <input id="msgSendInterval" style="width: 30px;" autocomplete="off" type="number" min="0" value="${GM_getValue('msgSendInterval')}" />
+          <input id="msgSendInterval" style="width: 40px;" autocomplete="off" type="number" min="0" value="${GM_getValue('msgSendInterval')}" />
           <span>秒，</span>
           <span>超过</span>
           <input id="maxLength" style="width: 30px;" autocomplete="off" type="number" min="1" value="${GM_getValue('maxLength')}" />
