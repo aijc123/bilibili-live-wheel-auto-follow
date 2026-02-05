@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LAPLACE 弹幕助手 - 哔哩哔哩直播间独轮车、弹幕发送
 // @namespace    https://greasyfork.org/users/1524935
-// @version      2.3.2
+// @version      2.3.3
 // @description  这是 bilibili 直播间简易版独轮车，基于 quiet/thusiant cmd 版本 https://greasyfork.org/scripts/421507 继续维护而来
 // @author       laplace-live
 // @license      AGPL-3.0
@@ -566,6 +566,7 @@ let replacementMap = null
 
     /** @type {HTMLDivElement} */
     const list = document.createElement('div')
+    list.id = 'laplace-chatterbox-dialog'
     list.style.cssText = `
       position: fixed;
       right: 4px;
@@ -586,11 +587,12 @@ let replacementMap = null
     const scopedStyles = document.createElement('style')
     scopedStyles.textContent = `
       #toggleBtn,
-      #toggleBtn ~ div * {
+      #laplace-chatterbox-dialog,
+      #laplace-chatterbox-dialog * {
         font-size: 12px !important;
       }
 
-      #toggleBtn ~ div input {
+      #laplace-chatterbox-dialog input {
         border: 1px solid;
         outline: none;
       }
