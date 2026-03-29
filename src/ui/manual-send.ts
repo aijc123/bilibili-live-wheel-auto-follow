@@ -8,6 +8,7 @@ export function setupManualSend(): void {
   const msgLogs = document.getElementById('msgLogs') as HTMLTextAreaElement
   const maxLogLines = GM_getValue<number>('maxLogLines', 1000)
   const fasongInput = document.getElementById('fasongInput') as HTMLTextAreaElement
+  const fasongCounter = document.getElementById('fasongCounter') as HTMLDivElement
   const aiEvasionInput = document.getElementById('aiEvasion') as HTMLInputElement
 
   async function sendMessage(): Promise<void> {
@@ -20,6 +21,7 @@ export function setupManualSend(): void {
     const processedMessage = applyReplacements(originalMessage)
     const wasReplaced = originalMessage !== processedMessage
     fasongInput.value = ''
+    if (fasongCounter) fasongCounter.textContent = '0'
 
     try {
       const roomId = await ensureRoomId()
@@ -52,6 +54,10 @@ export function setupManualSend(): void {
 
   aiEvasionInput?.addEventListener('input', () => {
     GM_setValue('aiEvasion', aiEvasionInput.checked)
+  })
+
+  fasongInput?.addEventListener('input', () => {
+    if (fasongCounter) fasongCounter.textContent = String(fasongInput.value.length)
   })
 
   fasongInput?.addEventListener('keydown', e => {

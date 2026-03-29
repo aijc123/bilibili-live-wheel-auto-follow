@@ -55,8 +55,9 @@ function getDialogHTML(getVal: GetVal): string {
   </div>
 
   <div id="content-fasong" class="tab-content" style="display: none;">
-    <div style="margin: .5em 0;">
-      <textarea id="fasongInput" placeholder="输入弹幕内容… (Enter 发送)" style="box-sizing: border-box; height: 50px; width: 100%; resize: vertical;"></textarea>
+    <div style="margin: .5em 0; position: relative;">
+      <textarea id="fasongInput" placeholder="输入弹幕内容… (Enter 发送)" style="box-sizing: border-box; height: 50px; min-height: 40px; width: 100%; resize: vertical;"></textarea>
+      <div id="fasongCounter" style="position: absolute; right: 8px; bottom: 6px; color: #999; pointer-events: none;">0</div>
     </div>
     <div style="margin: .5em 0;">
       <span style="display: inline-flex; align-items: center; gap: .25em;">
