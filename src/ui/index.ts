@@ -2,6 +2,7 @@ import { GM_getValue, GM_setValue } from '$'
 import { loop } from '../loop.js'
 import { setupAutoSend } from './auto-send.js'
 import { setupManualSend } from './manual-send.js'
+import { setupMemes } from './memes.js'
 import { setupSettings } from './settings.js'
 import { setupTranscription } from './transcription.js'
 
@@ -51,6 +52,19 @@ function getDialogHTML(getVal: GetVal): string {
         <input id="randomChar" type="checkbox" ${getVal('randomChar') ? 'checked' : ''} />
         <label for="randomChar">随机字符</label>
       </span>
+    </div>
+    <div style="margin: .5em 0; padding-top: .5em; border-top: 1px solid var(--Ga2, #eee);">
+      <div style="display: flex; align-items: center; gap: .5em; margin-bottom: .5em;">
+        <span style="font-weight: bold;">烂梗</span>
+        <select id="memesSortSelect" style="font-size: 12px;">
+          <option value="lastCopiedAt">最近复制</option>
+          <option value="copyCount">最多复制</option>
+          <option value="createdAt">最新添加</option>
+        </select>
+        <button id="memesRefreshBtn" style="font-size: 12px;">刷新</button>
+        <span id="memesStatus" style="color: #666;"></span>
+      </div>
+      <div id="memesList" style="max-height: 200px; overflow-y: auto;"></div>
     </div>
   </div>
 
@@ -294,6 +308,7 @@ export function initUI(): void {
 
     setupAutoSend(toggleBtn, list)
     setupManualSend()
+    setupMemes()
     setupTranscription()
     setupSettings()
 

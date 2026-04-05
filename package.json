@@ -5,16 +5,17 @@
     "build": "vite build",
     "dev": "vite build --watch"
   },
+  "dependencies": {
+    "@soniox/speech-to-text-web": "^1.4.0"
+  },
   "devDependencies": {
     "@biomejs/biome": "^2.4.9",
+    "@laplace.live/internal": "^1.3.7",
     "@types/bun": "^1.3.11",
     "vite": "^7.3.1",
     "vite-plugin-monkey": "^7.1.9"
   },
   "peerDependencies": {
     "typescript": "^5.9.3"
-  },
-  "dependencies": {
-    "@soniox/speech-to-text-web": "^1.4.0"
   }
 }

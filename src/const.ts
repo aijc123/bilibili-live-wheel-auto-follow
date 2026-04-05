@@ -17,4 +17,7 @@ export const BASE_URL = {
   LAPLACE_CHAT_AUDIT: 'https://edge-workers.laplace.cn/laplace/chat-audit',
 
   REMOTE_KEYWORDS: 'https://workers.vrp.moe/gh-raw/laplace-live/public/master/artifacts/livesrtream-keywords.json',
+
+  LAPLACE_MEMES: 'https://workers.vrp.moe/laplace/memes',
+  LAPLACE_MEME_COPY: 'https://workers.vrp.moe/laplace/meme-copy',
 } as const
