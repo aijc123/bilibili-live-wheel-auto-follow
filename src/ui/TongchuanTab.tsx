@@ -134,7 +134,6 @@ export function TongchuanTab() {
         clientRef.current = client
 
         const hints = sonioxLanguageHints.value
-        const autoSend = sonioxAutoSend.value
         const translationEnabled = sonioxTranslationEnabled.value
         const translationTarget = sonioxTranslationTarget.value
 
@@ -175,21 +174,21 @@ export function TongchuanTab() {
               }
             }
             if (translationEnabled) {
-              if (newTransFinal && autoSend) addToBuffer(newTransFinal)
+              if (newTransFinal && sonioxAutoSend.value) addToBuffer(newTransFinal)
               accTranslated.current += newTransFinal
               let display = accTranslated.current
               if (display.length > 500) display = `…${display.slice(-500)}`
               finalText.value = display
               nonFinalText.value = transNonFinal
             } else {
-              if (newFinal && autoSend) addToBuffer(newFinal)
+              if (newFinal && sonioxAutoSend.value) addToBuffer(newFinal)
               accFinal.current += newFinal
               let display = accFinal.current
               if (display.length > 500) display = `…${display.slice(-500)}`
               finalText.value = display
               nonFinalText.value = nonFinal
             }
-            if (endpointDetected && autoSend) {
+            if (endpointDetected && sonioxAutoSend.value) {
               setTimeout(() => void flushBuffer(), translationEnabled ? 300 : 0)
             }
           },
