@@ -99,13 +99,9 @@ function MemeItem({
     try {
       await navigator.clipboard.writeText(meme.content)
     } catch {
-      const ta = document.createElement('textarea')
-      ta.value = meme.content
-      ta.style.cssText = 'position:fixed;left:-9999px;'
-      document.body.appendChild(ta)
-      ta.select()
-      document.execCommand('copy')
-      document.body.removeChild(ta)
+      const blob = new Blob([meme.content], { type: 'text/plain' })
+      const item = new ClipboardItem({ 'text/plain': blob })
+      await navigator.clipboard.write([item])
     }
     copyLabel.value = '已复制'
     setTimeout(() => {
