@@ -9,6 +9,7 @@ import {
   cachedRoomId,
   forceScrollDanmaku,
   maxLogLines,
+  optimizeLayout,
   remoteKeywords,
   remoteKeywordsLastSync,
   replacementRules,
@@ -402,7 +403,7 @@ export function SettingsTab() {
 
       <div style={{ margin: '.5em 0' }}>
         <div style={{ fontWeight: 'bold', marginBottom: '.5em' }}>其他设置</div>
-        <div style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '.5em' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
             <input
               id='forceScrollDanmaku'
@@ -413,6 +414,17 @@ export function SettingsTab() {
               }}
             />
             <label htmlFor='forceScrollDanmaku'>脚本载入时强制配置弹幕位置为滚动方向</label>
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+            <input
+              id='optimizeLayout'
+              type='checkbox'
+              checked={optimizeLayout.value}
+              onInput={e => {
+                optimizeLayout.value = (e.target as HTMLInputElement).checked
+              }}
+            />
+            <label htmlFor='optimizeLayout'>优化布局</label>
           </span>
         </div>
       </div>

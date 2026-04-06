@@ -1,6 +1,7 @@
 import { useEffect } from 'preact/hooks'
 
 import { loop } from '../loop.js'
+import { optimizeLayout } from '../store.js'
 import { Dialog } from './Dialog.js'
 import { ToggleButton } from './ToggleButton.js'
 
@@ -22,6 +23,16 @@ export function App() {
     void loop()
     return () => style.remove()
   }, [])
+
+  useEffect(() => {
+    const el = document.querySelector<HTMLElement>('.app-body')
+    if (!el) return
+    if (optimizeLayout.value) {
+      el.style.marginLeft = '1rem'
+    } else {
+      el.style.marginLeft = ''
+    }
+  }, [optimizeLayout.value])
 
   return (
     <>
