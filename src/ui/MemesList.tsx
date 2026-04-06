@@ -5,7 +5,7 @@ import { useEffect } from 'preact/hooks'
 import { ensureRoomId, getCsrfToken, sendDanmaku } from '../api.js'
 import { BASE_URL } from '../const.js'
 import { applyReplacements } from '../replacement.js'
-import { appendLog } from '../store.js'
+import { appendLog, cachedStreamerUid } from '../store.js'
 
 type MemeSortBy = NonNullable<LaplaceInternal.HTTPS.Workers.MemeListQuery['sortBy']>
 
@@ -262,7 +262,7 @@ export function MemesList() {
         </button>
         <span style={{ color: statusColor.value }}>{status.value}</span>
         <a
-          href='https://laplace.live/memes'
+          href={`https://laplace.live/memes${cachedStreamerUid.value ? `?contribute=${cachedStreamerUid.value}` : ''}`}
           target='_blank'
           rel='noopener'
           style={{ color: '#288bb8', textDecoration: 'none', fontSize: '12px' }}

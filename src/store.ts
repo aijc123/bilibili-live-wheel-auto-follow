@@ -40,6 +40,7 @@ export const remoteKeywordsLastSync = gmSignal<number | null>('remoteKeywordsLas
 // Runtime state (not GM-persisted)
 export const sendMsg = signal(false)
 export const cachedRoomId = signal<number | null>(null)
+export const cachedStreamerUid = signal<number | null>(null)
 export const availableDanmakuColors = signal<string[] | null>(null)
 export const replacementMap = signal<Map<string, string> | null>(null)
 
