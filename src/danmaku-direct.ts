@@ -1,7 +1,17 @@
+import { effect as signalEffect } from '@preact/signals'
+
 import { ensureRoomId, getCsrfToken, sendDanmaku } from './api'
 import { showConfirm } from './components/ui/alert-dialog'
 import { applyReplacements } from './replacement'
-import { activeTab, appendLog, danmakuDirectConfirm, danmakuDirectMode, dialogOpen, fasongText } from './store'
+import {
+  activeTab,
+  appendLog,
+  danmakuDirectAlwaysShow,
+  danmakuDirectConfirm,
+  danmakuDirectMode,
+  dialogOpen,
+  fasongText,
+} from './store'
 
 const MARKER = 'lc-dm-direct'
 const STYLE_ID = 'lc-dm-direct-style'
@@ -33,6 +43,9 @@ const STYLE = `
   transition: opacity .1s;
 }
 .${MARKER} button:hover {
+  opacity: 1;
+}
+html.lc-dm-direct-always .${MARKER} {
   opacity: 1;
 }
 `
@@ -139,6 +152,7 @@ let observer: MutationObserver | null = null
 let styleEl: HTMLStyleElement | null = null
 let delegateTarget: HTMLElement | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
+let alwaysShowDispose: (() => void) | null = null
 
 function processExistingNodes(container: HTMLElement): void {
   const nodes = Array.from(container.querySelectorAll<HTMLElement>('.chat-item.danmaku-item'))
@@ -182,6 +196,11 @@ function tryAttach(): boolean {
 
 export function startDanmakuDirect(): void {
   if (observer) return
+
+  alwaysShowDispose = signalEffect(() => {
+    document.documentElement.classList.toggle('lc-dm-direct-always', danmakuDirectAlwaysShow.value)
+  })
+
   if (tryAttach()) return
 
   // Bilibili's SPA may not have rendered .chat-items yet; poll until it appears
@@ -194,6 +213,11 @@ export function startDanmakuDirect(): void {
 }
 
 export function stopDanmakuDirect(): void {
+  if (alwaysShowDispose) {
+    alwaysShowDispose()
+    alwaysShowDispose = null
+    document.documentElement.classList.remove('lc-dm-direct-always')
+  }
   if (pollTimer) {
     clearInterval(pollTimer)
     pollTimer = null

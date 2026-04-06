@@ -7,6 +7,7 @@ import { buildReplacementMap } from '../replacement'
 import {
   appendLog,
   cachedRoomId,
+  danmakuDirectAlwaysShow,
   danmakuDirectConfirm,
   danmakuDirectMode,
   forceScrollDanmaku,
@@ -436,7 +437,21 @@ export function SettingsTab() {
               }}
             />
             <label htmlFor='danmakuDirectConfirm' style={{ color: danmakuDirectMode.value ? undefined : '#999' }}>
-              +1弹幕发送前需确认
+              +1弹幕发送前需确认（防误触）
+            </label>
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}>
+            <input
+              id='danmakuDirectAlwaysShow'
+              type='checkbox'
+              checked={danmakuDirectAlwaysShow.value}
+              disabled={!danmakuDirectMode.value}
+              onInput={e => {
+                danmakuDirectAlwaysShow.value = e.currentTarget.checked
+              }}
+            />
+            <label htmlFor='danmakuDirectAlwaysShow' style={{ color: danmakuDirectMode.value ? undefined : '#999' }}>
+              总是显示偷/+1按钮
             </label>
           </span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
