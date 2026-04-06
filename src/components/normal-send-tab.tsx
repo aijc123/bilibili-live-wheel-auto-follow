@@ -1,6 +1,6 @@
 import { ensureRoomId, getCsrfToken, sendDanmaku } from '../api'
 import { applyReplacements } from '../replacement'
-import { aiEvasion, appendLog, fasongText } from '../store'
+import { aiEvasion, appendLog, fasongText, isEmoticonUnique } from '../store'
 import { tryAiEvasion } from './ai-evasion'
 
 export function NormalSendTab() {
@@ -11,8 +11,10 @@ export function NormalSendTab() {
       return
     }
 
-    const processedMessage = applyReplacements(originalMessage)
-    const wasReplaced = originalMessage !== processedMessage
+    // 如果消息是表情，则直接发送，否则进行替换
+    const isEmote = isEmoticonUnique(originalMessage)
+    const processedMessage = isEmote ? originalMessage : applyReplacements(originalMessage)
+    const wasReplaced = !isEmote && originalMessage !== processedMessage
     fasongText.value = ''
 
     try {
