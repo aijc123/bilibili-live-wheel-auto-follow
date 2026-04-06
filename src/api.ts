@@ -100,6 +100,7 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
 
   if (emoticon) {
     form.append('dm_type', '1')
+    // This is expected to be an empty object. Just follows bilibili's API. 😅
     form.append('emoticon_options', '{}')
   }
 
