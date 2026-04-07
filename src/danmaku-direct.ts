@@ -3,6 +3,7 @@ import { effect as signalEffect } from '@preact/signals'
 import { ensureRoomId, getCsrfToken, sendDanmaku } from './api'
 import { showConfirm } from './components/ui/alert-dialog'
 import { applyReplacements } from './replacement'
+import { formatDanmakuError } from './utils'
 import {
   activeTab,
   appendLog,
@@ -124,7 +125,7 @@ async function handleRepeat(msg: string, anchor?: { x: number; y: number }): Pro
     if (result.success) {
       appendLog(`✅ +1: ${display}`)
     } else {
-      appendLog(`❌ +1: ${display}，原因：${result.error}`)
+      appendLog(`❌ +1: ${display}，原因：${formatDanmakuError(result.error)}`)
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

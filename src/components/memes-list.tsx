@@ -5,7 +5,8 @@ import { useEffect, useLayoutEffect, useRef } from 'preact/hooks'
 import { ensureRoomId, getCsrfToken, sendDanmaku } from '../api'
 import { BASE_URL } from '../const'
 import { applyReplacements } from '../replacement'
-import { appendLog, cachedStreamerUid, optimizeLayout } from '../store'
+import { appendLog, cachedStreamerUid, maxLength, msgSendInterval, optimizeLayout } from '../store'
+import { formatDanmakuError, processMessages } from '../utils'
 
 type MemeSortBy = NonNullable<LaplaceInternal.HTTPS.Workers.MemeListQuery['sortBy']>
 
@@ -76,17 +77,28 @@ function MemeItem({
         return
       }
       const processed = applyReplacements(meme.content)
-      const result = await sendDanmaku(processed, roomId, csrfToken)
-      if (result.success) {
-        const display = meme.content !== processed ? `${meme.content} → ${processed}` : processed
-        appendLog(`✅ 烂梗: ${display}`)
-      } else {
-        let errorMsg = result.error ?? '未知错误'
-        if (result.error === 'f' || result.error?.includes('f')) errorMsg = 'f - 包含全局屏蔽词'
-        else if (result.error === 'k' || result.error?.includes('k')) errorMsg = 'k - 包含房间屏蔽词'
-        const display = meme.content !== processed ? `${meme.content} → ${processed}` : processed
-        appendLog(`❌ 烂梗: ${display}，原因：${errorMsg}`)
+      const wasReplaced = meme.content !== processed
+      const segments = processMessages(processed, maxLength.value)
+      const total = segments.length
+
+      for (let i = 0; i < total; i++) {
+        const segment = segments[i]
+        const result = await sendDanmaku(segment, roomId, csrfToken)
+        const label = total > 1 ? `烂梗 [${i + 1}/${total}]` : '烂梗'
+
+        if (result.success) {
+          const display = wasReplaced && total === 1 ? `${meme.content} → ${segment}` : segment
+          appendLog(`✅ ${label}: ${display}`)
+        } else {
+          const display = wasReplaced && total === 1 ? `${meme.content} → ${segment}` : segment
+          appendLog(`❌ ${label}: ${display}，原因：${formatDanmakuError(result.error)}`)
+        }
+
+        if (i < total - 1) {
+          await new Promise(r => setTimeout(r, msgSendInterval.value * 1000))
+        }
       }
+
       const newCount = await reportMemeCopy(meme.id)
       if (newCount !== null) onUpdateCount(meme.id, newCount)
     } catch (err) {

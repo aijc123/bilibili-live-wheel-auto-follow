@@ -1,6 +1,7 @@
 import { ensureRoomId, getCsrfToken, sendDanmaku } from '../api'
 import { applyReplacements } from '../replacement'
 import { aiEvasion, appendLog, fasongText, isEmoticonUnique } from '../store'
+import { formatDanmakuError } from '../utils'
 import { tryAiEvasion } from './ai-evasion'
 
 export function NormalSendTab() {
@@ -32,11 +33,8 @@ export function NormalSendTab() {
         const displayMsg = wasReplaced ? `${originalMessage} → ${processedMessage}` : processedMessage
         appendLog(`✅ ${label}: ${displayMsg}`)
       } else {
-        let errorMsg = result.error ?? '未知错误'
-        if (result.error === 'f' || result.error?.includes('f')) errorMsg = 'f - 包含全局屏蔽词'
-        else if (result.error === 'k' || result.error?.includes('k')) errorMsg = 'k - 包含房间屏蔽词'
         const displayMsg = wasReplaced ? `${originalMessage} → ${processedMessage}` : processedMessage
-        appendLog(`❌ ${label}: ${displayMsg}，原因：${errorMsg}`)
+        appendLog(`❌ ${label}: ${displayMsg}，原因：${formatDanmakuError(result.error)}`)
         await tryAiEvasion(processedMessage, roomId, csrfToken, '')
       }
     } catch (err) {

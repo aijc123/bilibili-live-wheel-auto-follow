@@ -13,7 +13,7 @@ import {
   sonioxTranslationEnabled,
   sonioxTranslationTarget,
 } from '../store'
-import { stripTrailingPunctuation, trimText } from '../utils'
+import { formatDanmakuError, stripTrailingPunctuation, trimText } from '../utils'
 import { tryAiEvasion } from './ai-evasion'
 
 const SONIOX_SEND_INTERVAL_MS = 1100
@@ -72,7 +72,7 @@ export function SttTab() {
       if (result.success) {
         appendLog(`✅ 同传: ${segment}`)
       } else {
-        appendLog(`❌ 同传: ${segment}，原因：${result.error}`)
+        appendLog(`❌ 同传: ${segment}，原因：${formatDanmakuError(result.error)}`)
         await tryAiEvasion(segment, roomId, csrfToken, '同传')
       }
     } catch (err) {

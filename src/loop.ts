@@ -18,7 +18,7 @@ import {
   randomInterval,
   sendMsg,
 } from './store'
-import { processMessages } from './utils'
+import { formatDanmakuError, processMessages } from './utils'
 import { cachedWbiKeys, encodeWbi, waitForWbiKeys } from './wbi'
 
 const DEFAULT_COLORS = [
@@ -141,7 +141,9 @@ export async function loop(): Promise<void> {
         }
       }
 
-      for (const message of Msg) {
+      const total = Msg.length
+      for (let i = 0; i < total; i++) {
+        const message = Msg[i]
         if (sendMsg.value) {
           const isEmote = isEmoticonUnique(message)
           const originalMessage = message
@@ -170,10 +172,11 @@ export async function loop(): Promise<void> {
 
           const result = await sendDanmaku(processedMessage, roomId, csrfToken ?? '')
           const displayMsg = wasReplaced ? `${originalMessage} → ${processedMessage}` : processedMessage
-          const label = result.isEmoticon ? '自动表情' : '自动'
+          const baseLabel = result.isEmoticon ? '自动表情' : '自动'
+          const label = total > 1 ? `${baseLabel} [${i + 1}/${total}]` : baseLabel
           const logMessage = result.success
             ? `✅ ${label}: ${displayMsg}`
-            : `❌ ${label}: ${displayMsg}，原因：${result.error}。`
+            : `❌ ${label}: ${displayMsg}，原因：${formatDanmakuError(result.error)}。`
           appendLog(logMessage)
 
           const resolvedRandomInterval = enableRandomInterval ? Math.floor(Math.random() * 500) : 0

@@ -67,6 +67,16 @@ export function addRandomCharacter(text: string): string {
 }
 
 /**
+ * Maps Bilibili danmaku error codes to human-readable messages.
+ */
+export function formatDanmakuError(error: string | undefined): string {
+  if (!error) return '未知错误'
+  if (error === 'f' || error.includes('f')) return 'f - 包含全局屏蔽词'
+  if (error === 'k' || error.includes('k')) return 'k - 包含房间屏蔽词'
+  return error
+}
+
+/**
  * Splits lines, optionally adds random chars, trims to max length per message.
  */
 export function processMessages(text: string, maxLength: number, addRandomChar = false): string[] {
