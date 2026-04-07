@@ -1,6 +1,7 @@
 import type { BilibiliGetEmoticonsResponse } from './types'
 
 import { BASE_URL } from './const'
+import { buildReplacementMap } from './replacement'
 import { cachedEmoticonPackages, cachedRoomId, cachedStreamerUid, isEmoticonUnique } from './store'
 import { extractRoomNumber } from './utils'
 import { cachedWbiKeys, encodeWbi } from './wbi'
@@ -52,6 +53,8 @@ export async function ensureRoomId(): Promise<number> {
   if (roomId === null) {
     roomId = await getRoomId()
     cachedRoomId.value = roomId
+    // Room-specific replacement rules depend on the resolved room id.
+    buildReplacementMap()
   }
   return roomId
 }

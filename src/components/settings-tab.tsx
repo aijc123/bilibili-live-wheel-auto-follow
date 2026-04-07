@@ -367,6 +367,17 @@ export function SettingsTab() {
     return () => clearInterval(timer)
   }, [])
 
+  // cachedRoomId is resolved lazily by ensureRoomId(), so it may still be null
+  // when this component first mounts. Sync it to the room-rule editor once
+  // available, but only if the user hasn't already picked a room manually.
+  useEffect(() => {
+    if (editingRoomId.value) return
+    const rid = cachedRoomId.value
+    if (rid !== null) {
+      editingRoomId.value = String(rid)
+    }
+  }, [editingRoomId.value, cachedRoomId.value])
+
   const globalRules = localGlobalRules.value
   const knownRoomIds = Object.keys(localRoomRules.value)
   const currentRoomStr = cachedRoomId.value !== null ? String(cachedRoomId.value) : null
