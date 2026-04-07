@@ -292,8 +292,14 @@ export function MemesList() {
     }
   }, [memes.value])
 
+  // Optimistically re-sort after copy/send so the user sees the updated order
+  // immediately instead of waiting for the next 30s polling interval.
   const updateCount = (id: number, count: number) => {
-    memes.value = memes.value.map(m => (m.id === id ? { ...m, copyCount: count } : m))
+    capturePositions()
+    const now = new Date().toISOString()
+    const updated = memes.value.map(m => (m.id === id ? { ...m, copyCount: count, lastCopiedAt: now } : m))
+    sortMemes(updated, sortBy.peek())
+    memes.value = updated
   }
 
   useEffect(() => {
