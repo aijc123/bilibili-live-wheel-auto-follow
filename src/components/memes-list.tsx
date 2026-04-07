@@ -5,7 +5,7 @@ import { useEffect, useLayoutEffect, useRef } from 'preact/hooks'
 import { ensureRoomId, getCsrfToken, sendDanmaku } from '../api'
 import { BASE_URL } from '../const'
 import { applyReplacements } from '../replacement'
-import { appendLog, cachedStreamerUid, maxLength, msgSendInterval, optimizeLayout } from '../store'
+import { appendLog, cachedStreamerUid, maxLength, memesPanelOpen, msgSendInterval, optimizeLayout } from '../store'
 import { formatDanmakuError, processMessages } from '../utils'
 
 type MemeSortBy = NonNullable<LaplaceInternal.HTTPS.Workers.MemeListQuery['sortBy']>
@@ -310,65 +310,81 @@ export function MemesList() {
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '.5em', marginBottom: '.5em' }}>
-        <span style={{ fontWeight: 'bold' }}>烂梗</span>
-        <select
-          style={{ fontSize: '12px' }}
-          value={sortBy.value}
-          onChange={e => {
-            const v = e.currentTarget.value
-            if (isMemeSortBy(v)) sortBy.value = v
-          }}
-        >
-          <option value='lastCopiedAt'>最近复制</option>
-          <option value='copyCount'>最多复制</option>
-          <option value='createdAt'>最新添加</option>
-        </select>
-        <button type='button' style={{ fontSize: '12px' }} disabled={loading.value} onClick={() => void loadMemes()}>
-          {loading.value ? '加载中…' : '刷新'}
-        </button>
-        <span style={{ color: statusColor.value }}>{status.value}</span>
-        <a
-          href={`https://laplace.live/memes${cachedStreamerUid.value ? `?contribute=${cachedStreamerUid.value}` : ''}`}
-          target='_blank'
-          rel='noopener'
-          style={{ color: '#288bb8', textDecoration: 'none', fontSize: '12px' }}
-        >
-          贡献烂梗
-        </a>
-      </div>
-      {memes.value.length > 0 && (
-        <input
-          type='text'
-          placeholder='筛选烂梗…'
-          value={filterText.value}
-          onInput={e => {
-            filterText.value = e.currentTarget.value
-          }}
-          style={{ boxSizing: 'border-box', width: '100%', marginBottom: '.5em' }}
-        />
-      )}
-      <div
-        ref={containerRef}
-        style={{
-          overflowY: 'auto',
-          marginLeft: '-10px',
-          marginRight: '-10px',
-          paddingInline: '10px',
-          ...(optimizeLayout.value ? { flex: 1, minHeight: 0 } : { maxHeight: '240px' }),
+      <details
+        open={memesPanelOpen.value}
+        onToggle={e => {
+          memesPanelOpen.value = e.currentTarget.open
         }}
       >
-        {memes.value
-          .filter(m => {
-            const q = filterText.value.trim().toLowerCase()
-            if (!q) return true
-            if (m.content.toLowerCase().includes(q)) return true
-            return m.tags.some(t => t.name.toLowerCase().includes(q))
-          })
-          .map(meme => (
-            <MemeItem key={meme.id} meme={meme} onUpdateCount={updateCount} />
-          ))}
-      </div>
+        <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }}>烂梗</summary>
+      </details>
+      {memesPanelOpen.value && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5em', marginTop: '.5em', marginBottom: '.5em' }}>
+            <select
+              style={{ fontSize: '12px' }}
+              value={sortBy.value}
+              onChange={e => {
+                const v = e.currentTarget.value
+                if (isMemeSortBy(v)) sortBy.value = v
+              }}
+            >
+              <option value='lastCopiedAt'>最近复制</option>
+              <option value='copyCount'>最多复制</option>
+              <option value='createdAt'>最新添加</option>
+            </select>
+            <button
+              type='button'
+              style={{ fontSize: '12px' }}
+              disabled={loading.value}
+              onClick={() => void loadMemes()}
+            >
+              {loading.value ? '加载中…' : '刷新'}
+            </button>
+            <span style={{ color: statusColor.value }}>{status.value}</span>
+            <a
+              href={`https://laplace.live/memes${cachedStreamerUid.value ? `?contribute=${cachedStreamerUid.value}` : ''}`}
+              target='_blank'
+              rel='noopener'
+              style={{ color: '#288bb8', textDecoration: 'none', fontSize: '12px' }}
+            >
+              贡献烂梗
+            </a>
+          </div>
+          {memes.value.length > 0 && (
+            <input
+              type='text'
+              placeholder='筛选烂梗…'
+              value={filterText.value}
+              onInput={e => {
+                filterText.value = e.currentTarget.value
+              }}
+              style={{ boxSizing: 'border-box', width: '100%', marginBottom: '.5em' }}
+            />
+          )}
+          <div
+            ref={containerRef}
+            style={{
+              overflowY: 'auto',
+              marginLeft: '-10px',
+              marginRight: '-10px',
+              paddingInline: '10px',
+              ...(optimizeLayout.value ? { flex: 1, minHeight: 0 } : { maxHeight: '240px' }),
+            }}
+          >
+            {memes.value
+              .filter(m => {
+                const q = filterText.value.trim().toLowerCase()
+                if (!q) return true
+                if (m.content.toLowerCase().includes(q)) return true
+                return m.tags.some(t => t.name.toLowerCase().includes(q))
+              })
+              .map(meme => (
+                <MemeItem key={meme.id} meme={meme} onUpdateCount={updateCount} />
+              ))}
+          </div>
+        </>
+      )}
     </>
   )
 }
