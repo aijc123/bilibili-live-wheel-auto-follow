@@ -92,34 +92,36 @@ export function AutoSendControls() {
         style={{ boxSizing: 'border-box', height: '100px', width: '100%', resize: 'vertical' }}
       />
 
-      <div style={{ margin: '.5em 0' }}>
-        <span>{msgCount} 条，</span>
-        <span>间隔</span>
-        <input
-          type='number'
-          min='0'
-          autocomplete='off'
-          style={{ width: '40px' }}
-          value={msgSendInterval.value}
-          onInput={e => {
-            const v = parseInt(e.currentTarget.value, 10)
-            msgSendInterval.value = v >= 0 ? v : 0
-          }}
-        />
-        <span>秒，</span>
-        <span>超过</span>
-        <input
-          type='number'
-          min='1'
-          autocomplete='off'
-          style={{ width: '30px' }}
-          value={maxLength.value}
-          onInput={e => {
-            const v = parseInt(e.currentTarget.value, 10)
-            maxLength.value = v >= 1 ? v : 1
-          }}
-        />
-        <span>字自动分段，</span>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5em', margin: '.5em 0' }}>
+        <div>
+          <span>{msgCount} 条，</span>
+          <span>间隔</span>
+          <input
+            type='number'
+            min='0'
+            autocomplete='off'
+            style={{ width: '40px' }}
+            value={msgSendInterval.value}
+            onInput={e => {
+              const v = parseInt(e.currentTarget.value, 10)
+              msgSendInterval.value = v >= 0 ? v : 0
+            }}
+          />
+          <span>秒，</span>
+          <span>超过</span>
+          <input
+            type='number'
+            min='1'
+            autocomplete='off'
+            style={{ width: '30px' }}
+            value={maxLength.value}
+            onInput={e => {
+              const v = parseInt(e.currentTarget.value, 10)
+              maxLength.value = v >= 1 ? v : 1
+            }}
+          />
+          <span>字自动分段</span>
+        </div>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
           <input
             id='randomColor'
