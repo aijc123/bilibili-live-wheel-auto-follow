@@ -1,11 +1,13 @@
+import { unsafeWindow } from '$'
 import { unlockForbidLive } from './store'
 
 /** Patches fetch() responses for specific Bilibili live API endpoints. */
 ;(() => {
-  const originalFetch = window.fetch
+  const pageWindow = unsafeWindow
+  const originalFetch = pageWindow.fetch
   const patchedFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = input instanceof Request ? input.url : input.toString()
-    const resp = await originalFetch.call(window, input, init)
+    const resp = await originalFetch.call(pageWindow, input, init)
 
     if (unlockForbidLive.value && url.includes('/xlive/web-room/v1/index/getInfoByUser')) {
       console.log('[LAPLACE Chatterbox] Hijacking getInfoByUser fetch response:', url)
@@ -34,5 +36,5 @@ import { unlockForbidLive } from './store'
 
     return resp
   }
-  window.fetch = Object.assign(patchedFetch, originalFetch)
+  pageWindow.fetch = Object.assign(patchedFetch, originalFetch)
 })()
