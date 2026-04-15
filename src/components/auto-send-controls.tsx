@@ -66,9 +66,7 @@ export function AutoSendControls() {
         autoSendPanelOpen.value = e.currentTarget.open
       }}
     >
-      <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }}>
-        独轮车{sendMsg.value ? ' 🟢 已启动' : ''}
-      </summary>
+      <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }}>独轮车</summary>
       <div style={{ margin: '.5em 0', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.25em' }}>
         <button type='button' onClick={toggleSend}>
           {sendMsg.value ? '停车' : '开车'}

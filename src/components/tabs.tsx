@@ -1,4 +1,4 @@
-import { activeTab } from '../store'
+import { activeTab, sendMsg, sttRunning } from '../store'
 
 const TABS = [
   { id: 'fasong', label: '发送' },
@@ -38,6 +38,8 @@ export function Tabs() {
           }}
         >
           {tab.label}
+          {tab.id === 'fasong' && sendMsg.value ? ' 🟢' : ''}
+          {tab.id === 'tongchuan' && sttRunning.value ? ' 🟢' : ''}
         </button>
       ))}
     </div>

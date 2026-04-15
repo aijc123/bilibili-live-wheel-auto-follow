@@ -66,6 +66,7 @@ export const persistSendState = gmSignal<Record<string, boolean>>('persistSendSt
 
 // Runtime state (not GM-persisted)
 export const sendMsg = signal(false)
+export const sttRunning = signal(false)
 export const cachedRoomId = signal<number | null>(null)
 
 let sendStateRestored = false

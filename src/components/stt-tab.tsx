@@ -12,6 +12,7 @@ import {
   sonioxMaxLength,
   sonioxTranslationEnabled,
   sonioxTranslationTarget,
+  sttRunning,
 } from '../store'
 import { formatDanmakuError, stripTrailingPunctuation, trimText } from '../utils'
 import { tryAiEvasion } from './ai-evasion'
@@ -37,6 +38,7 @@ export function SttTab() {
 
   const resetState = () => {
     state.value = 'stopped'
+    sttRunning.value = false
     statusText.value = '未启动'
     statusColor.value = '#666'
     clientRef.current = null
@@ -143,6 +145,7 @@ export function SttTab() {
           enableEndpointDetection: true,
           onStarted: () => {
             state.value = 'running'
+            sttRunning.value = true
             if (translationEnabled) {
               const langNames: Record<string, string> = { en: 'English', zh: '中文', ja: '日本語' }
               statusText.value = `正在识别并翻译为${langNames[translationTarget] ?? translationTarget}…`
