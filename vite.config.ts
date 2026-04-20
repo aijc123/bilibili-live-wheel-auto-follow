@@ -25,6 +25,7 @@ export default defineConfig({
         'run-at': 'document-start',
       },
       build: {
+        metaFileName: true,
         externalGlobals: {
           '@soniox/speech-to-text-web': [
             'SonioxSpeechToTextWeb',
