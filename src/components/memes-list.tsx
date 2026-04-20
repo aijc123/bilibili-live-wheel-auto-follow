@@ -62,9 +62,11 @@ async function reportMemeCopy(memeId: number): Promise<number | null> {
 function MemeItem({
   meme,
   onUpdateCount,
+  onTagClick,
 }: {
   meme: LaplaceInternal.HTTPS.Workers.MemeWithUser
   onUpdateCount: (id: number, count: number) => void
+  onTagClick: (tagName: string) => void
 }) {
   const copyLabel = useSignal('复制')
 
@@ -139,9 +141,16 @@ function MemeItem({
             {meme.tags.map(tag => {
               const bgColor = (tag.color && TAG_COLORS[tag.color]) ?? '#888'
               return (
-                <span
+                <button
+                  type='button'
                   key={tag.id}
+                  onClick={() => onTagClick(tag.name)}
+                  title={`按「${tag.name}」筛选`}
                   style={{
+                    appearance: 'none',
+                    border: 'none',
+                    outline: 'none',
+                    cursor: 'pointer',
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '.15em',
@@ -151,11 +160,19 @@ function MemeItem({
                     lineHeight: 1.6,
                     color: '#fff',
                     background: bgColor,
+                    fontFamily: 'inherit',
+                    transition: 'filter .15s',
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.filter = 'brightness(1.1)'
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.filter = ''
                   }}
                 >
                   {tag.emoji ?? ''}
                   {tag.name}
-                </span>
+                </button>
               )
             })}
           </div>
@@ -302,6 +319,10 @@ export function MemesList() {
     memes.value = updated
   }
 
+  const handleTagClick = (tagName: string) => {
+    filterText.value = filterText.peek() === tagName ? '' : tagName
+  }
+
   useEffect(() => {
     void loadMemes()
     const timer = setInterval(() => void loadMemes({ silent: true }), MEME_RELOAD_INTERVAL)
@@ -380,7 +401,7 @@ export function MemesList() {
                 return m.tags.some(t => t.name.toLowerCase().includes(q))
               })
               .map(meme => (
-                <MemeItem key={meme.id} meme={meme} onUpdateCount={updateCount} />
+                <MemeItem key={meme.id} meme={meme} onUpdateCount={updateCount} onTagClick={handleTagClick} />
               ))}
           </div>
         </>
