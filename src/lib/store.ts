@@ -1,6 +1,6 @@
 import { effect, signal } from '@preact/signals'
 
-import type { BilibiliEmoticonPackage } from './types'
+import type { BilibiliEmoticonPackage } from '../types'
 
 import { GM_deleteValue, GM_getValue, GM_setValue } from '$'
 

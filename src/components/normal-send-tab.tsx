@@ -1,5 +1,6 @@
-import { ensureRoomId, getCsrfToken, sendDanmaku } from '../api'
-import { applyReplacements } from '../replacement'
+import { tryAiEvasion } from '../lib/ai-evasion'
+import { ensureRoomId, getCsrfToken, sendDanmaku } from '../lib/api'
+import { applyReplacements } from '../lib/replacement'
 import {
   aiEvasion,
   appendLog,
@@ -8,9 +9,8 @@ import {
   maxLength,
   msgSendInterval,
   normalSendPanelOpen,
-} from '../store'
-import { formatDanmakuError, processMessages } from '../utils'
-import { tryAiEvasion } from './ai-evasion'
+} from '../lib/store'
+import { formatDanmakuError, processMessages } from '../lib/utils'
 
 export function NormalSendTab() {
   const sendMessage = async () => {

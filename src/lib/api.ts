@@ -1,4 +1,4 @@
-import type { BilibiliGetEmoticonsResponse } from './types'
+import type { BilibiliGetEmoticonsResponse } from '../types'
 
 import { BASE_URL } from './const'
 import { buildReplacementMap } from './replacement'

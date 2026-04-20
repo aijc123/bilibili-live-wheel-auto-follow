@@ -1,9 +1,9 @@
 import { useSignal } from '@preact/signals'
 import { useEffect, useRef } from 'preact/hooks'
 
-import { ensureRoomId, getCsrfToken, sendDanmaku } from '../api'
-import { BASE_URL } from '../const'
-import { buildReplacementMap } from '../replacement'
+import { ensureRoomId, getCsrfToken, sendDanmaku } from '../lib/api'
+import { BASE_URL } from '../lib/const'
+import { buildReplacementMap } from '../lib/replacement'
 import {
   appendLog,
   cachedRoomId,
@@ -18,7 +18,7 @@ import {
   remoteKeywords,
   remoteKeywordsLastSync,
   unlockForbidLive,
-} from '../store'
+} from '../lib/store'
 import { EmoteIds } from './emote-ids'
 
 const SYNC_INTERVAL = 10 * 60 * 1000

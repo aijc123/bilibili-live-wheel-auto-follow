@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'preact/hooks'
 
-import { logLines, logPanelOpen, maxLogLines } from '../store'
+import { logLines, logPanelOpen, maxLogLines } from '../lib/store'
 
 export function LogPanel() {
   const ref = useRef<HTMLTextAreaElement>(null)

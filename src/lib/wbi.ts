@@ -1,4 +1,4 @@
-import type { BilibiliWbiKeys } from './types'
+import type { BilibiliWbiKeys } from '../types'
 
 import { md5 } from './md5'
 

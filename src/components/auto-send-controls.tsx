@@ -1,4 +1,4 @@
-import { cancelLoop } from '../loop'
+import { cancelLoop } from '../lib/loop'
 import {
   activeTemplateIndex,
   appendLog,
@@ -12,8 +12,8 @@ import {
   randomColor,
   randomInterval,
   sendMsg,
-} from '../store'
-import { getGraphemes, processMessages, trimText } from '../utils'
+} from '../lib/store'
+import { getGraphemes, processMessages, trimText } from '../lib/utils'
 
 function getPreview(template: string): string {
   const firstLine = (template.split('\n')[0] ?? '').trim()

@@ -1,6 +1,6 @@
 import { useSignal } from '@preact/signals'
 
-import { cachedEmoticonPackages } from '../store'
+import { cachedEmoticonPackages } from '../lib/store'
 
 export function EmoteIds() {
   const packages = cachedEmoticonPackages.value

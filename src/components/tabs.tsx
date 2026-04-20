@@ -1,4 +1,4 @@
-import { activeTab, sendMsg, sttRunning } from '../store'
+import { activeTab, sendMsg, sttRunning } from '../lib/store'
 
 const TABS = [
   { id: 'fasong', label: '发送' },

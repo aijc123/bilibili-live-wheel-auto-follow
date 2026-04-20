@@ -1,4 +1,4 @@
-import { activeTab, dialogOpen, optimizeLayout } from '../store'
+import { activeTab, dialogOpen, optimizeLayout } from '../lib/store'
 import { AboutTab } from './about-tab'
 import { AutoSendControls } from './auto-send-controls'
 import { LogPanel } from './log-panel'

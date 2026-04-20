@@ -1,7 +1,7 @@
 import { effect as signalEffect } from '@preact/signals'
 
+import { showConfirm } from '../components/ui/alert-dialog'
 import { ensureRoomId, getCsrfToken, sendDanmaku } from './api'
-import { showConfirm } from './components/ui/alert-dialog'
 import { applyReplacements } from './replacement'
 import {
   activeTab,

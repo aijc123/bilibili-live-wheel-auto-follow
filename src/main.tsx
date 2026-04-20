@@ -1,6 +1,6 @@
 import { render } from 'preact'
 
-import './fetch-hijack'
+import './lib/fetch-hijack'
 
 import { App } from './components/app'
 

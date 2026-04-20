@@ -1,8 +1,8 @@
 import { useEffect } from 'preact/hooks'
 
-import { startDanmakuDirect, stopDanmakuDirect } from '../danmaku-direct'
-import { loop } from '../loop'
-import { danmakuDirectMode, optimizeLayout } from '../store'
+import { startDanmakuDirect, stopDanmakuDirect } from '../lib/danmaku-direct'
+import { loop } from '../lib/loop'
+import { danmakuDirectMode, optimizeLayout } from '../lib/store'
 import { Configurator } from './configurator'
 import { ToggleButton } from './toggle-button'
 import { AlertDialog } from './ui/alert-dialog'

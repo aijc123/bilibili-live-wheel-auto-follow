@@ -2,11 +2,11 @@ import type { LaplaceInternal } from '@laplace.live/internal'
 import { useSignal } from '@preact/signals'
 import { useEffect, useLayoutEffect, useRef } from 'preact/hooks'
 
-import { ensureRoomId, getCsrfToken, sendDanmaku } from '../api'
-import { BASE_URL } from '../const'
-import { applyReplacements } from '../replacement'
-import { appendLog, cachedStreamerUid, maxLength, memesPanelOpen, msgSendInterval, optimizeLayout } from '../store'
-import { formatDanmakuError, processMessages } from '../utils'
+import { ensureRoomId, getCsrfToken, sendDanmaku } from '../lib/api'
+import { BASE_URL } from '../lib/const'
+import { applyReplacements } from '../lib/replacement'
+import { appendLog, cachedStreamerUid, maxLength, memesPanelOpen, msgSendInterval, optimizeLayout } from '../lib/store'
+import { formatDanmakuError, processMessages } from '../lib/utils'
 
 type MemeSortBy = NonNullable<LaplaceInternal.HTTPS.Workers.MemeListQuery['sortBy']>
 

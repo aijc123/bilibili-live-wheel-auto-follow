@@ -1,4 +1,4 @@
-import type { DanmakuConfigResponse } from './types'
+import type { DanmakuConfigResponse } from '../types'
 
 import { ensureRoomId, fetchEmoticons, getCsrfToken, getSpmPrefix, sendDanmaku } from './api'
 import { BASE_URL } from './const'
@@ -139,7 +139,6 @@ export async function loop(): Promise<void> {
       await new Promise(r => setTimeout(r, 5000))
       return
     }
-
   }
 
   const csrfToken = getCsrfToken()
