@@ -14,9 +14,10 @@ import {
   sonioxMaxLength,
   sonioxTranslationEnabled,
   sonioxTranslationTarget,
+  sonioxWrapBrackets,
   sttRunning,
 } from '../lib/store'
-import { stripTrailingPunctuation, trimText } from '../lib/utils'
+import { splitTextSmart, stripTrailingPunctuation } from '../lib/utils'
 
 const SONIOX_FLUSH_DELAY_MS = 5000
 
@@ -82,13 +83,18 @@ export function SttTab() {
         flushTimeout.current = null
       }
       if (!sendBuffer.current.trim()) return
+      const wrap = sonioxWrapBrackets.value
       const maxLen = sonioxMaxLength.value || 40
+      // Reserve 2 graphemes for the 【】 wrapper so the wrapped segment still
+      // fits within the user's configured max length.
+      const splitLen = wrap ? Math.max(1, maxLen - 2) : maxLen
       const processedText = applyReplacements(sendBuffer.current.trim())
       sendBuffer.current = ''
-      const segments = trimText(processedText, maxLen)
+      const segments = splitTextSmart(processedText, splitLen)
       for (const segment of segments) {
         const clean = stripTrailingPunctuation(segment)
-        if (clean) await sendSegment(clean)
+        if (!clean) continue
+        await sendSegment(wrap ? `【${clean}】` : clean)
       }
     } finally {
       isFlushing.current = false
@@ -313,7 +319,7 @@ export function SttTab() {
           />
           <span>字自动分段</span>
         </div>
-        <div style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '.75em', alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
             <input
               id='sonioxAutoSend'
@@ -324,6 +330,17 @@ export function SttTab() {
               }}
             />
             <label htmlFor='sonioxAutoSend'>识别完成后自动发送弹幕</label>
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+            <input
+              id='sonioxWrapBrackets'
+              type='checkbox'
+              checked={sonioxWrapBrackets.value}
+              onInput={e => {
+                sonioxWrapBrackets.value = e.currentTarget.checked
+              }}
+            />
+            <label htmlFor='sonioxWrapBrackets'>使用【】包裹同传内容</label>
           </span>
         </div>
       </div>

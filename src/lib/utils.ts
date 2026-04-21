@@ -45,6 +45,83 @@ export function stripTrailingPunctuation(text: string): string {
   return text.replace(/[.,!?;:。，、！？；：…]+$/, '')
 }
 
+const SENTENCE_PUNCT = new Set(['.', '?', '!', '。', '？', '！', '…'])
+const CLAUSE_PUNCT = new Set([',', ';', ':', '、', '，', '；', '：'])
+
+/**
+ * Length-bounded grapheme split that prefers natural break points over a
+ * blind cut at `maxLen`.
+ *
+ * Strategy per chunk:
+ *  1. If remaining text fits, emit it as the final chunk.
+ *  2. Otherwise look for a sentence-ending punct (`。？！…` etc.) within the
+ *     last `lookback` graphemes of the maxLen window; cut just after it.
+ *  3. If none, fall back to clause punct (`，、；：` etc.) in the same window.
+ *  4. If still none, hard-cut at maxLen.
+ *
+ * Tail rebalance: if the final chunk would be smaller than `minTail`
+ * graphemes, transfer just enough graphemes from the end of the previous
+ * chunk so the tail reaches `minTail`. This avoids ugly orphan tails (e.g.
+ * a single character on its own line) while preserving the `maxLen`
+ * contract — no chunk grows beyond maxLen.
+ */
+export function splitTextSmart(
+  text: string,
+  maxLen: number,
+  opts: { lookback?: number; minTail?: number } = {}
+): string[] {
+  if (!text || maxLen <= 0) return [text]
+  const graphemes = getGraphemes(text)
+  if (graphemes.length <= maxLen) return [text]
+
+  const lookback = opts.lookback ?? Math.max(4, Math.floor(maxLen / 3))
+  const minTail = opts.minTail ?? Math.max(3, Math.floor(maxLen / 8))
+
+  const parts: string[] = []
+  let i = 0
+  while (i < graphemes.length) {
+    const remaining = graphemes.length - i
+    if (remaining <= maxLen) {
+      parts.push(graphemes.slice(i).join(''))
+      break
+    }
+    const windowEnd = i + maxLen
+    const minBreak = Math.max(i + 1, windowEnd - lookback)
+    let cut = -1
+    for (let j = windowEnd - 1; j >= minBreak; j--) {
+      if (SENTENCE_PUNCT.has(graphemes[j])) {
+        cut = j + 1
+        break
+      }
+    }
+    if (cut === -1) {
+      for (let j = windowEnd - 1; j >= minBreak; j--) {
+        if (CLAUSE_PUNCT.has(graphemes[j])) {
+          cut = j + 1
+          break
+        }
+      }
+    }
+    if (cut === -1) cut = windowEnd
+    parts.push(graphemes.slice(i, cut).join(''))
+    i = cut
+  }
+
+  if (parts.length >= 2) {
+    const lastG = getGraphemes(parts[parts.length - 1])
+    if (lastG.length < minTail) {
+      const prevG = getGraphemes(parts[parts.length - 2])
+      const transfer = Math.min(minTail - lastG.length, prevG.length - 1)
+      if (transfer > 0) {
+        parts[parts.length - 2] = prevG.slice(0, prevG.length - transfer).join('')
+        parts[parts.length - 1] = prevG.slice(prevG.length - transfer).join('') + parts[parts.length - 1]
+      }
+    }
+  }
+
+  return parts
+}
+
 /**
  * Extracts the room number from a Bilibili live room URL.
  */
