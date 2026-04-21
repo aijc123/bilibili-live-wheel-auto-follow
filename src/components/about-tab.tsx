@@ -1,4 +1,4 @@
-const version = __LAPLACE_VERSION__
+import { VERSION } from '../lib/const'
 
 const SECTION_STYLE = {
   margin: '.5em 0',
@@ -67,7 +67,7 @@ export function AboutTab() {
       <div style={SECTION_STYLE}>
         <div style={HEADING_STYLE}>LAPLACE Chatterbox 弹幕助手</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '.25em', color: '#666' }}>
-          <span>版本: {version}</span>
+          <span>版本: {VERSION}</span>
           <span>
             作者:{' '}
             <a href='https://laplace.live' target='_blank' rel='noopener' style={LINK_STYLE}>

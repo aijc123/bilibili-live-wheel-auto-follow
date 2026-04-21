@@ -1,3 +1,13 @@
+import { GM_info } from '$'
+
+/**
+ * Userscript version, sourced from the `// @version` header that
+ * vite-plugin-monkey generates from `helper/package.json`. Importing
+ * `GM_info` from `$` lets vite-plugin-monkey track the dependency and add
+ * the matching `@grant`.
+ */
+export const VERSION = GM_info.script.version
+
 /**
  * API endpoint URLs used by the script.
  */
