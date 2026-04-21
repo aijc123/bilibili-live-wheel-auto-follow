@@ -29,7 +29,12 @@ interface Counter {
 }
 
 const counters = new Map<string, Counter>()
-const cooldowns = new Map<string, number>()
+// Global hard cooldown: while `Date.now() < cooldownUntil`, EVERY incoming
+// danmaku is discarded (not counted, not recorded). Engaged after a successful
+// trigger so post-trigger noise (echoes of our own send, copycat trends, the
+// pile-on after a popular line lands) cannot stack into another back-to-back
+// auto-send.
+let cooldownUntil = 0
 
 let unsubscribe: (() => void) | null = null
 let cleanupTimer: ReturnType<typeof setInterval> | null = null
@@ -41,24 +46,25 @@ function pruneExpired(now: number): void {
   for (const [k, c] of counters) {
     if (now - c.lastSeenAt > windowMs) counters.delete(k)
   }
-  const cooldownMs = autoBlendCooldownSec.value * 1000
-  for (const [k, t] of cooldowns) {
-    if (now - t > cooldownMs) cooldowns.delete(k)
-  }
 }
 
 function recordDanmaku(rawText: string, uid: string | null, isReply: boolean): void {
   if (!autoBlendEnabled.value) return
+
+  // Global hard cooldown: short-circuit BEFORE any text/uid work so the freeze
+  // is truly global — no counters touched, no echoes leaking through, no work
+  // done on incoming events at all.
+  const now = Date.now()
+  if (now < cooldownUntil) return
+
   const text = rawText.trim()
   if (!text) return
   if (isReply && !autoBlendIncludeReply.value) return
 
-  // Always exclude self by uid; if uid extraction failed, fall back to cooldown.
+  // Always exclude self by uid; the global cooldown after our own send is the
+  // backup that catches echoes when uid extraction fails.
   if (uid && myUid && uid === myUid) return
 
-  if (cooldowns.has(text)) return
-
-  const now = Date.now()
   pruneExpired(now)
 
   let c = counters.get(text)
@@ -82,12 +88,15 @@ function recordDanmaku(rawText: string, uid: string | null, isReply: boolean): v
 
 async function triggerSend(originalText: string, uniqueUsers: number, totalCount: number): Promise<void> {
   // Claim the slot atomically. If another send is in-flight we bail WITHOUT
-  // mutating cooldowns/counters so the trend keeps accumulating and naturally
+  // engaging the cooldown so the trend keeps accumulating and naturally
   // re-evaluates threshold on the next matching danmaku once we're free.
   if (isSending) return
   isSending = true
-  cooldowns.set(originalText, Date.now())
-  counters.delete(originalText)
+  // Engage the global hard cooldown up front (before the await) and wipe all
+  // pending counters so nothing accumulates during the freeze and nothing
+  // fires the instant the freeze ends with stale, half-built trends.
+  cooldownUntil = Date.now() + autoBlendCooldownSec.value * 1000
+  counters.clear()
   try {
     const csrfToken = getCsrfToken()
     if (!csrfToken) {
@@ -100,10 +109,6 @@ async function triggerSend(originalText: string, uniqueUsers: number, totalCount
     const useReplacements = autoBlendUseReplacements.value && !isEmote
     const replaced = useReplacements ? applyReplacements(originalText) : originalText
     const wasReplaced = useReplacements && originalText !== replaced
-
-    // Cooldown the post-replacement text too, so our own outbound message
-    // doesn't immediately re-trigger if uid filtering misses.
-    if (wasReplaced) cooldowns.set(replaced, Date.now())
 
     const repeatCount = Math.max(1, autoBlendSendCount.value)
     const senderInfo = uniqueUsers > 0 ? `${uniqueUsers} 人 / ${totalCount} 条` : `${totalCount} 条`
@@ -161,5 +166,5 @@ export function stopAutoBlend(): void {
     unsubscribe = null
   }
   counters.clear()
-  cooldowns.clear()
+  cooldownUntil = 0
 }

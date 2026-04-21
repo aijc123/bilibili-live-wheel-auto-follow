@@ -30,7 +30,8 @@ export const memesPanelOpen = gmSignal('memesPanelOpen', true)
 export const dialogOpen = gmSignal('dialogOpen', false)
 
 // Auto-blend (自动融入): when x distinct users send the same danmaku z+ times
-// within y seconds, auto-send it a times, then cool down for b seconds.
+// within y seconds, auto-send it a times, then freeze the entire detector
+// for b seconds (every incoming danmaku is discarded during the freeze).
 export const autoBlendUniqueUsers = gmSignal('autoBlendUniqueUsers', 3) // x
 export const autoBlendWindowSec = gmSignal('autoBlendWindowSec', 15) // y
 export const autoBlendMinOccurrences = gmSignal('autoBlendMinOccurrences', 3) // z

@@ -127,7 +127,7 @@ export function AutoBlendControls() {
           <span>次</span>
         </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
-          <span>相同内容冷却</span>
+          <span>自动融入冷却</span>
           <NumberInput
             value={autoBlendCooldownSec.value}
             min={4}
