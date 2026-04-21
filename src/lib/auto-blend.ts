@@ -1,7 +1,7 @@
 import { ensureRoomId, getCsrfToken, getDedeUid, setRandomDanmakuColor } from './api'
 import { subscribeDanmaku } from './danmaku-stream'
 import { appendLog } from './log'
-import { tryNominateMeme } from './meme-contributor'
+import { clearMemeSession, recordMemeCandidate } from './meme-contributor'
 import { applyReplacements } from './replacement'
 import { enqueueDanmaku, SendPriority } from './send-queue'
 import {
@@ -31,10 +31,6 @@ interface TrendEntry {
 
 // message → rolling-window trend data
 const trendMap = new Map<string, TrendEntry>()
-
-// Session-level tracker: survives cooldowns, reset on stopAutoBlend()
-interface SessionEntry { triggerCount: number; firstSeenAt: number; lastSeenAt: number }
-const sessionMap = new Map<string, SessionEntry>()
 
 // Global hard cooldown: while Date.now() < cooldownUntil, all incoming danmaku are
 // discarded (not counted). Engaged after every successful send to prevent echo stacking.
@@ -152,7 +148,7 @@ async function triggerSend(originalText: string, reason: string): Promise<void> 
     appendLog(`🚲 自动融入触发 (${reasonLabel}): ${originalText}`)
 
     const repeatCount = Math.max(1, autoBlendSendCount.value)
-    let firstSuccess = false
+    let memeRecorded = false
 
     for (let i = 0; i < repeatCount; i++) {
       let toSend = replaced
@@ -169,15 +165,9 @@ async function triggerSend(originalText: string, reason: string): Promise<void> 
       const display = wasReplaced || toSend !== originalText ? `${originalText} → ${toSend}` : toSend
       appendLog(result, label, display)
 
-      // Update session tracker only on first successful send to avoid inflating count.
-      if (result.success && !result.cancelled && !isEmote && !firstSuccess) {
-        firstSuccess = true
-        const now = Date.now()
-        const sess = sessionMap.get(originalText) ?? { triggerCount: 0, firstSeenAt: now, lastSeenAt: now }
-        sess.triggerCount++
-        sess.lastSeenAt = now
-        sessionMap.set(originalText, sess)
-        tryNominateMeme(originalText, sess.triggerCount, sess.lastSeenAt - sess.firstSeenAt)
+      if (result.success && !result.cancelled && !isEmote && !memeRecorded) {
+        memeRecorded = true
+        recordMemeCandidate(originalText)
       }
 
       if (i < repeatCount - 1) {
@@ -225,6 +215,6 @@ export function stopAutoBlend(): void {
     unsubscribe = null
   }
   trendMap.clear()
-  sessionMap.clear()
+  clearMemeSession()
   cooldownUntil = 0
 }
