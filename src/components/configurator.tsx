@@ -1,6 +1,7 @@
 import { activeTab, dialogOpen, optimizeLayout } from '../lib/store'
 import { AboutTab } from './about-tab'
 import { AutoBlendControls } from './auto-blend-controls'
+import { AutoParrotControls } from './auto-parrot-controls'
 import { AutoSendControls } from './auto-send-controls'
 import { LogPanel } from './log-panel'
 import { MemesList } from './memes-list'
@@ -49,6 +50,10 @@ export function Configurator() {
 
         <div style={{ margin: '.25rem 0' }}>
           <AutoBlendControls />
+        </div>
+
+        <div style={{ margin: '.25rem 0' }}>
+          <AutoParrotControls />
         </div>
 
         <div

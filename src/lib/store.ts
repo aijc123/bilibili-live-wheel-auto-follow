@@ -42,6 +42,17 @@ export const autoBlendUseReplacements = gmSignal('autoBlendUseReplacements', tru
 // Per-room opt-in to remember 自动融入 on/off state across reloads.
 export const persistAutoBlendState = gmSignal<Record<string, boolean>>('persistAutoBlendState', {})
 
+// Auto-parrot (自动鹦鹉): immediate send when any message hits N repeats within W seconds,
+// then freeze the detector for C seconds. A routine timer also picks from active candidates
+// by weighted random choice for sustained multi-topic trends.
+export const autoParrotWindowSec = gmSignal('autoParrotWindowSec', 8) // rolling window W
+export const autoParrotThreshold = gmSignal('autoParrotThreshold', 2) // burst threshold N
+export const autoParrotCooldownSec = gmSignal('autoParrotCooldownSec', 12) // post-send freeze C
+export const autoParrotRoutineIntervalSec = gmSignal('autoParrotRoutineIntervalSec', 30) // routine timer period
+export const autoParrotIncludeReply = gmSignal('autoParrotIncludeReply', false)
+export const autoParrotUseReplacements = gmSignal('autoParrotUseReplacements', true)
+export const autoParrotPanelOpen = gmSignal('autoParrotPanelOpen', true)
+
 // Soniox settings
 export const sonioxApiKey = gmSignal('sonioxApiKey', '')
 export const sonioxLanguageHints = gmSignal<string[]>('sonioxLanguageHints', ['zh'])
@@ -79,6 +90,7 @@ export const sendMsg = signal(false)
 export const sttRunning = signal(false)
 export const cachedRoomId = signal<number | null>(null)
 export const autoBlendEnabled = signal(false)
+export const autoParrotEnabled = signal(false)
 
 let sendStateRestored = false
 let autoBlendStateRestored = false

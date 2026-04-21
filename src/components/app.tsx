@@ -1,9 +1,10 @@
 import { useEffect } from 'preact/hooks'
 
 import { startAutoBlend, stopAutoBlend } from '../lib/auto-blend'
+import { startAutoParrot, stopAutoParrot } from '../lib/auto-parrot'
 import { startDanmakuDirect, stopDanmakuDirect } from '../lib/danmaku-direct'
 import { loop } from '../lib/loop'
-import { autoBlendEnabled, danmakuDirectMode, optimizeLayout } from '../lib/store'
+import { autoBlendEnabled, autoParrotEnabled, danmakuDirectMode, optimizeLayout } from '../lib/store'
 import { Configurator } from './configurator'
 import { ToggleButton } from './toggle-button'
 import { AlertDialog } from './ui/alert-dialog'
@@ -44,6 +45,15 @@ export function App() {
     }
     return () => stopAutoBlend()
   }, [autoBlendEnabled.value])
+
+  useEffect(() => {
+    if (autoParrotEnabled.value) {
+      startAutoParrot()
+    } else {
+      stopAutoParrot()
+    }
+    return () => stopAutoParrot()
+  }, [autoParrotEnabled.value])
 
   useEffect(() => {
     const el = document.querySelector<HTMLElement>('.app-body')
