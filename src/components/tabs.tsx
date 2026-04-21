@@ -1,4 +1,4 @@
-import { activeTab, sendMsg, sttRunning } from '../lib/store'
+import { activeTab, autoBlendEnabled, sendMsg, sttRunning } from '../lib/store'
 
 const TABS = [
   { id: 'fasong', label: '发送' },
@@ -39,7 +39,8 @@ export function Tabs() {
         >
           {tab.label}
           {tab.id === 'fasong' && sendMsg.value ? ' 🟢' : ''}
-          {tab.id === 'tongchuan' && sttRunning.value ? ' 🟢' : ''}
+          {tab.id === 'fasong' && autoBlendEnabled.value ? ' 🟣' : ''}
+          {tab.id === 'tongchuan' && sttRunning.value ? ' 🔵' : ''}
         </button>
       ))}
     </div>

@@ -56,7 +56,7 @@ export function AutoBlendControls() {
       }}
     >
       <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }}>
-        自动融入{autoBlendEnabled.value ? ' 🟢' : ''}
+        自动融入{autoBlendEnabled.value ? ' 🟣' : ''}
       </summary>
 
       <div style={{ margin: '.5em 0', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.25em' }}>
