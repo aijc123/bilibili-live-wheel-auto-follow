@@ -1,16 +1,9 @@
 import { tryAiEvasion } from '../lib/ai-evasion'
 import { ensureRoomId, getCsrfToken, sendDanmaku } from '../lib/api'
+import { appendLog } from '../lib/log'
 import { applyReplacements } from '../lib/replacement'
-import {
-  aiEvasion,
-  appendLog,
-  fasongText,
-  isEmoticonUnique,
-  maxLength,
-  msgSendInterval,
-  normalSendPanelOpen,
-} from '../lib/store'
-import { formatDanmakuError, processMessages } from '../lib/utils'
+import { aiEvasion, fasongText, isEmoticonUnique, maxLength, msgSendInterval, normalSendPanelOpen } from '../lib/store'
+import { processMessages } from '../lib/utils'
 
 export function NormalSendTab() {
   const sendMessage = async () => {
@@ -41,13 +34,10 @@ export function NormalSendTab() {
         const result = await sendDanmaku(segment, roomId, csrfToken)
         const baseLabel = result.isEmoticon ? '手动表情' : '手动'
         const label = total > 1 ? `${baseLabel} [${i + 1}/${total}]` : baseLabel
+        const displayMsg = wasReplaced && total === 1 ? `${originalMessage} → ${segment}` : segment
 
-        if (result.success) {
-          const displayMsg = wasReplaced && total === 1 ? `${originalMessage} → ${segment}` : segment
-          appendLog(`✅ ${label}: ${displayMsg}`)
-        } else {
-          const displayMsg = wasReplaced && total === 1 ? `${originalMessage} → ${segment}` : segment
-          appendLog(`❌ ${label}: ${displayMsg}，原因：${formatDanmakuError(result.error)}`)
+        appendLog(result, label, displayMsg)
+        if (!result.success) {
           await tryAiEvasion(segment, roomId, csrfToken, '')
         }
 

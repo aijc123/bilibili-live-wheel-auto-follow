@@ -3,17 +3,12 @@ import { effect, signal } from '@preact/signals'
 import type { BilibiliEmoticonPackage } from '../types'
 
 import { GM_deleteValue, GM_getValue, GM_setValue } from '$'
-
-function gmSignal<T>(key: string, defaultValue: T) {
-  const s = signal<T>(GM_getValue(key, defaultValue))
-  effect(() => GM_setValue(key, s.value))
-  return s
-}
+import { gmSignal } from './gm-signal'
+import { appendLog } from './log'
 
 // GM-persisted settings
 export const msgSendInterval = gmSignal('msgSendInterval', 1)
 export const maxLength = gmSignal('maxLength', 38)
-export const maxLogLines = gmSignal('maxLogLines', 1000)
 export const randomColor = gmSignal('randomColor', false)
 export const randomInterval = gmSignal('randomInterval', false)
 export const randomChar = gmSignal('randomChar', false)
@@ -29,9 +24,22 @@ export const msgTemplates = gmSignal<string[]>('MsgTemplates', [])
 export const activeTemplateIndex = gmSignal('activeTemplateIndex', 0)
 export const logPanelOpen = gmSignal('logPanelOpen', false)
 export const autoSendPanelOpen = gmSignal('autoSendPanelOpen', true)
+export const autoBlendPanelOpen = gmSignal('autoBlendPanelOpen', true)
 export const normalSendPanelOpen = gmSignal('normalSendPanelOpen', true)
 export const memesPanelOpen = gmSignal('memesPanelOpen', true)
 export const dialogOpen = gmSignal('dialogOpen', false)
+
+// Auto-blend (自动融入): when x distinct users send the same danmaku z+ times
+// within y seconds, auto-send it a times, then cool down for b seconds.
+export const autoBlendUniqueUsers = gmSignal('autoBlendUniqueUsers', 3) // x
+export const autoBlendWindowSec = gmSignal('autoBlendWindowSec', 15) // y
+export const autoBlendMinOccurrences = gmSignal('autoBlendMinOccurrences', 3) // z
+export const autoBlendSendCount = gmSignal('autoBlendSendCount', 1) // a
+export const autoBlendCooldownSec = gmSignal('autoBlendCooldownSec', 10) // b
+export const autoBlendIncludeReply = gmSignal('autoBlendIncludeReply', false)
+export const autoBlendUseReplacements = gmSignal('autoBlendUseReplacements', true)
+// Per-room opt-in to remember 自动融入 on/off state across reloads.
+export const persistAutoBlendState = gmSignal<Record<string, boolean>>('persistAutoBlendState', {})
 
 // Soniox settings
 export const sonioxApiKey = gmSignal('sonioxApiKey', '')
@@ -68,8 +76,10 @@ export const persistSendState = gmSignal<Record<string, boolean>>('persistSendSt
 export const sendMsg = signal(false)
 export const sttRunning = signal(false)
 export const cachedRoomId = signal<number | null>(null)
+export const autoBlendEnabled = signal(false)
 
 let sendStateRestored = false
+let autoBlendStateRestored = false
 
 effect(() => {
   const persist = persistSendState.value
@@ -98,6 +108,33 @@ effect(() => {
   }
 })
 
+effect(() => {
+  const persist = persistAutoBlendState.value
+  const roomId = cachedRoomId.value
+  const enabled = autoBlendEnabled.value
+  if (roomId === null) return
+  const key = String(roomId)
+  if (persist[key]) {
+    if (!autoBlendStateRestored) {
+      autoBlendStateRestored = true
+      const stored = GM_getValue<Record<string, boolean>>('persistedAutoBlendEnabled', {})
+      if (stored[key]) {
+        autoBlendEnabled.value = true
+        appendLog('🔄 已恢复自动融入运行状态')
+      }
+      return
+    }
+    const stored = GM_getValue<Record<string, boolean>>('persistedAutoBlendEnabled', {})
+    GM_setValue('persistedAutoBlendEnabled', { ...stored, [key]: enabled })
+  } else {
+    const stored = GM_getValue<Record<string, boolean>>('persistedAutoBlendEnabled', {})
+    if (key in stored) {
+      const { [key]: _, ...rest } = stored
+      GM_setValue('persistedAutoBlendEnabled', rest)
+    }
+  }
+})
+
 export const cachedStreamerUid = signal<number | null>(null)
 export const availableDanmakuColors = signal<string[] | null>(null)
 export const replacementMap = signal<Map<string, string> | null>(null)
@@ -110,13 +147,3 @@ export function isEmoticonUnique(msg: string): boolean {
 
 // Fasong tab shared text
 export const fasongText = signal('')
-
-// Shared log
-export const logLines = signal<string[]>([])
-
-export function appendLog(message: string): void {
-  const max = maxLogLines.value
-  const lines = logLines.value
-  const next = lines.length >= max ? [...lines.slice(lines.length - max + 1), message] : [...lines, message]
-  logLines.value = next
-}

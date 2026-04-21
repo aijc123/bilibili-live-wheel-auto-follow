@@ -1,8 +1,9 @@
 import { useEffect } from 'preact/hooks'
 
+import { startAutoBlend, stopAutoBlend } from '../lib/auto-blend'
 import { startDanmakuDirect, stopDanmakuDirect } from '../lib/danmaku-direct'
 import { loop } from '../lib/loop'
-import { danmakuDirectMode, optimizeLayout } from '../lib/store'
+import { autoBlendEnabled, danmakuDirectMode, optimizeLayout } from '../lib/store'
 import { Configurator } from './configurator'
 import { ToggleButton } from './toggle-button'
 import { AlertDialog } from './ui/alert-dialog'
@@ -34,6 +35,15 @@ export function App() {
     }
     return () => stopDanmakuDirect()
   }, [danmakuDirectMode.value])
+
+  useEffect(() => {
+    if (autoBlendEnabled.value) {
+      startAutoBlend()
+    } else {
+      stopAutoBlend()
+    }
+    return () => stopAutoBlend()
+  }, [autoBlendEnabled.value])
 
   useEffect(() => {
     const el = document.querySelector<HTMLElement>('.app-body')

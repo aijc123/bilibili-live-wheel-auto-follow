@@ -1,6 +1,7 @@
 import { sendDanmaku } from './api'
 import { BASE_URL } from './const'
-import { aiEvasion, appendLog } from './store'
+import { appendLog } from './log'
+import { aiEvasion } from './store'
 import { getGraphemes } from './utils'
 
 interface DetectionResult {

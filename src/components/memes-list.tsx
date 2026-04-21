@@ -4,9 +4,10 @@ import { useEffect, useLayoutEffect, useRef } from 'preact/hooks'
 
 import { ensureRoomId, getCsrfToken, sendDanmaku } from '../lib/api'
 import { BASE_URL } from '../lib/const'
+import { appendLog } from '../lib/log'
 import { applyReplacements } from '../lib/replacement'
-import { appendLog, cachedStreamerUid, maxLength, memesPanelOpen, msgSendInterval, optimizeLayout } from '../lib/store'
-import { formatDanmakuError, processMessages } from '../lib/utils'
+import { cachedStreamerUid, maxLength, memesPanelOpen, msgSendInterval, optimizeLayout } from '../lib/store'
+import { processMessages } from '../lib/utils'
 
 type MemeSortBy = NonNullable<LaplaceInternal.HTTPS.Workers.MemeListQuery['sortBy']>
 
@@ -87,14 +88,9 @@ function MemeItem({
         const segment = segments[i]
         const result = await sendDanmaku(segment, roomId, csrfToken)
         const label = total > 1 ? `烂梗 [${i + 1}/${total}]` : '烂梗'
+        const display = wasReplaced && total === 1 ? `${meme.content} → ${segment}` : segment
 
-        if (result.success) {
-          const display = wasReplaced && total === 1 ? `${meme.content} → ${segment}` : segment
-          appendLog(`✅ ${label}: ${display}`)
-        } else {
-          const display = wasReplaced && total === 1 ? `${meme.content} → ${segment}` : segment
-          appendLog(`❌ ${label}: ${display}，原因：${formatDanmakuError(result.error)}`)
-        }
+        appendLog(result, label, display)
 
         if (i < total - 1) {
           await new Promise(r => setTimeout(r, msgSendInterval.value * 1000))

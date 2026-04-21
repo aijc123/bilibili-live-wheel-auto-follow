@@ -3,9 +3,9 @@ import { useEffect, useRef } from 'preact/hooks'
 
 import { ensureRoomId, getCsrfToken, sendDanmaku } from '../lib/api'
 import { BASE_URL } from '../lib/const'
+import { appendLog, maxLogLines } from '../lib/log'
 import { buildReplacementMap } from '../lib/replacement'
 import {
-  appendLog,
   cachedRoomId,
   danmakuDirectAlwaysShow,
   danmakuDirectConfirm,
@@ -13,7 +13,6 @@ import {
   forceScrollDanmaku,
   localGlobalRules,
   localRoomRules,
-  maxLogLines,
   optimizeLayout,
   remoteKeywords,
   remoteKeywordsLastSync,

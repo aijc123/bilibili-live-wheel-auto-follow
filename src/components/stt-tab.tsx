@@ -4,9 +4,9 @@ import { useRef } from 'preact/hooks'
 
 import { tryAiEvasion } from '../lib/ai-evasion'
 import { ensureRoomId, getCsrfToken, sendDanmaku } from '../lib/api'
+import { appendLog } from '../lib/log'
 import { applyReplacements } from '../lib/replacement'
 import {
-  appendLog,
   sonioxApiKey,
   sonioxAutoSend,
   sonioxLanguageHints,

@@ -1,11 +1,19 @@
 import type { DanmakuConfigResponse } from '../types'
 
-import { ensureRoomId, fetchEmoticons, getCsrfToken, getSpmPrefix, sendDanmaku } from './api'
+import {
+  ensureRoomId,
+  fetchEmoticons,
+  getCsrfToken,
+  getSpmPrefix,
+  sendDanmaku,
+  setDanmakuMode,
+  setRandomDanmakuColor,
+} from './api'
 import { BASE_URL } from './const'
+import { appendLog } from './log'
 import { applyReplacements, buildReplacementMap } from './replacement'
 import {
   activeTemplateIndex,
-  appendLog,
   availableDanmakuColors,
   cachedRoomId,
   forceScrollDanmaku,
@@ -18,22 +26,8 @@ import {
   randomInterval,
   sendMsg,
 } from './store'
-import { formatDanmakuError, processMessages } from './utils'
+import { processMessages } from './utils'
 import { cachedWbiKeys, encodeWbi, waitForWbiKeys } from './wbi'
-
-const DEFAULT_COLORS = [
-  '0xe33fff',
-  '0x54eed8',
-  '0x58c1de',
-  '0x455ff6',
-  '0x975ef9',
-  '0xc35986',
-  '0xff8c21',
-  '0x00fffc',
-  '0x7eff00',
-  '0xffed4f',
-  '0xff9800',
-]
 
 let currentAbort: AbortController | null = null
 
@@ -116,21 +110,7 @@ export async function loop(): Promise<void> {
       if (forceScrollDanmaku.value) {
         const initCsrfToken = getCsrfToken()
         if (initCsrfToken) {
-          const initConfigForm = new FormData()
-          initConfigForm.append('room_id', String(cachedRoomId.value))
-          initConfigForm.append('mode', '1')
-          initConfigForm.append('csrf_token', initCsrfToken)
-          initConfigForm.append('csrf', initCsrfToken)
-          initConfigForm.append('visit_id', '')
-          try {
-            await fetch(BASE_URL.BILIBILI_MSG_CONFIG, {
-              method: 'POST',
-              credentials: 'include',
-              body: initConfigForm,
-            })
-          } catch {
-            // non-critical
-          }
+          await setDanmakuMode(roomId, initCsrfToken, '1')
         }
       }
     } catch (err) {
@@ -185,33 +165,14 @@ export async function loop(): Promise<void> {
           const wasReplaced = !isEmote && originalMessage !== processedMessage
 
           if (enableRandomColor) {
-            const colorSet = availableDanmakuColors.value ?? DEFAULT_COLORS
-            const rndColor = colorSet[Math.floor(Math.random() * colorSet.length)] ?? '0xffffff'
-            const configForm = new FormData()
-            configForm.append('room_id', String(roomId))
-            configForm.append('color', rndColor)
-            configForm.append('csrf_token', csrfToken ?? '')
-            configForm.append('csrf', csrfToken ?? '')
-            configForm.append('visit_id', '')
-            try {
-              await fetch(BASE_URL.BILIBILI_MSG_CONFIG, {
-                method: 'POST',
-                credentials: 'include',
-                body: configForm,
-              })
-            } catch {
-              // non-critical
-            }
+            await setRandomDanmakuColor(roomId, csrfToken ?? '')
           }
 
           const result = await sendDanmaku(processedMessage, roomId, csrfToken ?? '')
           const displayMsg = wasReplaced ? `${originalMessage} → ${processedMessage}` : processedMessage
           const baseLabel = result.isEmoticon ? '自动表情' : '自动'
           const label = total > 1 ? `${baseLabel} [${i + 1}/${total}]` : baseLabel
-          const logMessage = result.success
-            ? `✅ ${label}: ${displayMsg}`
-            : `❌ ${label}: ${displayMsg}，原因：${formatDanmakuError(result.error)}。`
-          appendLog(logMessage)
+          appendLog(result, label, displayMsg)
 
           const resolvedRandomInterval = enableRandomInterval ? Math.floor(Math.random() * 500) : 0
           const ok = await abortableSleep(interval * 1000 - resolvedRandomInterval, signal)

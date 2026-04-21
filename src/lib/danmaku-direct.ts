@@ -2,17 +2,17 @@ import { effect as signalEffect } from '@preact/signals'
 
 import { showConfirm } from '../components/ui/alert-dialog'
 import { ensureRoomId, getCsrfToken, sendDanmaku } from './api'
+import { type DanmakuEvent, subscribeDanmaku } from './danmaku-stream'
+import { appendLog } from './log'
 import { applyReplacements } from './replacement'
 import {
   activeTab,
-  appendLog,
   danmakuDirectAlwaysShow,
   danmakuDirectConfirm,
   danmakuDirectMode,
   dialogOpen,
   fasongText,
 } from './store'
-import { formatDanmakuError } from './utils'
 
 const MARKER = 'lc-dm-direct'
 const STYLE_ID = 'lc-dm-direct-style'
@@ -51,26 +51,14 @@ html.lc-dm-direct-always .${MARKER} {
 }
 `
 
-function isValidDanmakuNode(node: HTMLElement): boolean {
-  if (!node.classList.contains('chat-item') || !node.classList.contains('danmaku-item')) return false
-  const count = node.classList.length
-  if (count === 2) return true
-  if (node.classList.contains('chat-colorful-bubble') && node.classList.contains('has-bubble') && count === 4)
-    return true
-  if (node.classList.contains('has-bubble') && count === 3) return true
-  return false
-}
-
-function extractMessage(node: HTMLElement): string | null {
-  const danmaku = node.dataset.danmaku
-  const replyMid = node.dataset.replymid
-  if (danmaku === undefined || replyMid === undefined) return null
-  if (replyMid !== '0') {
-    const replyUname = node.querySelector('[data-uname]')?.getAttribute('data-uname')
-    if (replyUname) return `@${replyUname} ${danmaku}`
-    return null
-  }
-  return danmaku
+/**
+ * Builds the actual danmaku string we'd send for a given event.
+ * Reply danmakus need an `@uname ` prefix to be meaningful when re-sent.
+ * Returns null when the message can't be reliably reconstructed.
+ */
+function eventToSendableMessage(ev: DanmakuEvent): string | null {
+  if (!ev.isReply) return ev.text
+  return ev.uname ? `@${ev.uname} ${ev.text}` : null
 }
 
 function injectButtons(node: HTMLElement, msg: string): void {
@@ -122,11 +110,7 @@ async function handleRepeat(msg: string, anchor?: { x: number; y: number }): Pro
     const processed = applyReplacements(msg)
     const result = await sendDanmaku(processed, roomId, csrfToken)
     const display = msg !== processed ? `${msg} → ${processed}` : processed
-    if (result.success) {
-      appendLog(`✅ +1: ${display}`)
-    } else {
-      appendLog(`❌ +1: ${display}，原因：${formatDanmakuError(result.error)}`)
-    }
+    appendLog(result, '+1', display)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     appendLog(`🔴 +1 出错：${message}`)
@@ -149,10 +133,9 @@ function handleDelegatedClick(e: MouseEvent): void {
   }
 }
 
-let observer: MutationObserver | null = null
+let unsubscribe: (() => void) | null = null
 let styleEl: HTMLStyleElement | null = null
-let delegateTarget: HTMLElement | null = null
-let pollTimer: ReturnType<typeof setInterval> | null = null
+let attachedContainer: HTMLElement | null = null
 let alwaysShowDispose: (() => void) | null = null
 let contextMenuHandler: (() => void) | null = null
 
@@ -224,48 +207,8 @@ function stopContextMenuHijack(): void {
   }
 }
 
-function processExistingNodes(container: HTMLElement): void {
-  const nodes = Array.from(container.querySelectorAll<HTMLElement>('.chat-item.danmaku-item'))
-  for (const node of nodes) {
-    if (!isValidDanmakuNode(node)) continue
-    const msg = extractMessage(node)
-    if (msg !== null) injectButtons(node, msg)
-  }
-}
-
-function tryAttach(): boolean {
-  const chatContainer = document.querySelector<HTMLElement>('.chat-items')
-  if (!chatContainer) return false
-
-  styleEl = document.createElement('style')
-  styleEl.id = STYLE_ID
-  styleEl.textContent = STYLE
-  document.head.appendChild(styleEl)
-
-  processExistingNodes(chatContainer)
-
-  chatContainer.addEventListener('click', handleDelegatedClick, true)
-  delegateTarget = chatContainer
-
-  observer = new MutationObserver(mutations => {
-    if (!danmakuDirectMode.value) return
-    for (const mutation of mutations) {
-      for (let i = 0; i < mutation.addedNodes.length; i++) {
-        const node = mutation.addedNodes[i]
-        if (!(node instanceof HTMLElement)) continue
-        if (!isValidDanmakuNode(node)) continue
-        const msg = extractMessage(node)
-        if (msg !== null) injectButtons(node, msg)
-      }
-    }
-  })
-
-  observer.observe(chatContainer, { childList: true, subtree: false })
-  return true
-}
-
 export function startDanmakuDirect(): void {
-  if (observer) return
+  if (unsubscribe) return
 
   alwaysShowDispose = signalEffect(() => {
     document.documentElement.classList.toggle('lc-dm-direct-always', danmakuDirectAlwaysShow.value)
@@ -273,15 +216,23 @@ export function startDanmakuDirect(): void {
 
   initContextMenuHijack()
 
-  if (tryAttach()) return
+  unsubscribe = subscribeDanmaku({
+    onAttach: container => {
+      styleEl = document.createElement('style')
+      styleEl.id = STYLE_ID
+      styleEl.textContent = STYLE
+      document.head.appendChild(styleEl)
 
-  // Bilibili's SPA may not have rendered .chat-items yet; poll until it appears
-  pollTimer = setInterval(() => {
-    if (tryAttach()) {
-      if (pollTimer !== null) clearInterval(pollTimer)
-      pollTimer = null
-    }
-  }, 1000)
+      attachedContainer = container
+      container.addEventListener('click', handleDelegatedClick, true)
+    },
+    onMessage: ev => {
+      if (!danmakuDirectMode.value) return
+      const msg = eventToSendableMessage(ev)
+      if (msg !== null) injectButtons(ev.node, msg)
+    },
+    emitExisting: true,
+  })
 }
 
 export function stopDanmakuDirect(): void {
@@ -291,17 +242,13 @@ export function stopDanmakuDirect(): void {
     alwaysShowDispose = null
     document.documentElement.classList.remove('lc-dm-direct-always')
   }
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
+  if (unsubscribe) {
+    unsubscribe()
+    unsubscribe = null
   }
-  if (observer) {
-    observer.disconnect()
-    observer = null
-  }
-  if (delegateTarget) {
-    delegateTarget.removeEventListener('click', handleDelegatedClick, true)
-    delegateTarget = null
+  if (attachedContainer) {
+    attachedContainer.removeEventListener('click', handleDelegatedClick, true)
+    attachedContainer = null
   }
   if (styleEl) {
     styleEl.remove()

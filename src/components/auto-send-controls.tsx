@@ -1,7 +1,7 @@
+import { appendLog } from '../lib/log'
 import { cancelLoop } from '../lib/loop'
 import {
   activeTemplateIndex,
-  appendLog,
   autoSendPanelOpen,
   cachedRoomId,
   maxLength,

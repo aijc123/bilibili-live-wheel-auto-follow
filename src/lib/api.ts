@@ -2,9 +2,42 @@ import type { BilibiliGetEmoticonsResponse } from '../types'
 
 import { BASE_URL } from './const'
 import { buildReplacementMap } from './replacement'
-import { cachedEmoticonPackages, cachedRoomId, cachedStreamerUid, isEmoticonUnique } from './store'
+import {
+  availableDanmakuColors,
+  cachedEmoticonPackages,
+  cachedRoomId,
+  cachedStreamerUid,
+  isEmoticonUnique,
+} from './store'
 import { extractRoomNumber } from './utils'
 import { cachedWbiKeys, encodeWbi } from './wbi'
+
+/** Default Bilibili danmaku color palette (used when room config not loaded). */
+const DEFAULT_DANMAKU_COLORS = [
+  '0xe33fff',
+  '0x54eed8',
+  '0x58c1de',
+  '0x455ff6',
+  '0x975ef9',
+  '0xc35986',
+  '0xff8c21',
+  '0x00fffc',
+  '0x7eff00',
+  '0xffed4f',
+  '0xff9800',
+]
+
+/**
+ * Reads a single cookie value by name from `document.cookie`.
+ */
+function getCookie(name: string): string | undefined {
+  const prefix = `${name}=`
+  return document.cookie
+    .split(';')
+    .map(c => c.trim())
+    .find(c => c.startsWith(prefix))
+    ?.slice(prefix.length)
+}
 
 /**
  * Gets the spm_prefix value from the meta tag for web_location.
@@ -18,11 +51,14 @@ export function getSpmPrefix(): string {
  * Gets the CSRF token from browser cookies (bili_jct).
  */
 export function getCsrfToken(): string | undefined {
-  return document.cookie
-    .split(';')
-    .map(c => c.trim())
-    .find(c => c.startsWith('bili_jct='))
-    ?.split('bili_jct=')[1]
+  return getCookie('bili_jct')
+}
+
+/**
+ * Gets the logged-in user's UID from browser cookies (DedeUserID).
+ */
+export function getDedeUid(): string | undefined {
+  return getCookie('DedeUserID')
 }
 
 /**
@@ -149,5 +185,44 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
       isEmoticon: emoticon,
       error: err instanceof Error ? err.message : String(err),
     }
+  }
+}
+
+/**
+ * Sets the danmaku display mode for the room (e.g. '1' = scroll).
+ * Errors are swallowed (this endpoint is best-effort and non-critical).
+ */
+export async function setDanmakuMode(roomId: number, csrfToken: string, mode: string): Promise<void> {
+  const form = new FormData()
+  form.append('room_id', String(roomId))
+  form.append('mode', mode)
+  form.append('csrf_token', csrfToken)
+  form.append('csrf', csrfToken)
+  form.append('visit_id', '')
+  try {
+    await fetch(BASE_URL.BILIBILI_MSG_CONFIG, { method: 'POST', credentials: 'include', body: form })
+  } catch {
+    // non-critical
+  }
+}
+
+/**
+ * Picks a random color from the room's available palette (or the default
+ * fallback) and applies it to outgoing danmaku for the current room.
+ * Errors are swallowed (this endpoint is best-effort and non-critical).
+ */
+export async function setRandomDanmakuColor(roomId: number, csrfToken: string): Promise<void> {
+  const colorSet = availableDanmakuColors.value ?? DEFAULT_DANMAKU_COLORS
+  const color = colorSet[Math.floor(Math.random() * colorSet.length)] ?? '0xffffff'
+  const form = new FormData()
+  form.append('room_id', String(roomId))
+  form.append('color', color)
+  form.append('csrf_token', csrfToken)
+  form.append('csrf', csrfToken)
+  form.append('visit_id', '')
+  try {
+    await fetch(BASE_URL.BILIBILI_MSG_CONFIG, { method: 'POST', credentials: 'include', body: form })
+  } catch {
+    // non-critical
   }
 }
