@@ -2,10 +2,11 @@ import type { LaplaceInternal } from '@laplace.live/internal'
 import { useSignal } from '@preact/signals'
 import { useEffect, useLayoutEffect, useRef } from 'preact/hooks'
 
-import { ensureRoomId, getCsrfToken, sendDanmaku } from '../lib/api'
+import { ensureRoomId, getCsrfToken } from '../lib/api'
 import { BASE_URL } from '../lib/const'
 import { appendLog } from '../lib/log'
 import { applyReplacements } from '../lib/replacement'
+import { enqueueDanmaku, SendPriority } from '../lib/send-queue'
 import { cachedStreamerUid, maxLength, memesPanelOpen, msgSendInterval, optimizeLayout } from '../lib/store'
 import { processMessages } from '../lib/utils'
 
@@ -86,7 +87,7 @@ function MemeItem({
 
       for (let i = 0; i < total; i++) {
         const segment = segments[i]
-        const result = await sendDanmaku(segment, roomId, csrfToken)
+        const result = await enqueueDanmaku(segment, roomId, csrfToken, SendPriority.MANUAL)
         const label = total > 1 ? `烂梗 [${i + 1}/${total}]` : '烂梗'
         const display = wasReplaced && total === 1 ? `${meme.content} → ${segment}` : segment
 

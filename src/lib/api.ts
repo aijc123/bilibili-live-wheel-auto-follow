@@ -113,6 +113,12 @@ export interface SendDanmakuResult {
   message: string
   isEmoticon: boolean
   error?: string
+  /**
+   * Set by the global send queue when this item was preempted by a
+   * higher-priority send before it could go out. Callers should treat this
+   * as a benign skip rather than a failure.
+   */
+  cancelled?: boolean
 }
 
 /**

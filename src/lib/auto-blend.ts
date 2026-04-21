@@ -1,7 +1,8 @@
-import { ensureRoomId, getCsrfToken, getDedeUid, sendDanmaku, setRandomDanmakuColor } from './api'
+import { ensureRoomId, getCsrfToken, getDedeUid, setRandomDanmakuColor } from './api'
 import { subscribeDanmaku } from './danmaku-stream'
 import { appendLog } from './log'
 import { applyReplacements } from './replacement'
+import { enqueueDanmaku, SendPriority } from './send-queue'
 import {
   autoBlendCooldownSec,
   autoBlendEnabled,
@@ -117,7 +118,7 @@ async function triggerSend(originalText: string, uniqueUsers: number, totalCount
         await setRandomDanmakuColor(roomId, csrfToken)
       }
 
-      const result = await sendDanmaku(toSend, roomId, csrfToken)
+      const result = await enqueueDanmaku(toSend, roomId, csrfToken, SendPriority.AUTO)
       const baseLabel = result.isEmoticon ? '自动融入(表情)' : '自动融入'
       const label = repeatCount > 1 ? `${baseLabel} [${i + 1}/${repeatCount}]` : baseLabel
       const display = wasReplaced || toSend !== originalText ? `${originalText} → ${toSend}` : toSend

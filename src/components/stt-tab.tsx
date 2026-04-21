@@ -3,9 +3,10 @@ import { SonioxClient } from '@soniox/speech-to-text-web'
 import { useRef } from 'preact/hooks'
 
 import { tryAiEvasion } from '../lib/ai-evasion'
-import { ensureRoomId, getCsrfToken, sendDanmaku } from '../lib/api'
+import { ensureRoomId, getCsrfToken } from '../lib/api'
 import { appendLog } from '../lib/log'
 import { applyReplacements } from '../lib/replacement'
+import { enqueueDanmaku, SendPriority } from '../lib/send-queue'
 import {
   sonioxApiKey,
   sonioxAutoSend,
@@ -15,9 +16,8 @@ import {
   sonioxTranslationTarget,
   sttRunning,
 } from '../lib/store'
-import { formatDanmakuError, stripTrailingPunctuation, trimText } from '../lib/utils'
+import { stripTrailingPunctuation, trimText } from '../lib/utils'
 
-const SONIOX_SEND_INTERVAL_MS = 1100
 const SONIOX_FLUSH_DELAY_MS = 5000
 
 export function SttTab() {
@@ -34,7 +34,6 @@ export function SttTab() {
   const sendBuffer = useRef('')
   const flushTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isFlushing = useRef(false)
-  const lastSendTime = useRef(0)
 
   const resetState = () => {
     state.value = 'stopped'
@@ -44,7 +43,6 @@ export function SttTab() {
     clientRef.current = null
     sendBuffer.current = ''
     isFlushing.current = false
-    lastSendTime.current = 0
     accFinal.current = ''
     accTranslated.current = ''
     finalText.value = ''
@@ -57,11 +55,6 @@ export function SttTab() {
 
   const sendSegment = async (segment: string) => {
     if (!segment.trim()) return
-    const now = Date.now()
-    const elapsed = now - lastSendTime.current
-    if (elapsed < SONIOX_SEND_INTERVAL_MS) {
-      await new Promise(r => setTimeout(r, SONIOX_SEND_INTERVAL_MS - elapsed))
-    }
     try {
       const roomId = await ensureRoomId()
       const csrfToken = getCsrfToken()
@@ -69,12 +62,9 @@ export function SttTab() {
         appendLog('❌ 同传：未找到登录信息')
         return
       }
-      lastSendTime.current = Date.now()
-      const result = await sendDanmaku(segment, roomId, csrfToken)
-      if (result.success) {
-        appendLog(`✅ 同传: ${segment}`)
-      } else {
-        appendLog(`❌ 同传: ${segment}，原因：${formatDanmakuError(result.error)}`)
+      const result = await enqueueDanmaku(segment, roomId, csrfToken, SendPriority.STT)
+      appendLog(result, '同传', segment)
+      if (!result.success && !result.cancelled) {
         await tryAiEvasion(segment, roomId, csrfToken, '同传')
       }
     } catch (err) {

@@ -1,7 +1,8 @@
 import { tryAiEvasion } from '../lib/ai-evasion'
-import { ensureRoomId, getCsrfToken, sendDanmaku } from '../lib/api'
+import { ensureRoomId, getCsrfToken } from '../lib/api'
 import { appendLog } from '../lib/log'
 import { applyReplacements } from '../lib/replacement'
+import { enqueueDanmaku, SendPriority } from '../lib/send-queue'
 import { aiEvasion, fasongText, isEmoticonUnique, maxLength, msgSendInterval, normalSendPanelOpen } from '../lib/store'
 import { processMessages } from '../lib/utils'
 
@@ -31,7 +32,7 @@ export function NormalSendTab() {
 
       for (let i = 0; i < total; i++) {
         const segment = segments[i]
-        const result = await sendDanmaku(segment, roomId, csrfToken)
+        const result = await enqueueDanmaku(segment, roomId, csrfToken, SendPriority.MANUAL)
         const baseLabel = result.isEmoticon ? '手动表情' : '手动'
         const label = total > 1 ? `${baseLabel} [${i + 1}/${total}]` : baseLabel
         const displayMsg = wasReplaced && total === 1 ? `${originalMessage} → ${segment}` : segment

@@ -1,6 +1,6 @@
-import { sendDanmaku } from './api'
 import { BASE_URL } from './const'
 import { appendLog } from './log'
+import { enqueueDanmaku, SendPriority } from './send-queue'
 import { aiEvasion } from './store'
 import { getGraphemes } from './utils'
 
@@ -72,7 +72,7 @@ export async function tryAiEvasion(
     appendLog(`🤖 ${logPrefix}检测到敏感词：${detection.sensitiveWords.join(', ')}，正在尝试规避…`)
 
     const evadedMessage = replaceSensitiveWords(message, detection.sensitiveWords)
-    const retryResult = await sendDanmaku(evadedMessage, roomId, csrfToken)
+    const retryResult = await enqueueDanmaku(evadedMessage, roomId, csrfToken, SendPriority.MANUAL)
 
     if (retryResult.success) {
       appendLog(`✅ ${logPrefix}AI规避成功: ${evadedMessage}`)

@@ -24,9 +24,11 @@ export function appendLog(arg: string | SendDanmakuResult, label?: string, displ
   const message =
     typeof arg === 'string'
       ? arg
-      : arg.success
-        ? `✅ ${label}: ${display}`
-        : `❌ ${label}: ${display}，原因：${formatDanmakuError(arg.error)}`
+      : arg.cancelled
+        ? `⏭ ${label}: ${display}（被手动发送中断）`
+        : arg.success
+          ? `✅ ${label}: ${display}`
+          : `❌ ${label}: ${display}，原因：${formatDanmakuError(arg.error)}`
 
   const max = maxLogLines.value
   const lines = logLines.value

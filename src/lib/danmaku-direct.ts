@@ -1,10 +1,11 @@
 import { effect as signalEffect } from '@preact/signals'
 
 import { showConfirm } from '../components/ui/alert-dialog'
-import { ensureRoomId, getCsrfToken, sendDanmaku } from './api'
+import { ensureRoomId, getCsrfToken } from './api'
 import { type DanmakuEvent, subscribeDanmaku } from './danmaku-stream'
 import { appendLog } from './log'
 import { applyReplacements } from './replacement'
+import { enqueueDanmaku, SendPriority } from './send-queue'
 import {
   activeTab,
   danmakuDirectAlwaysShow,
@@ -108,7 +109,7 @@ async function handleRepeat(msg: string, anchor?: { x: number; y: number }): Pro
       return
     }
     const processed = applyReplacements(msg)
-    const result = await sendDanmaku(processed, roomId, csrfToken)
+    const result = await enqueueDanmaku(processed, roomId, csrfToken, SendPriority.MANUAL)
     const display = msg !== processed ? `${msg} → ${processed}` : processed
     appendLog(result, '+1', display)
   } catch (err) {
