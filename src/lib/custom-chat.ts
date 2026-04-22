@@ -32,6 +32,11 @@ const ROOT_ID = 'laplace-custom-chat'
 const STYLE_ID = 'laplace-custom-chat-style'
 const USER_STYLE_ID = 'laplace-custom-chat-user-style'
 const MAX_MESSAGES = 220
+const MAX_RENDER_BATCH = 36
+const MAX_RENDER_QUEUE = MAX_MESSAGES
+const MAX_NATIVE_SCAN_BATCH = 48
+const MAX_NATIVE_INITIAL_SCAN = 80
+const NATIVE_EVENT_SELECTOR = '.chat-item, .super-chat-card, .gift-item, [class*="super"], [class*="gift"], [class*="guard"], [class*="privilege"]'
 
 const STYLE = `
 #${ROOT_ID}, #${ROOT_ID} * {
@@ -253,7 +258,7 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   overflow-x: hidden;
   padding: 13px 10px 14px;
   scrollbar-width: thin;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
   mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
 }
@@ -523,7 +528,7 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   min-width: 2.6em;
   max-width: calc(100% - 14px);
   color: var(--lc-chat-bubble-text);
-  background: inherit;
+  background: var(--lc-chat-bubble);
   border: 1px solid color-mix(in srgb, var(--lc-chat-border) 74%, transparent);
   border-radius: 20px;
   border-bottom-left-radius: 7px;
@@ -797,13 +802,17 @@ let unread = 0
 let sending = false
 let searchQuery = ''
 const messages: CustomChatEvent[] = []
+const messageKeys = new Set<string>()
 const recentEventKeys = new Map<string, number>()
 const renderQueue: CustomChatEvent[] = []
 const eventTicks: number[] = []
+const seenNativeNodes = new WeakSet<HTMLElement>()
+const pendingNativeNodes = new Set<HTMLElement>()
 const sourceCounts: Record<CustomChatEvent['source'], number> = { dom: 0, ws: 0, local: 0 }
 let lastBatchSize = 0
 let renderFrame: number | null = null
 let rerenderFrame: number | null = null
+let nativeScanFrame: number | null = null
 let rerenderToken = 0
 
 function eventToSendableMessage(ev: DanmakuEvent): string {
@@ -860,6 +869,10 @@ function eventKey(event: Pick<CustomChatEvent, 'kind' | 'uid' | 'text'>): string
   return `${event.kind}:${event.uid ?? ''}:${compactText(event.text).slice(0, 80)}`
 }
 
+function messageKey(event: Pick<CustomChatEvent, 'source' | 'id'>): string {
+  return `${event.source}:${event.id}`
+}
+
 function rememberEvent(event: Pick<CustomChatEvent, 'kind' | 'uid' | 'text'>): boolean {
   const now = Date.now()
   for (const [key, ts] of recentEventKeys) {
@@ -884,7 +897,7 @@ function updatePerfDebug(): void {
   if (!customChatPerfDebug.value) return
   const totalSources = sourceCounts.dom + sourceCounts.ws + sourceCounts.local || 1
   const pct = (value: number) => Math.round((value / totalSources) * 100)
-  perfEl.textContent = `msg ${messages.length}/${MAX_MESSAGES} | eps ${eventTicks.length}/s | batch ${lastBatchSize} | q ${renderQueue.length} | ws ${pct(sourceCounts.ws)}% dom ${pct(sourceCounts.dom)}% local ${pct(sourceCounts.local)}%`
+  perfEl.textContent = `msg ${messages.length}/${MAX_MESSAGES} | eps ${eventTicks.length}/s | batch ${lastBatchSize} | q ${renderQueue.length} | native ${pendingNativeNodes.size} | ws ${pct(sourceCounts.ws)}% dom ${pct(sourceCounts.dom)}% local ${pct(sourceCounts.local)}%`
 }
 
 function isNoiseEventText(text: string): boolean {
@@ -1235,7 +1248,8 @@ function scrollToBottom(): void {
 
 function pruneMessages(): void {
   while (messages.length > MAX_MESSAGES) {
-    messages.shift()
+    const removed = messages.shift()
+    if (removed) messageKeys.delete(messageKey(removed))
   }
   while (listEl && listEl.children.length > MAX_MESSAGES) {
     listEl?.firstElementChild?.remove()
@@ -1374,7 +1388,6 @@ function renderMessage(message: CustomChatEvent, countUnread = true, updateCount
   row.append(avatarEl, body, actions)
   listEl.append(row)
 
-  if (countUnread) window.setTimeout(() => row.classList.remove('lc-chat-peek'), 2600)
   if (manageFlow) {
     pruneMessages()
     if (!shouldStickToBottom && countUnread) {
@@ -1390,6 +1403,7 @@ function renderMessage(message: CustomChatEvent, countUnread = true, updateCount
 
 function clearMessages(): void {
   messages.length = 0
+  messageKeys.clear()
   renderQueue.length = 0
   unread = 0
   listEl?.replaceChildren()
@@ -1418,7 +1432,7 @@ function scheduleRerenderMessages(): void {
     let index = 0
     const renderChunk = (): void => {
       if (!listEl || token !== rerenderToken) return
-      const end = Math.min(index + 36, visible.length)
+      const end = Math.min(index + MAX_RENDER_BATCH, visible.length)
       for (; index < end; index++) renderMessage(visible[index], false, false, false)
       if (index < visible.length) {
         rerenderFrame = window.requestAnimationFrame(renderChunk)
@@ -1436,16 +1450,19 @@ function scheduleRerenderMessages(): void {
 function flushRenderQueue(): void {
   renderFrame = null
   if (!listEl || renderQueue.length === 0) return
-  const batch = renderQueue.splice(0)
+  const batch = renderQueue.splice(0, MAX_RENDER_BATCH)
   lastBatchSize = batch.length
   const shouldStickToBottom = !paused && isNearBottom()
   const animate = batch.length <= 12
   let appended = 0
   for (const event of batch) {
+    if (!messageKeys.has(messageKey(event))) continue
     if (renderMessage(event, animate, false, false)) appended++
   }
+  if (renderQueue.length > 0) renderFrame = window.requestAnimationFrame(flushRenderQueue)
   if (appended === 0) {
     updateMatchCount()
+    updatePerfDebug()
     return
   }
   pruneMessages()
@@ -1461,6 +1478,7 @@ function flushRenderQueue(): void {
 
 function scheduleRender(event: CustomChatEvent): void {
   renderQueue.push(event)
+  while (renderQueue.length > MAX_RENDER_QUEUE) renderQueue.shift()
   updatePerfDebug()
   if (renderFrame !== null) return
   renderFrame = window.requestAnimationFrame(flushRenderQueue)
@@ -1732,21 +1750,52 @@ function mount(container: HTMLElement): void {
 
 function observeNativeEvents(container: HTMLElement): void {
   nativeEventObserver?.disconnect()
+  pendingNativeNodes.clear()
+  if (nativeScanFrame !== null) {
+    window.cancelAnimationFrame(nativeScanFrame)
+    nativeScanFrame = null
+  }
+  const isCandidate = (node: HTMLElement): boolean => {
+    if (node.closest(`#${ROOT_ID}`)) return false
+    if (node.classList.contains('danmaku-item')) return false
+    return node.matches(NATIVE_EVENT_SELECTOR) || !!node.querySelector(NATIVE_EVENT_SELECTOR)
+  }
   const scan = (node: HTMLElement): void => {
+    if (seenNativeNodes.has(node)) return
+    seenNativeNodes.add(node)
     const event = parseNativeEvent(node)
     if (event) emitCustomChatEvent(event)
-    for (const child of node.querySelectorAll<HTMLElement>('.chat-item, [class*="super"], [class*="gift"], [class*="guard"], [class*="privilege"]')) {
+    for (const child of node.querySelectorAll<HTMLElement>(NATIVE_EVENT_SELECTOR)) {
+      if (seenNativeNodes.has(child) || child.classList.contains('danmaku-item')) continue
+      seenNativeNodes.add(child)
       const childEvent = parseNativeEvent(child)
       if (childEvent) emitCustomChatEvent(childEvent)
     }
   }
-  for (const node of container.querySelectorAll<HTMLElement>('.chat-item, [class*="super"], [class*="gift"], [class*="guard"], [class*="privilege"]')) {
-    scan(node)
+  const flushScan = (): void => {
+    nativeScanFrame = null
+    let count = 0
+    for (const node of pendingNativeNodes) {
+      pendingNativeNodes.delete(node)
+      if (node.isConnected) scan(node)
+      count++
+      if (count >= MAX_NATIVE_SCAN_BATCH) break
+    }
+    if (pendingNativeNodes.size > 0) nativeScanFrame = window.requestAnimationFrame(flushScan)
   }
+  const queueScan = (node: HTMLElement): void => {
+    if (!isCandidate(node)) return
+    pendingNativeNodes.add(node)
+    if (nativeScanFrame === null) nativeScanFrame = window.requestAnimationFrame(flushScan)
+  }
+  const existing = Array.from(container.querySelectorAll<HTMLElement>(NATIVE_EVENT_SELECTOR))
+    .filter(node => !node.classList.contains('danmaku-item'))
+    .slice(-MAX_NATIVE_INITIAL_SCAN)
+  for (const node of existing) queueScan(node)
   nativeEventObserver = new MutationObserver(mutations => {
     for (const mutation of mutations) {
       for (const node of mutation.addedNodes) {
-        if (node instanceof HTMLElement) scan(node)
+        if (node instanceof HTMLElement) queueScan(node)
       }
     }
   })
@@ -1775,10 +1824,13 @@ function addDomMessage(ev: DanmakuEvent): void {
 
 function addEvent(event: CustomChatEvent): void {
   if (!isReliableEvent(event)) return
-  if (messages.some(message => message.id === event.id && message.source === event.source)) return
+  const key = messageKey(event)
+  if (messageKeys.has(key)) return
   if (!rememberEvent(event)) return
   recordEventStats(event)
   messages.push(event)
+  messageKeys.add(key)
+  pruneMessages()
   scheduleRender(event)
 }
 
@@ -1827,6 +1879,11 @@ export function stopCustomChat(): void {
   }
   nativeEventObserver?.disconnect()
   nativeEventObserver = null
+  pendingNativeNodes.clear()
+  if (nativeScanFrame !== null) {
+    window.cancelAnimationFrame(nativeScanFrame)
+    nativeScanFrame = null
+  }
   document.documentElement.classList.remove('lc-custom-chat-hide-native')
   document.documentElement.classList.remove('lc-custom-chat-mounted')
   document.documentElement.classList.remove('lc-custom-chat-root-outside-history')
@@ -1848,6 +1905,7 @@ export function stopCustomChat(): void {
   perfEl = null
   debugEl = null
   messages.length = 0
+  messageKeys.clear()
   renderQueue.length = 0
   eventTicks.length = 0
   rerenderToken++

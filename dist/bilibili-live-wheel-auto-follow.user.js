@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.16
+// @version      2.8.17
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、粉丝牌禁言巡检、常规发送、同传、烂梗库和弹幕替换规则。
 // @license      AGPL-3.0
@@ -5277,6 +5277,10 @@ ws;
   const STYLE_ID$1 = "laplace-custom-chat-style";
   const USER_STYLE_ID = "laplace-custom-chat-user-style";
   const MAX_MESSAGES = 220;
+  const MAX_RENDER_BATCH = 36;
+  const MAX_RENDER_QUEUE = MAX_MESSAGES;
+  const MAX_NATIVE_SCAN_BATCH = 48;
+  const NATIVE_EVENT_SELECTOR = '.chat-item, .super-chat-card, .gift-item, [class*="super"], [class*="gift"], [class*="guard"], [class*="privilege"]';
   const STYLE$1 = `
 #${ROOT_ID}, #${ROOT_ID} * {
   box-sizing: border-box;
@@ -5497,7 +5501,7 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   overflow-x: hidden;
   padding: 13px 10px 14px;
   scrollbar-width: thin;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
   mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
 }
@@ -5767,7 +5771,7 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   min-width: 2.6em;
   max-width: calc(100% - 14px);
   color: var(--lc-chat-bubble-text);
-  background: inherit;
+  background: var(--lc-chat-bubble);
   border: 1px solid color-mix(in srgb, var(--lc-chat-border) 74%, transparent);
   border-radius: 20px;
   border-bottom-left-radius: 7px;
@@ -6040,13 +6044,17 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   let sending = false;
   let searchQuery = "";
   const messages = [];
+  const messageKeys = new Set();
   const recentEventKeys = new Map();
   const renderQueue = [];
   const eventTicks = [];
+  const seenNativeNodes = new WeakSet();
+  const pendingNativeNodes = new Set();
   const sourceCounts = { dom: 0, ws: 0, local: 0 };
   let lastBatchSize = 0;
   let renderFrame = null;
   let rerenderFrame = null;
+  let nativeScanFrame = null;
   let rerenderToken = 0;
   function eventToSendableMessage$1(ev) {
     if (!ev.isReply) return ev.text;
@@ -6093,6 +6101,9 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   function eventKey(event) {
     return `${event.kind}:${event.uid ?? ""}:${compactText(event.text).slice(0, 80)}`;
   }
+  function messageKey(event) {
+    return `${event.source}:${event.id}`;
+  }
   function rememberEvent(event) {
     const now = Date.now();
     for (const [key2, ts] of recentEventKeys) {
@@ -6115,7 +6126,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     if (!customChatPerfDebug.value) return;
     const totalSources = sourceCounts.dom + sourceCounts.ws + sourceCounts.local || 1;
     const pct = (value) => Math.round(value / totalSources * 100);
-    perfEl.textContent = `msg ${messages.length}/${MAX_MESSAGES} | eps ${eventTicks.length}/s | batch ${lastBatchSize} | q ${renderQueue.length} | ws ${pct(sourceCounts.ws)}% dom ${pct(sourceCounts.dom)}% local ${pct(sourceCounts.local)}%`;
+    perfEl.textContent = `msg ${messages.length}/${MAX_MESSAGES} | eps ${eventTicks.length}/s | batch ${lastBatchSize} | q ${renderQueue.length} | native ${pendingNativeNodes.size} | ws ${pct(sourceCounts.ws)}% dom ${pct(sourceCounts.dom)}% local ${pct(sourceCounts.local)}%`;
   }
   function isNoiseEventText(text) {
     const clean = compactText(text);
@@ -6428,7 +6439,8 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   }
   function pruneMessages() {
     while (messages.length > MAX_MESSAGES) {
-      messages.shift();
+      const removed = messages.shift();
+      if (removed) messageKeys.delete(messageKey(removed));
     }
     while (listEl && listEl.children.length > MAX_MESSAGES) {
       listEl?.firstElementChild?.remove();
@@ -6548,7 +6560,6 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     body.append(meta, text);
     row.append(avatarEl, body, actions);
     listEl.append(row);
-    if (countUnread) window.setTimeout(() => row.classList.remove("lc-chat-peek"), 2600);
     if (manageFlow) {
       pruneMessages();
       if (!shouldStickToBottom && countUnread) {
@@ -6563,6 +6574,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   }
   function clearMessages() {
     messages.length = 0;
+    messageKeys.clear();
     renderQueue.length = 0;
     unread = 0;
     listEl?.replaceChildren();
@@ -6589,7 +6601,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
       let index = 0;
       const renderChunk = () => {
         if (!listEl || token !== rerenderToken) return;
-        const end = Math.min(index + 36, visible.length);
+        const end = Math.min(index + MAX_RENDER_BATCH, visible.length);
         for (; index < end; index++) renderMessage(visible[index], false, false, false);
         if (index < visible.length) {
           rerenderFrame = window.requestAnimationFrame(renderChunk);
@@ -6606,16 +6618,19 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   function flushRenderQueue() {
     renderFrame = null;
     if (!listEl || renderQueue.length === 0) return;
-    const batch = renderQueue.splice(0);
+    const batch = renderQueue.splice(0, MAX_RENDER_BATCH);
     lastBatchSize = batch.length;
     const shouldStickToBottom = !paused && isNearBottom();
     const animate = batch.length <= 12;
     let appended = 0;
     for (const event of batch) {
+      if (!messageKeys.has(messageKey(event))) continue;
       if (renderMessage(event, animate, false, false)) appended++;
     }
+    if (renderQueue.length > 0) renderFrame = window.requestAnimationFrame(flushRenderQueue);
     if (appended === 0) {
       updateMatchCount();
+      updatePerfDebug();
       return;
     }
     pruneMessages();
@@ -6630,6 +6645,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   }
   function scheduleRender(event) {
     renderQueue.push(event);
+    while (renderQueue.length > MAX_RENDER_QUEUE) renderQueue.shift();
     updatePerfDebug();
     if (renderFrame !== null) return;
     renderFrame = window.requestAnimationFrame(flushRenderQueue);
@@ -6867,21 +6883,50 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   }
   function observeNativeEvents(container) {
     nativeEventObserver?.disconnect();
+    pendingNativeNodes.clear();
+    if (nativeScanFrame !== null) {
+      window.cancelAnimationFrame(nativeScanFrame);
+      nativeScanFrame = null;
+    }
+    const isCandidate = (node) => {
+      if (node.closest(`#${ROOT_ID}`)) return false;
+      if (node.classList.contains("danmaku-item")) return false;
+      return node.matches(NATIVE_EVENT_SELECTOR) || !!node.querySelector(NATIVE_EVENT_SELECTOR);
+    };
     const scan = (node) => {
+      if (seenNativeNodes.has(node)) return;
+      seenNativeNodes.add(node);
       const event = parseNativeEvent(node);
       if (event) emitCustomChatEvent(event);
-      for (const child of node.querySelectorAll('.chat-item, [class*="super"], [class*="gift"], [class*="guard"], [class*="privilege"]')) {
+      for (const child of node.querySelectorAll(NATIVE_EVENT_SELECTOR)) {
+        if (seenNativeNodes.has(child) || child.classList.contains("danmaku-item")) continue;
+        seenNativeNodes.add(child);
         const childEvent = parseNativeEvent(child);
         if (childEvent) emitCustomChatEvent(childEvent);
       }
     };
-    for (const node of container.querySelectorAll('.chat-item, [class*="super"], [class*="gift"], [class*="guard"], [class*="privilege"]')) {
-      scan(node);
-    }
+    const flushScan = () => {
+      nativeScanFrame = null;
+      let count = 0;
+      for (const node of pendingNativeNodes) {
+        pendingNativeNodes.delete(node);
+        if (node.isConnected) scan(node);
+        count++;
+        if (count >= MAX_NATIVE_SCAN_BATCH) break;
+      }
+      if (pendingNativeNodes.size > 0) nativeScanFrame = window.requestAnimationFrame(flushScan);
+    };
+    const queueScan = (node) => {
+      if (!isCandidate(node)) return;
+      pendingNativeNodes.add(node);
+      if (nativeScanFrame === null) nativeScanFrame = window.requestAnimationFrame(flushScan);
+    };
+    const existing = Array.from(container.querySelectorAll(NATIVE_EVENT_SELECTOR)).filter((node) => !node.classList.contains("danmaku-item")).slice(-80);
+    for (const node of existing) queueScan(node);
     nativeEventObserver = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
-          if (node instanceof HTMLElement) scan(node);
+          if (node instanceof HTMLElement) queueScan(node);
         }
       }
     });
@@ -6908,10 +6953,13 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   }
   function addEvent(event) {
     if (!isReliableEvent(event)) return;
-    if (messages.some((message) => message.id === event.id && message.source === event.source)) return;
+    const key = messageKey(event);
+    if (messageKeys.has(key)) return;
     if (!rememberEvent(event)) return;
     recordEventStats(event);
     messages.push(event);
+    messageKeys.add(key);
+    pruneMessages();
     scheduleRender(event);
   }
   function startCustomChat() {
@@ -6956,6 +7004,11 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     }
     nativeEventObserver?.disconnect();
     nativeEventObserver = null;
+    pendingNativeNodes.clear();
+    if (nativeScanFrame !== null) {
+      window.cancelAnimationFrame(nativeScanFrame);
+      nativeScanFrame = null;
+    }
     document.documentElement.classList.remove("lc-custom-chat-hide-native");
     document.documentElement.classList.remove("lc-custom-chat-mounted");
     document.documentElement.classList.remove("lc-custom-chat-root-outside-history");
@@ -6977,6 +7030,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     perfEl = null;
     debugEl = null;
     messages.length = 0;
+    messageKeys.clear();
     renderQueue.length = 0;
     eventTicks.length = 0;
     rerenderToken++;
