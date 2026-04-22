@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.5
+// @version      2.8.6
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、粉丝牌禁言巡检、常规发送、同传、烂梗库和弹幕替换规则。
 // @license      AGPL-3.0
@@ -5286,19 +5286,21 @@ ws;
 #${ROOT_ID} .lc-chat-menu {
   position: absolute;
   z-index: 5;
-  top: calc(100% + 6px);
-  left: 8px;
-  right: 8px;
+  top: calc(100% + 8px);
+  left: 10px;
+  right: 10px;
   display: none;
   grid-template-columns: 1fr;
-  gap: 8px;
-  padding: 9px;
+  gap: 10px;
+  max-height: min(360px, calc(100vh - 180px));
+  overflow-y: auto;
+  padding: 10px;
   border: 1px solid var(--lc-chat-border);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--lc-chat-panel) 88%, var(--lc-chat-bg));
-  box-shadow: 0 12px 34px var(--lc-chat-shadow);
-  backdrop-filter: blur(18px) saturate(1.3);
-  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--lc-chat-bg) 92%, #fff);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, .28);
+  backdrop-filter: blur(24px) saturate(1.35);
+  -webkit-backdrop-filter: blur(24px) saturate(1.35);
 }
 #${ROOT_ID}.lc-chat-menu-open .lc-chat-menu {
   display: grid;
@@ -5310,7 +5312,12 @@ ws;
   gap: 6px;
   min-width: 0;
 }
+#${ROOT_ID} .lc-chat-menu-row + .lc-chat-menu-row {
+  padding-top: 8px;
+  border-top: 1px solid var(--lc-chat-border);
+}
 #${ROOT_ID} .lc-chat-menu-label {
+  flex: 0 0 34px;
   color: var(--lc-chat-muted);
   font-size: 11px;
 }
@@ -5320,9 +5327,10 @@ ws;
   border-color: var(--lc-chat-own);
 }
 #${ROOT_ID} .lc-chat-filterbar {
-  display: flex;
-  flex: 1 1 100%;
-  gap: 3px;
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
   padding: 0;
   min-width: 0;
   overflow: hidden;
@@ -5331,6 +5339,7 @@ ws;
   backdrop-filter: none;
 }
 #${ROOT_ID} .lc-chat-filter {
+  width: 100%;
   flex: 1 1 0;
   min-width: 0;
   height: 21px;
@@ -5341,6 +5350,7 @@ ws;
   padding: 0 3px;
   font-size: 10px;
   cursor: pointer;
+  white-space: nowrap;
 }
 #${ROOT_ID} .lc-chat-filter[aria-pressed="true"] {
   background: var(--lc-chat-own);
@@ -5348,7 +5358,7 @@ ws;
   border-color: var(--lc-chat-own);
 }
 #${ROOT_ID} .lc-chat-search {
-  flex: 1 1 100%;
+  flex: 1 1 auto;
   min-width: 0;
   width: 0;
   max-width: 100%;
@@ -5846,14 +5856,32 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     if (uname && (text === uname || text.startsWith(`${uname} `) || text.startsWith(`${uname}　`))) return null;
     return text;
   }
-  function normalizeBadges(message) {
+  function displayName(message) {
+    let name = compactText(message.uname) || "匿名";
+    for (const raw of message.badges) {
+      const badge = compactText(raw);
+      if (badge && name.startsWith(`${badge} `)) {
+        name = compactText(name.slice(badge.length));
+      }
+    }
+    const medalPrefix = name.match(/^[^\s:：]{1,10}\s+\d{1,3}\s+(.{1,32})$/);
+    if (medalPrefix?.[1]) name = compactText(medalPrefix[1]);
+    return name || "匿名";
+  }
+  function normalizeBadges(message, name = displayName(message)) {
     const normalized = [];
     for (const raw of message.badges) {
-      const text = usefulBadgeText(raw, message.uname);
+      const text = usefulBadgeText(raw, name);
       if (!text) continue;
+      if (text === name || name.includes(text)) continue;
       if (normalized.includes(text)) continue;
       const parts = text.split(/\s+/).filter(Boolean);
       if (parts.length === 1 && normalized.some((item) => item.includes(text))) continue;
+      if (parts.length > 1) {
+        for (let i2 = normalized.length - 1; i2 >= 0; i2--) {
+          if (/^\d{1,3}$/.test(normalized[i2]) && text.includes(normalized[i2])) normalized.splice(i2, 1);
+        }
+      }
       normalized.push(text);
       if (normalized.length >= 2) break;
     }
@@ -6092,7 +6120,8 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     setText(kind, kindLabel(message.kind));
     const name = document.createElement("span");
     name.className = "lc-chat-name";
-    setText(name, message.uname);
+    const shownName = displayName(message);
+    setText(name, shownName);
     const time = document.createElement("span");
     time.className = "lc-chat-time";
     setText(time, message.time);
@@ -6104,7 +6133,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
       reply.textContent = "回复";
       meta.append(reply);
     }
-    for (const badgeText of normalizeBadges(message)) {
+    for (const badgeText of normalizeBadges(message, shownName)) {
       const badge = document.createElement("span");
       badge.className = "lc-chat-badge lc-chat-medal";
       badge.dataset.badge = badgeText;

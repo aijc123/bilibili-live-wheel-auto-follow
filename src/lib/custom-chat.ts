@@ -149,19 +149,21 @@ const STYLE = `
 #${ROOT_ID} .lc-chat-menu {
   position: absolute;
   z-index: 5;
-  top: calc(100% + 6px);
-  left: 8px;
-  right: 8px;
+  top: calc(100% + 8px);
+  left: 10px;
+  right: 10px;
   display: none;
   grid-template-columns: 1fr;
-  gap: 8px;
-  padding: 9px;
+  gap: 10px;
+  max-height: min(360px, calc(100vh - 180px));
+  overflow-y: auto;
+  padding: 10px;
   border: 1px solid var(--lc-chat-border);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--lc-chat-panel) 88%, var(--lc-chat-bg));
-  box-shadow: 0 12px 34px var(--lc-chat-shadow);
-  backdrop-filter: blur(18px) saturate(1.3);
-  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--lc-chat-bg) 92%, #fff);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, .28);
+  backdrop-filter: blur(24px) saturate(1.35);
+  -webkit-backdrop-filter: blur(24px) saturate(1.35);
 }
 #${ROOT_ID}.lc-chat-menu-open .lc-chat-menu {
   display: grid;
@@ -173,7 +175,12 @@ const STYLE = `
   gap: 6px;
   min-width: 0;
 }
+#${ROOT_ID} .lc-chat-menu-row + .lc-chat-menu-row {
+  padding-top: 8px;
+  border-top: 1px solid var(--lc-chat-border);
+}
 #${ROOT_ID} .lc-chat-menu-label {
+  flex: 0 0 34px;
   color: var(--lc-chat-muted);
   font-size: 11px;
 }
@@ -183,9 +190,10 @@ const STYLE = `
   border-color: var(--lc-chat-own);
 }
 #${ROOT_ID} .lc-chat-filterbar {
-  display: flex;
-  flex: 1 1 100%;
-  gap: 3px;
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
   padding: 0;
   min-width: 0;
   overflow: hidden;
@@ -194,6 +202,7 @@ const STYLE = `
   backdrop-filter: none;
 }
 #${ROOT_ID} .lc-chat-filter {
+  width: 100%;
   flex: 1 1 0;
   min-width: 0;
   height: 21px;
@@ -204,6 +213,7 @@ const STYLE = `
   padding: 0 3px;
   font-size: 10px;
   cursor: pointer;
+  white-space: nowrap;
 }
 #${ROOT_ID} .lc-chat-filter[aria-pressed="true"] {
   background: var(--lc-chat-own);
@@ -211,7 +221,7 @@ const STYLE = `
   border-color: var(--lc-chat-own);
 }
 #${ROOT_ID} .lc-chat-search {
-  flex: 1 1 100%;
+  flex: 1 1 auto;
   min-width: 0;
   width: 0;
   max-width: 100%;
@@ -725,14 +735,33 @@ function usefulBadgeText(raw: string, uname: string): string | null {
   return text
 }
 
-function normalizeBadges(message: CustomChatEvent): string[] {
+function displayName(message: CustomChatEvent): string {
+  let name = compactText(message.uname) || '匿名'
+  for (const raw of message.badges) {
+    const badge = compactText(raw)
+    if (badge && name.startsWith(`${badge} `)) {
+      name = compactText(name.slice(badge.length))
+    }
+  }
+  const medalPrefix = name.match(/^[^\s:：]{1,10}\s+\d{1,3}\s+(.{1,32})$/)
+  if (medalPrefix?.[1]) name = compactText(medalPrefix[1])
+  return name || '匿名'
+}
+
+function normalizeBadges(message: CustomChatEvent, name = displayName(message)): string[] {
   const normalized: string[] = []
   for (const raw of message.badges) {
-    const text = usefulBadgeText(raw, message.uname)
+    const text = usefulBadgeText(raw, name)
     if (!text) continue
+    if (text === name || name.includes(text)) continue
     if (normalized.includes(text)) continue
     const parts = text.split(/\s+/).filter(Boolean)
     if (parts.length === 1 && normalized.some(item => item.includes(text))) continue
+    if (parts.length > 1) {
+      for (let i = normalized.length - 1; i >= 0; i--) {
+        if (/^\d{1,3}$/.test(normalized[i]) && text.includes(normalized[i])) normalized.splice(i, 1)
+      }
+    }
     normalized.push(text)
     if (normalized.length >= 2) break
   }
@@ -1002,7 +1031,8 @@ function renderMessage(message: CustomChatEvent, countUnread = true): void {
 
   const name = document.createElement('span')
   name.className = 'lc-chat-name'
-  setText(name, message.uname)
+  const shownName = displayName(message)
+  setText(name, shownName)
 
   const time = document.createElement('span')
   time.className = 'lc-chat-time'
@@ -1016,7 +1046,7 @@ function renderMessage(message: CustomChatEvent, countUnread = true): void {
     reply.textContent = '回复'
     meta.append(reply)
   }
-  for (const badgeText of normalizeBadges(message)) {
+  for (const badgeText of normalizeBadges(message, shownName)) {
     const badge = document.createElement('span')
     badge.className = 'lc-chat-badge lc-chat-medal'
     badge.dataset.badge = badgeText
