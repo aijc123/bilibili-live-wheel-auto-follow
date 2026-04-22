@@ -1579,6 +1579,13 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   function setCachedWbiKeys(keys) {
     cachedWbiKeys = keys;
   }
+  function extractWbiKeys(data) {
+    const imgUrl = data.data?.wbi_img?.img_url;
+    const subUrl = data.data?.wbi_img?.sub_url;
+    const img_key = imgUrl?.split("/").pop()?.split(".")[0] ?? "";
+    const sub_key = subUrl?.split("/").pop()?.split(".")[0] ?? "";
+    return img_key && sub_key ? { img_key, sub_key } : null;
+  }
   (() => {
     const originalOpen = XMLHttpRequest.prototype.open;
     const originalSend = XMLHttpRequest.prototype.send;
@@ -1593,13 +1600,10 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
         this.addEventListener("load", function() {
           try {
             const data = JSON.parse(this.responseText);
-            if (data?.data?.wbi_img) {
+            const keys = extractWbiKeys(data);
+            if (keys) {
               console.log("[LAPLACE Chatterbox] wbi_img:", data.data.wbi_img);
-              const img_url = data.data.wbi_img.img_url;
-              const sub_url = data.data.wbi_img.sub_url;
-              const img_key = img_url?.split("/").pop()?.split(".")[0] ?? "";
-              const sub_key = sub_url?.split("/").pop()?.split(".")[0] ?? "";
-              setCachedWbiKeys({ img_key, sub_key });
+              setCachedWbiKeys(keys);
               console.log("[LAPLACE Chatterbox] Extracted WBI keys:", cachedWbiKeys);
             } else {
               console.log("[LAPLACE Chatterbox] Response received but wbi_img not found:", data);
@@ -1621,6 +1625,22 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       await new Promise((r2) => setTimeout(r2, interval));
     }
     return true;
+  }
+  async function ensureWbiKeys() {
+    if (cachedWbiKeys) return cachedWbiKeys;
+    if (await waitForWbiKeys(1500)) return cachedWbiKeys;
+    try {
+      const resp = await fetch("https://api.bilibili.com/x/web-interface/nav", {
+        method: "GET",
+        credentials: "include"
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      const keys = extractWbiKeys(data);
+      if (keys) setCachedWbiKeys(keys);
+    } catch {
+    }
+    return cachedWbiKeys;
   }
   const mixinKeyEncTab = [
     46,
@@ -2978,6 +2998,21 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   function visibleRenderMessages(messages2, matches) {
     return messages2.filter(matches).slice(-CUSTOM_CHAT_MAX_MESSAGES);
   }
+  const CUSTOM_CHAT_SEARCH_KEYS = new Set(["user", "name", "from", "uid", "text", "msg", "kind", "type", "source", "is"]);
+  const CUSTOM_CHAT_SEARCH_KINDS = [
+    "danmaku",
+    "gift",
+    "superchat",
+    "guard",
+    "redpacket",
+    "lottery",
+    "enter",
+    "follow",
+    "like",
+    "share",
+    "notice",
+    "system"
+  ];
   function kindLabel(kind) {
     if (kind === "danmaku") return "弹幕";
     if (kind === "gift") return "礼物";
@@ -2993,6 +3028,24 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     if (kind === "system") return "系统";
     return kind;
   }
+  function customChatSearchHint(query) {
+    for (const token of splitQuery(query)) {
+      const normalized = token.startsWith("-") ? token.slice(1).trim() : token.trim();
+      const colon = normalized.indexOf(":");
+      if (colon <= 0 || normalized.includes("://")) continue;
+      const key = normalized.slice(0, colon).toLowerCase();
+      const value = normalized.slice(colon + 1).trim().toLowerCase();
+      if (!isSearchFilterKey(key)) {
+        const suggestion = closestSearchSuggestion(key, [...CUSTOM_CHAT_SEARCH_KEYS]);
+        return suggestion ? `不认识 ${key}: 条件，试试 ${suggestion}:` : "不认识这个搜索条件";
+      }
+      if ((key === "kind" || key === "type") && value && !matchesKnownKind(value)) {
+        const suggestion = closestSearchSuggestion(value, CUSTOM_CHAT_SEARCH_KINDS);
+        return suggestion ? `没有这种类型，试试 kind:${suggestion}` : "没有这种消息类型";
+      }
+    }
+    return "";
+  }
   function messageMatchesCustomChatSearch(message, query, isKindVisible) {
     if (!isKindVisible(message.kind)) return false;
     const tokens = splitQuery(query);
@@ -3007,8 +3060,30 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   function splitQuery(query) {
     return query.match(/(?:[^\s"]+|"[^"]*")+/g)?.map((token) => token.replace(/^"|"$/g, "").trim()).filter(Boolean) ?? [];
   }
+  function isSearchFilterKey(key) {
+    return /^[a-z][a-z-]*$/i.test(key) && CUSTOM_CHAT_SEARCH_KEYS.has(key);
+  }
   function includesFolded(value, needle) {
     return value.toLowerCase().includes(needle.toLowerCase());
+  }
+  function matchesKnownKind(value) {
+    return CUSTOM_CHAT_SEARCH_KINDS.some((kind) => includesFolded(kind, value) || includesFolded(kindLabel(kind), value));
+  }
+  function levenshteinDistance(a2, b2) {
+    const previous = Array.from({ length: b2.length + 1 }, (_2, index) => index);
+    const current = Array.from({ length: b2.length + 1 }, () => 0);
+    for (let i2 = 1; i2 <= a2.length; i2++) {
+      current[0] = i2;
+      for (let j2 = 1; j2 <= b2.length; j2++) {
+        current[j2] = a2[i2 - 1] === b2[j2 - 1] ? previous[j2 - 1] : Math.min(previous[j2 - 1] + 1, previous[j2] + 1, current[j2 - 1] + 1);
+      }
+      previous.splice(0, previous.length, ...current);
+    }
+    return previous[b2.length];
+  }
+  function closestSearchSuggestion(value, candidates) {
+    const suggestion = candidates.map((candidate) => ({ value: candidate, distance: levenshteinDistance(value, candidate.toLowerCase()) })).sort((a2, b2) => a2.distance - b2.distance)[0];
+    return suggestion && suggestion.distance <= 3 ? suggestion.value : null;
   }
   function tokenMatches(message, token) {
     const normalized = token.trim();
@@ -5184,7 +5259,10 @@ ws;
   let keep = null;
   let started = false;
   let reconnectTimer = null;
+  let lastStartupFailure = "";
+  let lastStartupFailureAt = 0;
   const recentDanmaku = new Map();
+  const STARTUP_FAILURE_LOG_INTERVAL = 6e4;
   function asRecord(value) {
     return typeof value === "object" && value !== null ? value : {};
   }
@@ -5222,14 +5300,34 @@ ws;
     return asString(data.msg_id) || String(data.id ?? data.uid ?? fallback);
   }
   async function fetchDanmuInfo(roomId) {
-    const resp = await fetch(`${BASE_URL.BILIBILI_DANMU_INFO}?id=${roomId}&type=0`, { credentials: "include" });
+    const wbiKeys = await ensureWbiKeys();
+    if (!wbiKeys) throw new Error("WBI keys unavailable");
+    const query = encodeWbi(
+      {
+        id: roomId,
+        type: 0,
+        web_location: getSpmPrefix()
+      },
+      wbiKeys
+    );
+    const resp = await fetch(`${BASE_URL.BILIBILI_DANMU_INFO}?${query}`, { credentials: "include" });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
     const json = await resp.json();
-    if (json.code !== 0 || !json.data?.token) throw new Error(json.message ?? "弹幕服务器信息获取失败");
+    if (json.code !== 0 || !json.data?.token) {
+      const message = json.message ?? json.msg ?? "danmaku server info unavailable";
+      throw new Error(json.code === -352 ? `Bilibili rejected getDanmuInfo (-352): ${message}` : message);
+    }
     const host = json.data.host_list?.find((item) => item.host && (item.wss_port || item.port || item.ws_port));
     if (!host?.host) throw new Error("弹幕服务器地址为空");
     const port = host.wss_port || host.port || host.ws_port || 443;
     return { key: json.data.token, address: `wss://${host.host}:${port}/sub` };
+  }
+  function appendStartupFailure(message) {
+    const now = Date.now();
+    if (message === lastStartupFailure && now - lastStartupFailureAt < STARTUP_FAILURE_LOG_INTERVAL) return;
+    lastStartupFailure = message;
+    lastStartupFailureAt = now;
+    appendLog(`⚪ Chatterbox Chat WS 暂不可用，DOM 消息源继续兜底：${message}`);
   }
   function emit(event) {
     emitCustomChatEvent(event);
@@ -5237,6 +5335,8 @@ ws;
   function bindEvents(roomId, live) {
     live.addEventListener("live", () => {
       emitCustomChatWsStatus("live");
+      lastStartupFailure = "";
+      lastStartupFailureAt = 0;
       appendLog(`🟢 Chatterbox Chat WS 已连接：${roomId}`);
     });
     live.addEventListener("close", () => {
@@ -5245,7 +5345,7 @@ ws;
     });
     live.addEventListener("error", () => {
       emitCustomChatWsStatus("error");
-      appendLog("🔴 Chatterbox Chat WS 连接异常，DOM 消息源继续兜底");
+      appendStartupFailure("connection error");
     });
     live.addEventListener("DANMU_MSG", ({ data }) => {
       const info = data.info;
@@ -5439,7 +5539,7 @@ ws;
     } catch (err) {
       emitCustomChatWsStatus("error");
       const message = err instanceof Error ? err.message : String(err);
-      appendLog(`🔴 Chatterbox Chat WS 启动失败：${message}`);
+      appendStartupFailure(message);
       reconnectTimer = setTimeout(() => void connect(), 8e3);
     }
   }
@@ -6650,52 +6750,8 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   function messageMatchesSearch(message) {
     return messageMatchesCustomChatSearch(message, searchQuery, kindVisible);
   }
-  const SEARCH_KIND_ALIASES = {
-    danmaku: "danmaku",
-    弹幕: "danmaku",
-    gift: "gift",
-    礼物: "gift",
-    superchat: "superchat",
-    sc: "superchat",
-    醒目留言: "superchat",
-    guard: "guard",
-    舰队: "guard",
-    舰长: "guard",
-    redpacket: "redpacket",
-    红包: "redpacket",
-    lottery: "lottery",
-    天选: "lottery",
-    enter: "enter",
-    进场: "enter",
-    follow: "follow",
-    关注: "follow",
-    like: "like",
-    点赞: "like",
-    share: "share",
-    分享: "share",
-    notice: "notice",
-    通知: "notice",
-    system: "system",
-    系统: "system"
-  };
-  function levenshteinDistance(a2, b2) {
-    const previous = Array.from({ length: b2.length + 1 }, (_2, index) => index);
-    const current = Array.from({ length: b2.length + 1 }, () => 0);
-    for (let i2 = 1; i2 <= a2.length; i2++) {
-      current[0] = i2;
-      for (let j2 = 1; j2 <= b2.length; j2++) {
-        current[j2] = a2[i2 - 1] === b2[j2 - 1] ? previous[j2 - 1] : Math.min(previous[j2 - 1] + 1, previous[j2] + 1, current[j2 - 1] + 1);
-      }
-      previous.splice(0, previous.length, ...current);
-    }
-    return previous[b2.length];
-  }
   function searchHint() {
-    const kindToken = searchQuery.match(/(?:^|\s)kind:([^\s"]+)/i)?.[1]?.trim().toLowerCase();
-    if (!kindToken || SEARCH_KIND_ALIASES[kindToken]) return "";
-    const candidates = Object.keys(SEARCH_KIND_ALIASES).map((value) => ({ value, distance: levenshteinDistance(kindToken, value.toLowerCase()) })).sort((a2, b2) => a2.distance - b2.distance);
-    const suggestion = candidates[0];
-    return suggestion && suggestion.distance <= 3 ? `没有这种类型，试试 kind:${suggestion.value}` : "没有这种消息类型";
+    return customChatSearchHint(searchQuery);
   }
   function renderedMessageCount() {
     return visibleMessages.length;
@@ -6738,6 +6794,12 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     if (!searchQuery.trim()) {
       matchCountEl.textContent = "";
       matchCountEl.style.display = "none";
+      return;
+    }
+    const hint = searchHint();
+    if (hint) {
+      matchCountEl.textContent = hint;
+      matchCountEl.style.display = "";
       return;
     }
     const count = messages.filter(messageMatchesSearch).length;
@@ -10386,15 +10448,18 @@ u$2("br", {}),
         )
       ] }),
 u$2("details", { className: "cb-settings-accordion", children: [
-u$2("summary", { children: "其他设置" }),
+u$2("summary", { className: "cb-module-summary", children: [
+u$2("span", { className: "cb-accordion-title", children: "Chatterbox Chat" }),
+u$2("span", { className: "cb-module-state", "data-active": customChatEnabled.value ? "true" : "false", children: customChatEnabled.value ? "ON" : "OFF" })
+        ] }),
 u$2(
           "div",
           {
             className: "cb-section cb-stack",
             style: { margin: ".5em 0", paddingBottom: "1em", borderBottom: "1px solid var(--Ga2, #eee)" },
             children: [
-u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginBottom: ".5em" }, children: "其他设置" }),
-u$2("div", { style: { display: "flex", flexDirection: "column", gap: ".5em" }, children: [
+u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginBottom: ".5em" }, children: "Chatterbox Chat" }),
+u$2("div", { className: "cb-setting-block cb-setting-primary", children: [
 u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
 u$2(
                     "input",
@@ -10412,7 +10477,8 @@ u$2("label", { htmlFor: "customChatEnabled", children: "接管 B 站评论区（
 u$2(
                   "span",
                   {
-                    className: "cb-switch-row",
+                    className: "cb-switch-row cb-setting-child",
+                    "data-enabled": customChatEnabled.value ? "true" : "false",
                     style: { display: "inline-flex", alignItems: "center", gap: ".25em", paddingLeft: "1.5em" },
                     children: [
 u$2(
@@ -10430,13 +10496,16 @@ u$2(
 u$2("label", { htmlFor: "customChatHideNative", style: { color: customChatEnabled.value ? void 0 : "#999" }, children: "隐藏 B 站原评论列表和原发送框" })
                     ]
                   }
-                ),
+                )
+              ] }),
 u$2(
-                  "span",
-                  {
-                    className: "cb-switch-row",
-                    style: { display: "inline-flex", alignItems: "center", gap: ".25em", paddingLeft: "1.5em" },
-                    children: [
+                "div",
+                {
+                  className: "cb-setting-block cb-dependent-group",
+                  "data-enabled": customChatEnabled.value ? "true" : "false",
+                  "data-reason": "需先开启 Chatterbox Chat",
+                  children: [
+u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
 u$2(
                         "input",
                         {
@@ -10450,76 +10519,69 @@ u$2(
                         }
                       ),
 u$2("label", { htmlFor: "customChatUseWs", style: { color: customChatEnabled.value ? void 0 : "#999" }, children: "直连 WebSocket 获取礼物、醒目留言、进场等事件（DOM 兜底）" })
-                    ]
-                  }
-                ),
-u$2("div", { className: "cb-row", style: { paddingLeft: "1.5em" }, children: [
+                    ] }),
+u$2("div", { className: "cb-row cb-setting-row", children: [
 u$2("label", { htmlFor: "customChatTheme", children: "评论区主题" }),
 u$2(
-                    "select",
-                    {
-                      id: "customChatTheme",
-                      value: customChatTheme.value,
-                      disabled: !customChatEnabled.value,
-                      onChange: (e2) => {
-                        customChatTheme.value = e2.currentTarget.value;
-                      },
-                      children: [
+                        "select",
+                        {
+                          id: "customChatTheme",
+                          value: customChatTheme.value,
+                          disabled: !customChatEnabled.value,
+                          onChange: (e2) => {
+                            customChatTheme.value = e2.currentTarget.value;
+                          },
+                          children: [
 u$2("option", { value: "laplace", children: "iMessage Dark" }),
 u$2("option", { value: "light", children: "iMessage Light" }),
 u$2("option", { value: "compact", children: "Compact Bubble" })
-                      ]
-                    }
-                  )
-                ] }),
-u$2("details", { style: { marginLeft: "1.5em" }, children: [
+                          ]
+                        }
+                      )
+                    ] }),
+u$2("details", { className: "cb-subdetails", children: [
 u$2("summary", { children: "自定义评论区 CSS" }),
 u$2("div", { className: "cb-body cb-stack", children: [
 u$2("div", { className: "cb-row", children: [
 u$2(
-                        "button",
-                        {
-                          type: "button",
-                          disabled: !customChatEnabled.value,
-                          onClick: () => {
-                            customChatCss.value = MILK_GREEN_IMESSAGE_CSS;
-                          },
-                          children: "奶绿 iMessage"
-                        }
-                      ),
+                            "button",
+                            {
+                              type: "button",
+                              disabled: !customChatEnabled.value,
+                              onClick: () => {
+                                customChatCss.value = MILK_GREEN_IMESSAGE_CSS;
+                              },
+                              children: "奶绿 iMessage"
+                            }
+                          ),
 u$2(
-                        "button",
-                        {
-                          type: "button",
-                          disabled: !customChatEnabled.value || !customChatCss.value.trim(),
-                          onClick: () => {
-                            customChatCss.value = "";
-                          },
-                          children: "清空 CSS"
-                        }
-                      )
-                    ] }),
+                            "button",
+                            {
+                              type: "button",
+                              disabled: !customChatEnabled.value || !customChatCss.value.trim(),
+                              onClick: () => {
+                                customChatCss.value = "";
+                              },
+                              children: "清空 CSS"
+                            }
+                          )
+                        ] }),
 u$2(
-                      "textarea",
-                      {
-                        value: customChatCss.value,
-                        disabled: !customChatEnabled.value,
-                        onInput: (e2) => {
-                          customChatCss.value = e2.currentTarget.value;
-                        },
-                        placeholder: "#laplace-custom-chat .lc-chat-message { ... }",
-                        style: { minHeight: "90px", resize: "vertical", width: "100%" }
-                      }
-                    ),
+                          "textarea",
+                          {
+                            value: customChatCss.value,
+                            disabled: !customChatEnabled.value,
+                            onInput: (e2) => {
+                              customChatCss.value = e2.currentTarget.value;
+                            },
+                            placeholder: "#laplace-custom-chat .lc-chat-message { ... }",
+                            style: { minHeight: "90px", resize: "vertical", width: "100%" }
+                          }
+                        ),
 u$2("div", { className: "cb-note", children: "可覆盖 #laplace-custom-chat 的 --lc-chat-* 变量，以及 .lc-chat-bubble、.lc-chat-medal、.lc-chat-name、.lc-chat-action、.lc-chat-card-event、[data-kind]、[data-card]、[data-guard] 等选择器。" })
-                  ] })
-                ] }),
-u$2(
-                  "span",
-                  {
-                    className: "cb-switch-row",
-                    style: { display: "inline-flex", alignItems: "center", gap: ".25em", paddingLeft: "1.5em" },
-                    children: [
+                      ] })
+                    ] }),
+u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
 u$2(
                         "input",
                         {
@@ -10533,9 +10595,27 @@ u$2(
                         }
                       ),
 u$2("label", { htmlFor: "customChatPerfDebug", style: { color: customChatEnabled.value ? void 0 : "#999" }, children: "显示 Chatterbox 性能调试信息" })
-                    ]
-                  }
-                ),
+                    ] })
+                  ]
+                }
+              )
+            ]
+          }
+        )
+      ] }),
+u$2("details", { className: "cb-settings-accordion", children: [
+u$2("summary", { className: "cb-module-summary", children: [
+u$2("span", { className: "cb-accordion-title", children: "偷弹幕与 +1" }),
+u$2("span", { className: "cb-module-state", "data-active": danmakuDirectMode.value ? "true" : "false", children: danmakuDirectMode.value ? "ON" : "OFF" })
+        ] }),
+u$2(
+          "div",
+          {
+            className: "cb-section cb-stack",
+            style: { margin: ".5em 0", paddingBottom: "1em", borderBottom: "1px solid var(--Ga2, #eee)" },
+            children: [
+u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginBottom: ".5em" }, children: "偷弹幕与 +1" }),
+u$2("div", { className: "cb-setting-block cb-setting-primary", children: [
 u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
 u$2(
                     "input",
@@ -10553,7 +10633,8 @@ u$2("label", { htmlFor: "danmakuDirectMode", children: "+1模式（在聊天消�
 u$2(
                   "span",
                   {
-                    className: "cb-switch-row",
+                    className: "cb-switch-row cb-setting-child",
+                    "data-enabled": danmakuDirectMode.value ? "true" : "false",
                     style: { display: "inline-flex", alignItems: "center", gap: ".25em", paddingLeft: "1.5em" },
                     children: [
 u$2(
@@ -10575,7 +10656,8 @@ u$2("label", { htmlFor: "danmakuDirectConfirm", style: { color: danmakuDirectMod
 u$2(
                   "span",
                   {
-                    className: "cb-switch-row",
+                    className: "cb-switch-row cb-setting-child",
+                    "data-enabled": danmakuDirectMode.value ? "true" : "false",
                     style: { display: "inline-flex", alignItems: "center", gap: ".25em", paddingLeft: "1.5em" },
                     children: [
 u$2(
@@ -10593,7 +10675,39 @@ u$2(
 u$2("label", { htmlFor: "danmakuDirectAlwaysShow", style: { color: danmakuDirectMode.value ? void 0 : "#999" }, children: "总是显示偷/+1按钮" })
                     ]
                   }
-                ),
+                )
+              ] })
+            ]
+          }
+        )
+      ] }),
+u$2("details", { className: "cb-settings-accordion", children: [
+u$2("summary", { className: "cb-module-summary", children: [
+u$2("span", { className: "cb-accordion-title", children: "直播间布局" }),
+u$2("span", { className: "cb-module-state", "data-active": optimizeLayout.value ? "true" : "false", children: optimizeLayout.value ? "OPT" : "STD" })
+        ] }),
+u$2(
+          "div",
+          {
+            className: "cb-section cb-stack",
+            style: { margin: ".5em 0", paddingBottom: "1em", borderBottom: "1px solid var(--Ga2, #eee)" },
+            children: [
+u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginBottom: ".5em" }, children: "直播间布局" }),
+u$2("div", { className: "cb-setting-block cb-setting-primary", children: [
+u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
+u$2(
+                    "input",
+                    {
+                      id: "optimizeLayout",
+                      type: "checkbox",
+                      checked: optimizeLayout.value,
+                      onInput: (e2) => {
+                        optimizeLayout.value = e2.currentTarget.checked;
+                      }
+                    }
+                  ),
+u$2("label", { htmlFor: "optimizeLayout", children: "优化布局" })
+                ] }),
 u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
 u$2(
                     "input",
@@ -10621,20 +10735,6 @@ u$2(
                     }
                   ),
 u$2("label", { htmlFor: "unlockForbidLive", children: "拉黑直播间解锁（刷新生效，仅布局解锁）" })
-                ] }),
-u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
-u$2(
-                    "input",
-                    {
-                      id: "optimizeLayout",
-                      type: "checkbox",
-                      checked: optimizeLayout.value,
-                      onInput: (e2) => {
-                        optimizeLayout.value = e2.currentTarget.checked;
-                      }
-                    }
-                  ),
-u$2("label", { htmlFor: "optimizeLayout", children: "优化布局" })
                 ] })
               ] })
             ]
@@ -11352,22 +11452,22 @@ u$2(
       }
 
       #laplace-chatterbox-dialog details {
-        margin: 0 0 6px !important;
+        margin: 0 0 5px !important;
         padding: 0 !important;
-        border: 1px solid rgba(0, 0, 0, .07) !important;
+        border: 1px solid rgba(0, 0, 0, .08) !important;
         border-radius: 8px !important;
-        background: rgba(255, 255, 255, .72) !important;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, .04) !important;
+        background: rgba(252, 252, 253, .78) !important;
+        box-shadow: 0 1px 0 rgba(255, 255, 255, .7) inset !important;
         overflow: hidden;
       }
 
       #laplace-chatterbox-dialog details[open] {
-        background: rgba(255, 255, 255, .84) !important;
+        background: rgba(255, 255, 255, .9) !important;
       }
 
       #laplace-chatterbox-dialog .cb-settings-accordion > .cb-section {
         margin: 0 !important;
-        padding: 0 9px 8px !important;
+        padding: 0 7px 7px !important;
         border: 0 !important;
         border-radius: 0 !important;
         background: transparent !important;
@@ -11389,11 +11489,11 @@ u$2(
       }
 
       #laplace-chatterbox-dialog summary {
-        min-height: 32px;
+        min-height: 30px;
         display: flex !important;
         align-items: center;
         gap: 6px;
-        padding: 0 9px !important;
+        padding: 0 8px !important;
         color: #1d1d1f !important;
         list-style: none;
         font-weight: 650 !important;
@@ -11640,7 +11740,115 @@ u$2(
         display: flex !important;
         align-items: center !important;
         gap: 6px !important;
-        min-height: 24px;
+        min-height: 22px;
+        line-height: 1.32;
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-block {
+        display: grid;
+        gap: 5px;
+        padding: 6px 0;
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-block + .cb-setting-block {
+        border-top: 1px solid rgba(0, 0, 0, .06);
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-primary {
+        padding: 6px 7px;
+        border: 1px solid rgba(0, 0, 0, .055);
+        border-left: 3px solid #007aff;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, .68);
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-row {
+        justify-content: space-between;
+        gap: 8px;
+        min-height: 26px;
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-row select {
+        max-width: 178px;
+        margin-left: auto;
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-child[data-enabled="false"] {
+        color: #8e8e93;
+      }
+
+      #laplace-chatterbox-dialog .cb-dependent-group {
+        position: relative;
+        margin-top: 1px;
+        padding: 7px;
+        border: 1px solid rgba(0, 0, 0, .055);
+        border-left: 3px solid #34c759;
+        border-radius: 8px;
+        background: rgba(248, 248, 250, .7);
+        transition: background .18s ease, border-color .18s ease, opacity .18s ease;
+      }
+
+      #laplace-chatterbox-dialog .cb-dependent-group[data-enabled="false"] {
+        border-left-color: #c7c7cc;
+        background: repeating-linear-gradient(
+          -45deg,
+          rgba(118, 118, 128, .06),
+          rgba(118, 118, 128, .06) 6px,
+          rgba(255, 255, 255, .52) 6px,
+          rgba(255, 255, 255, .52) 12px
+        );
+      }
+
+      #laplace-chatterbox-dialog .cb-dependent-group[data-enabled="false"]::before {
+        content: attr(data-reason);
+        justify-self: start;
+        width: max-content;
+        max-width: 100%;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: rgba(118, 118, 128, .13);
+        color: #6e6e73;
+        font-size: 11px;
+        font-weight: 620;
+        line-height: 1.35;
+      }
+
+      #laplace-chatterbox-dialog .cb-accordion-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        margin-right: auto;
+      }
+
+      #laplace-chatterbox-dialog .cb-module-summary::after {
+        margin-left: 2px;
+      }
+
+      #laplace-chatterbox-dialog .cb-module-state {
+        flex: 0 0 auto;
+        min-width: 32px;
+        padding: 1px 6px;
+        border-radius: 999px;
+        border: 1px solid rgba(0, 0, 0, .06);
+        background: rgba(118, 118, 128, .1);
+        color: #6e6e73;
+        font-size: 10px !important;
+        font-weight: 720;
+        line-height: 1.45;
+        text-align: center;
+      }
+
+      #laplace-chatterbox-dialog .cb-module-state[data-active="true"] {
+        border-color: rgba(52, 199, 89, .28);
+        background: rgba(52, 199, 89, .14);
+        color: #0a7f55;
+      }
+
+      #laplace-chatterbox-dialog .cb-subdetails {
+        margin: 0 !important;
+        border-color: rgba(0, 0, 0, .05) !important;
+        background: rgba(248, 248, 250, .56) !important;
+        box-shadow: none !important;
       }
 
       #laplace-chatterbox-dialog .cb-segment {

@@ -1112,15 +1112,20 @@ export function SettingsTab() {
       </details>
 
       <details className='cb-settings-accordion'>
-        <summary>其他设置</summary>
+        <summary className='cb-module-summary'>
+          <span className='cb-accordion-title'>Chatterbox Chat</span>
+          <span className='cb-module-state' data-active={customChatEnabled.value ? 'true' : 'false'}>
+            {customChatEnabled.value ? 'ON' : 'OFF'}
+          </span>
+        </summary>
         <div
           className='cb-section cb-stack'
           style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
         >
           <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
-            其他设置
+            Chatterbox Chat
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '.5em' }}>
+          <div className='cb-setting-block cb-setting-primary'>
             <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
               <input
                 id='customChatEnabled'
@@ -1133,7 +1138,8 @@ export function SettingsTab() {
               <label htmlFor='customChatEnabled'>接管 B 站评论区（Chatterbox Chat）</label>
             </span>
             <span
-              className='cb-switch-row'
+              className='cb-switch-row cb-setting-child'
+              data-enabled={customChatEnabled.value ? 'true' : 'false'}
               style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
             >
               <input
@@ -1149,10 +1155,13 @@ export function SettingsTab() {
                 隐藏 B 站原评论列表和原发送框
               </label>
             </span>
-            <span
-              className='cb-switch-row'
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
-            >
+          </div>
+          <div
+            className='cb-setting-block cb-dependent-group'
+            data-enabled={customChatEnabled.value ? 'true' : 'false'}
+            data-reason='需先开启 Chatterbox Chat'
+          >
+            <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
               <input
                 id='customChatUseWs'
                 type='checkbox'
@@ -1166,7 +1175,7 @@ export function SettingsTab() {
                 直连 WebSocket 获取礼物、醒目留言、进场等事件（DOM 兜底）
               </label>
             </span>
-            <div className='cb-row' style={{ paddingLeft: '1.5em' }}>
+            <div className='cb-row cb-setting-row'>
               <label htmlFor='customChatTheme'>评论区主题</label>
               <select
                 id='customChatTheme'
@@ -1181,7 +1190,7 @@ export function SettingsTab() {
                 <option value='compact'>Compact Bubble</option>
               </select>
             </div>
-            <details style={{ marginLeft: '1.5em' }}>
+            <details className='cb-subdetails'>
               <summary>自定义评论区 CSS</summary>
               <div className='cb-body cb-stack'>
                 <div className='cb-row'>
@@ -1220,10 +1229,7 @@ export function SettingsTab() {
                 </div>
               </div>
             </details>
-            <span
-              className='cb-switch-row'
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
-            >
+            <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
               <input
                 id='customChatPerfDebug'
                 type='checkbox'
@@ -1237,6 +1243,25 @@ export function SettingsTab() {
                 显示 Chatterbox 性能调试信息
               </label>
             </span>
+          </div>
+        </div>
+      </details>
+
+      <details className='cb-settings-accordion'>
+        <summary className='cb-module-summary'>
+          <span className='cb-accordion-title'>偷弹幕与 +1</span>
+          <span className='cb-module-state' data-active={danmakuDirectMode.value ? 'true' : 'false'}>
+            {danmakuDirectMode.value ? 'ON' : 'OFF'}
+          </span>
+        </summary>
+        <div
+          className='cb-section cb-stack'
+          style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
+        >
+          <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
+            偷弹幕与 +1
+          </div>
+          <div className='cb-setting-block cb-setting-primary'>
             <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
               <input
                 id='danmakuDirectMode'
@@ -1249,7 +1274,8 @@ export function SettingsTab() {
               <label htmlFor='danmakuDirectMode'>+1模式（在聊天消息旁显示偷弹幕和+1按钮）</label>
             </span>
             <span
-              className='cb-switch-row'
+              className='cb-switch-row cb-setting-child'
+              data-enabled={danmakuDirectMode.value ? 'true' : 'false'}
               style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
             >
               <input
@@ -1266,7 +1292,8 @@ export function SettingsTab() {
               </label>
             </span>
             <span
-              className='cb-switch-row'
+              className='cb-switch-row cb-setting-child'
+              data-enabled={danmakuDirectMode.value ? 'true' : 'false'}
               style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
             >
               <input
@@ -1281,6 +1308,36 @@ export function SettingsTab() {
               <label htmlFor='danmakuDirectAlwaysShow' style={{ color: danmakuDirectMode.value ? undefined : '#999' }}>
                 总是显示偷/+1按钮
               </label>
+            </span>
+          </div>
+        </div>
+      </details>
+
+      <details className='cb-settings-accordion'>
+        <summary className='cb-module-summary'>
+          <span className='cb-accordion-title'>直播间布局</span>
+          <span className='cb-module-state' data-active={optimizeLayout.value ? 'true' : 'false'}>
+            {optimizeLayout.value ? 'OPT' : 'STD'}
+          </span>
+        </summary>
+        <div
+          className='cb-section cb-stack'
+          style={{ margin: '.5em 0', paddingBottom: '1em', borderBottom: '1px solid var(--Ga2, #eee)' }}
+        >
+          <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
+            直播间布局
+          </div>
+          <div className='cb-setting-block cb-setting-primary'>
+            <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+              <input
+                id='optimizeLayout'
+                type='checkbox'
+                checked={optimizeLayout.value}
+                onInput={e => {
+                  optimizeLayout.value = e.currentTarget.checked
+                }}
+              />
+              <label htmlFor='optimizeLayout'>优化布局</label>
             </span>
             <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
               <input
@@ -1303,17 +1360,6 @@ export function SettingsTab() {
                 }}
               />
               <label htmlFor='unlockForbidLive'>拉黑直播间解锁（刷新生效，仅布局解锁）</label>
-            </span>
-            <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
-              <input
-                id='optimizeLayout'
-                type='checkbox'
-                checked={optimizeLayout.value}
-                onInput={e => {
-                  optimizeLayout.value = e.currentTarget.checked
-                }}
-              />
-              <label htmlFor='optimizeLayout'>优化布局</label>
             </span>
           </div>
         </div>

@@ -53,22 +53,22 @@ export function App() {
       }
 
       #laplace-chatterbox-dialog details {
-        margin: 0 0 6px !important;
+        margin: 0 0 5px !important;
         padding: 0 !important;
-        border: 1px solid rgba(0, 0, 0, .07) !important;
+        border: 1px solid rgba(0, 0, 0, .08) !important;
         border-radius: 8px !important;
-        background: rgba(255, 255, 255, .72) !important;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, .04) !important;
+        background: rgba(252, 252, 253, .78) !important;
+        box-shadow: 0 1px 0 rgba(255, 255, 255, .7) inset !important;
         overflow: hidden;
       }
 
       #laplace-chatterbox-dialog details[open] {
-        background: rgba(255, 255, 255, .84) !important;
+        background: rgba(255, 255, 255, .9) !important;
       }
 
       #laplace-chatterbox-dialog .cb-settings-accordion > .cb-section {
         margin: 0 !important;
-        padding: 0 9px 8px !important;
+        padding: 0 7px 7px !important;
         border: 0 !important;
         border-radius: 0 !important;
         background: transparent !important;
@@ -90,11 +90,11 @@ export function App() {
       }
 
       #laplace-chatterbox-dialog summary {
-        min-height: 32px;
+        min-height: 30px;
         display: flex !important;
         align-items: center;
         gap: 6px;
-        padding: 0 9px !important;
+        padding: 0 8px !important;
         color: #1d1d1f !important;
         list-style: none;
         font-weight: 650 !important;
@@ -341,7 +341,115 @@ export function App() {
         display: flex !important;
         align-items: center !important;
         gap: 6px !important;
-        min-height: 24px;
+        min-height: 22px;
+        line-height: 1.32;
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-block {
+        display: grid;
+        gap: 5px;
+        padding: 6px 0;
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-block + .cb-setting-block {
+        border-top: 1px solid rgba(0, 0, 0, .06);
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-primary {
+        padding: 6px 7px;
+        border: 1px solid rgba(0, 0, 0, .055);
+        border-left: 3px solid #007aff;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, .68);
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-row {
+        justify-content: space-between;
+        gap: 8px;
+        min-height: 26px;
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-row select {
+        max-width: 178px;
+        margin-left: auto;
+      }
+
+      #laplace-chatterbox-dialog .cb-setting-child[data-enabled="false"] {
+        color: #8e8e93;
+      }
+
+      #laplace-chatterbox-dialog .cb-dependent-group {
+        position: relative;
+        margin-top: 1px;
+        padding: 7px;
+        border: 1px solid rgba(0, 0, 0, .055);
+        border-left: 3px solid #34c759;
+        border-radius: 8px;
+        background: rgba(248, 248, 250, .7);
+        transition: background .18s ease, border-color .18s ease, opacity .18s ease;
+      }
+
+      #laplace-chatterbox-dialog .cb-dependent-group[data-enabled="false"] {
+        border-left-color: #c7c7cc;
+        background: repeating-linear-gradient(
+          -45deg,
+          rgba(118, 118, 128, .06),
+          rgba(118, 118, 128, .06) 6px,
+          rgba(255, 255, 255, .52) 6px,
+          rgba(255, 255, 255, .52) 12px
+        );
+      }
+
+      #laplace-chatterbox-dialog .cb-dependent-group[data-enabled="false"]::before {
+        content: attr(data-reason);
+        justify-self: start;
+        width: max-content;
+        max-width: 100%;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: rgba(118, 118, 128, .13);
+        color: #6e6e73;
+        font-size: 11px;
+        font-weight: 620;
+        line-height: 1.35;
+      }
+
+      #laplace-chatterbox-dialog .cb-accordion-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        margin-right: auto;
+      }
+
+      #laplace-chatterbox-dialog .cb-module-summary::after {
+        margin-left: 2px;
+      }
+
+      #laplace-chatterbox-dialog .cb-module-state {
+        flex: 0 0 auto;
+        min-width: 32px;
+        padding: 1px 6px;
+        border-radius: 999px;
+        border: 1px solid rgba(0, 0, 0, .06);
+        background: rgba(118, 118, 128, .1);
+        color: #6e6e73;
+        font-size: 10px !important;
+        font-weight: 720;
+        line-height: 1.45;
+        text-align: center;
+      }
+
+      #laplace-chatterbox-dialog .cb-module-state[data-active="true"] {
+        border-color: rgba(52, 199, 89, .28);
+        background: rgba(52, 199, 89, .14);
+        color: #0a7f55;
+      }
+
+      #laplace-chatterbox-dialog .cb-subdetails {
+        margin: 0 !important;
+        border-color: rgba(0, 0, 0, .05) !important;
+        background: rgba(248, 248, 250, .56) !important;
+        box-shadow: none !important;
       }
 
       #laplace-chatterbox-dialog .cb-segment {

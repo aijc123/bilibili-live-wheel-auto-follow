@@ -1,6 +1,6 @@
 import { KeepLiveWS } from '@laplace.live/ws/client'
 
-import { ensureRoomId } from './api'
+import { ensureRoomId, getSpmPrefix } from './api'
 import { BASE_URL } from './const'
 import {
   type CustomChatEvent,
@@ -10,10 +10,12 @@ import {
   emitCustomChatWsStatus,
 } from './custom-chat-events'
 import { appendLog } from './log'
+import { encodeWbi, ensureWbiKeys } from './wbi'
 
 interface DanmuInfoResponse {
   code: number
   message?: string
+  msg?: string
   data?: {
     token?: string
     host_list?: Array<{
@@ -30,7 +32,10 @@ type UnknownRecord = Record<string, unknown>
 let keep: KeepLiveWS | null = null
 let started = false
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+let lastStartupFailure = ''
+let lastStartupFailureAt = 0
 const recentDanmaku = new Map<string, number>()
+const STARTUP_FAILURE_LOG_INTERVAL = 60_000
 
 function asRecord(value: unknown): UnknownRecord {
   return typeof value === 'object' && value !== null ? (value as UnknownRecord) : {}
@@ -79,14 +84,36 @@ function eventId(_cmd: string, data: UnknownRecord, fallback: string): string {
 }
 
 async function fetchDanmuInfo(roomId: number): Promise<{ key: string; address: string }> {
-  const resp = await fetch(`${BASE_URL.BILIBILI_DANMU_INFO}?id=${roomId}&type=0`, { credentials: 'include' })
+  const wbiKeys = await ensureWbiKeys()
+  if (!wbiKeys) throw new Error('WBI keys unavailable')
+
+  const query = encodeWbi(
+    {
+      id: roomId,
+      type: 0,
+      web_location: getSpmPrefix(),
+    },
+    wbiKeys
+  )
+  const resp = await fetch(`${BASE_URL.BILIBILI_DANMU_INFO}?${query}`, { credentials: 'include' })
   if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`)
   const json: DanmuInfoResponse = await resp.json()
-  if (json.code !== 0 || !json.data?.token) throw new Error(json.message ?? '弹幕服务器信息获取失败')
+  if (json.code !== 0 || !json.data?.token) {
+    const message = json.message ?? json.msg ?? 'danmaku server info unavailable'
+    throw new Error(json.code === -352 ? `Bilibili rejected getDanmuInfo (-352): ${message}` : message)
+  }
   const host = json.data.host_list?.find(item => item.host && (item.wss_port || item.port || item.ws_port))
   if (!host?.host) throw new Error('弹幕服务器地址为空')
   const port = host.wss_port || host.port || host.ws_port || 443
   return { key: json.data.token, address: `wss://${host.host}:${port}/sub` }
+}
+
+function appendStartupFailure(message: string): void {
+  const now = Date.now()
+  if (message === lastStartupFailure && now - lastStartupFailureAt < STARTUP_FAILURE_LOG_INTERVAL) return
+  lastStartupFailure = message
+  lastStartupFailureAt = now
+  appendLog(`⚪ Chatterbox Chat WS 暂不可用，DOM 消息源继续兜底：${message}`)
 }
 
 function emit(event: CustomChatEvent): void {
@@ -96,6 +123,8 @@ function emit(event: CustomChatEvent): void {
 function bindEvents(roomId: number, live: KeepLiveWS): void {
   live.addEventListener('live', () => {
     emitCustomChatWsStatus('live')
+    lastStartupFailure = ''
+    lastStartupFailureAt = 0
     appendLog(`🟢 Chatterbox Chat WS 已连接：${roomId}`)
   })
   live.addEventListener('close', () => {
@@ -104,7 +133,7 @@ function bindEvents(roomId: number, live: KeepLiveWS): void {
   })
   live.addEventListener('error', () => {
     emitCustomChatWsStatus('error')
-    appendLog('🔴 Chatterbox Chat WS 连接异常，DOM 消息源继续兜底')
+    appendStartupFailure('connection error')
   })
 
   live.addEventListener('DANMU_MSG', ({ data }) => {
@@ -308,7 +337,7 @@ async function connect(): Promise<void> {
   } catch (err) {
     emitCustomChatWsStatus('error')
     const message = err instanceof Error ? err.message : String(err)
-    appendLog(`🔴 Chatterbox Chat WS 启动失败：${message}`)
+    appendStartupFailure(message)
     reconnectTimer = setTimeout(() => void connect(), 8000)
   }
 }

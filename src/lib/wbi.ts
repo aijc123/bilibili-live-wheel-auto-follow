@@ -9,6 +9,14 @@ function setCachedWbiKeys(keys: BilibiliWbiKeys) {
   cachedWbiKeys = keys
 }
 
+function extractWbiKeys(data: { data?: { wbi_img?: { img_url?: string; sub_url?: string } } }): BilibiliWbiKeys | null {
+  const imgUrl = data.data?.wbi_img?.img_url
+  const subUrl = data.data?.wbi_img?.sub_url
+  const img_key = imgUrl?.split('/').pop()?.split('.')[0] ?? ''
+  const sub_key = subUrl?.split('/').pop()?.split('.')[0] ?? ''
+  return img_key && sub_key ? { img_key, sub_key } : null
+}
+
 ;(() => {
   const originalOpen = XMLHttpRequest.prototype.open
   const originalSend = XMLHttpRequest.prototype.send
@@ -34,16 +42,10 @@ function setCachedWbiKeys(keys: BilibiliWbiKeys) {
           const data: {
             data?: { wbi_img?: { img_url?: string; sub_url?: string } }
           } = JSON.parse(this.responseText)
-          if (data?.data?.wbi_img) {
+          const keys = extractWbiKeys(data)
+          if (keys) {
             console.log('[LAPLACE Chatterbox] wbi_img:', data.data.wbi_img)
-
-            const img_url = data.data.wbi_img.img_url
-            const sub_url = data.data.wbi_img.sub_url
-
-            const img_key = img_url?.split('/').pop()?.split('.')[0] ?? ''
-            const sub_key = sub_url?.split('/').pop()?.split('.')[0] ?? ''
-
-            setCachedWbiKeys({ img_key, sub_key })
+            setCachedWbiKeys(keys)
             console.log('[LAPLACE Chatterbox] Extracted WBI keys:', cachedWbiKeys)
           } else {
             console.log('[LAPLACE Chatterbox] Response received but wbi_img not found:', data)
@@ -70,6 +72,30 @@ export async function waitForWbiKeys(timeout = 5000, interval = 100): Promise<bo
     await new Promise(r => setTimeout(r, interval))
   }
   return true
+}
+
+/**
+ * Ensures WBI keys are available. The page usually provides them through the
+ * nav XHR that we intercept above, but some userscript start timings miss it.
+ */
+export async function ensureWbiKeys(): Promise<BilibiliWbiKeys | null> {
+  if (cachedWbiKeys) return cachedWbiKeys
+  if (await waitForWbiKeys(1500)) return cachedWbiKeys
+
+  try {
+    const resp = await fetch('https://api.bilibili.com/x/web-interface/nav', {
+      method: 'GET',
+      credentials: 'include',
+    })
+    if (!resp.ok) return null
+    const data: { data?: { wbi_img?: { img_url?: string; sub_url?: string } } } = await resp.json()
+    const keys = extractWbiKeys(data)
+    if (keys) setCachedWbiKeys(keys)
+  } catch {
+    // Best-effort fallback. Callers can decide how to proceed without keys.
+  }
+
+  return cachedWbiKeys
 }
 
 // https://s1.hdslb.com/bfs/static/laputa-home/client/assets/vendor.7679ec63.js

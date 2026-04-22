@@ -107,7 +107,7 @@ dist/bilibili-live-wheel-auto-follow.user.js
 
 2. 页面右下角会出现 `弹幕助手` 按钮。
 3. 点开后可以使用 `发送`、`同传`、`设置` 和 `关于` 四个页签。
-4. 如果想接管右侧评论区，到 `设置 -> 其他设置` 开启 `接管 B 站评论区（Chatterbox Chat）`。
+4. 如果想接管右侧评论区，到 `设置 -> Chatterbox Chat` 开启 `接管 B 站评论区（Chatterbox Chat）`。
 
 ## 开发
 

@@ -18,7 +18,7 @@ import {
   trimRenderQueue,
   visibleRenderMessages,
 } from './custom-chat-render'
-import { kindLabel, messageMatchesCustomChatSearch } from './custom-chat-search'
+import { customChatSearchHint, kindLabel, messageMatchesCustomChatSearch } from './custom-chat-search'
 import { copyText, repeatDanmaku, sendManualDanmaku, stealDanmaku } from './danmaku-actions'
 import { type DanmakuEvent, subscribeDanmaku } from './danmaku-stream'
 import { hasRecentWsDanmaku } from './live-ws-source'
@@ -1293,60 +1293,8 @@ function messageMatchesSearch(message: CustomChatEvent): boolean {
   return messageMatchesCustomChatSearch(message, searchQuery, kindVisible)
 }
 
-const SEARCH_KIND_ALIASES: Record<string, CustomChatKind> = {
-  danmaku: 'danmaku',
-  弹幕: 'danmaku',
-  gift: 'gift',
-  礼物: 'gift',
-  superchat: 'superchat',
-  sc: 'superchat',
-  醒目留言: 'superchat',
-  guard: 'guard',
-  舰队: 'guard',
-  舰长: 'guard',
-  redpacket: 'redpacket',
-  红包: 'redpacket',
-  lottery: 'lottery',
-  天选: 'lottery',
-  enter: 'enter',
-  进场: 'enter',
-  follow: 'follow',
-  关注: 'follow',
-  like: 'like',
-  点赞: 'like',
-  share: 'share',
-  分享: 'share',
-  notice: 'notice',
-  通知: 'notice',
-  system: 'system',
-  系统: 'system',
-}
-
-function levenshteinDistance(a: string, b: string): number {
-  const previous = Array.from({ length: b.length + 1 }, (_, index) => index)
-  const current = Array.from({ length: b.length + 1 }, () => 0)
-  for (let i = 1; i <= a.length; i++) {
-    current[0] = i
-    for (let j = 1; j <= b.length; j++) {
-      current[j] =
-        a[i - 1] === b[j - 1] ? previous[j - 1] : Math.min(previous[j - 1] + 1, previous[j] + 1, current[j - 1] + 1)
-    }
-    previous.splice(0, previous.length, ...current)
-  }
-  return previous[b.length]
-}
-
 function searchHint(): string {
-  const kindToken = searchQuery
-    .match(/(?:^|\s)kind:([^\s"]+)/i)?.[1]
-    ?.trim()
-    .toLowerCase()
-  if (!kindToken || SEARCH_KIND_ALIASES[kindToken]) return ''
-  const candidates = Object.keys(SEARCH_KIND_ALIASES)
-    .map(value => ({ value, distance: levenshteinDistance(kindToken, value.toLowerCase()) }))
-    .sort((a, b) => a.distance - b.distance)
-  const suggestion = candidates[0]
-  return suggestion && suggestion.distance <= 3 ? `没有这种类型，试试 kind:${suggestion.value}` : '没有这种消息类型'
+  return customChatSearchHint(searchQuery)
 }
 
 function renderedMessageCount(): number {
@@ -1399,6 +1347,12 @@ function updateMatchCount(): void {
   if (!searchQuery.trim()) {
     matchCountEl.textContent = ''
     matchCountEl.style.display = 'none'
+    return
+  }
+  const hint = searchHint()
+  if (hint) {
+    matchCountEl.textContent = hint
+    matchCountEl.style.display = ''
     return
   }
   const count = messages.filter(messageMatchesSearch).length
