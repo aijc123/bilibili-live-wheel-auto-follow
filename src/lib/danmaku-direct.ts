@@ -19,36 +19,53 @@ const MARKER = 'lc-dm-direct'
 const STYLE_ID = 'lc-dm-direct-style'
 
 const STYLE = `
+.chat-item.danmaku-item {
+  position: relative;
+}
 .${MARKER} {
   display: inline-flex;
-  vertical-align: middle;
-  margin-left: 2px;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
   gap: 2px;
   opacity: 0;
-  transition: opacity .15s;
+  transition: opacity .15s, transform .15s;
   user-select: none;
+  pointer-events: none;
+  z-index: 2;
 }
-.chat-item.danmaku-item:hover .${MARKER} {
+.chat-item.danmaku-item:hover .${MARKER},
+.${MARKER}:hover {
   opacity: 1;
+  pointer-events: auto;
+  transform: translateY(-50%) translateX(-2px);
+}
+.${MARKER}.lc-dm-direct-peek {
+  opacity: 1;
+  pointer-events: auto;
 }
 .${MARKER} button {
   all: unset;
   cursor: pointer;
-  padding: 2px;
-  border: 1px solid currentColor;
-  border-radius: 4px;
+  min-width: 20px;
+  padding: 2px 4px;
+  border-radius: 3px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   line-height: 1;
-  color: inherit;
-  opacity: .35;
-  transition: opacity .1s;
+  color: #fff;
+  background: rgba(0, 0, 0, .62);
+  font-size: 12px;
+  transition: background .1s;
 }
 .${MARKER} button:hover {
-  opacity: 1;
+  background: rgba(0, 0, 0, .82);
 }
 html.lc-dm-direct-always .${MARKER} {
   opacity: 1;
+  pointer-events: auto;
 }
 `
 
@@ -68,7 +85,7 @@ function injectButtons(node: HTMLElement, msg: string): void {
   if (!anchor) return
 
   const container = document.createElement('span')
-  container.className = MARKER
+  container.className = `${MARKER} lc-dm-direct-peek`
   container.dataset.msg = msg
 
   const stealBtn = document.createElement('button')
@@ -86,13 +103,35 @@ function injectButtons(node: HTMLElement, msg: string): void {
   container.appendChild(stealBtn)
   container.appendChild(repeatBtn)
   anchor.after(container)
+
+  window.setTimeout(() => {
+    container.classList.remove('lc-dm-direct-peek')
+  }, 2400)
 }
 
-function handleSteal(msg: string): void {
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    const ok = document.execCommand('copy')
+    textarea.remove()
+    return ok
+  }
+}
+
+async function handleSteal(msg: string): Promise<void> {
+  const copied = await copyText(msg)
   fasongText.value = msg
   activeTab.value = 'fasong'
   dialogOpen.value = true
-  appendLog(`🥷 偷: ${msg}`)
+  appendLog(copied ? `🥷 偷并复制: ${msg}` : `🥷 偷: ${msg}`)
 }
 
 async function handleRepeat(msg: string, anchor?: { x: number; y: number }): Promise<void> {
@@ -128,7 +167,7 @@ function handleDelegatedClick(e: MouseEvent): void {
   const msg = container?.dataset.msg
   if (!msg) return
   const action = btn.dataset.action
-  if (action === 'steal') handleSteal(msg)
+  if (action === 'steal') void handleSteal(msg)
   else if (action === 'repeat') {
     void handleRepeat(msg, { x: e.clientX, y: e.clientY })
   }
@@ -178,7 +217,7 @@ function tryInjectContextMenuItems(li: HTMLLIElement): void {
   stealEl.onclick = () => {
     const text = ul.parentElement?.querySelector('span')?.textContent?.trim() ?? null
     if (text) {
-      handleSteal(text)
+      void handleSteal(text)
     }
     closeNativeContextMenu()
   }
