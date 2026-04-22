@@ -23,7 +23,7 @@ import {
   randomColor,
   randomInterval,
 } from './store'
-import { addRandomCharacter, trimText } from './utils'
+import { addRandomCharacter, formatDanmakuError, trimText } from './utils'
 
 interface TrendEvent {
   ts: number
@@ -210,17 +210,15 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
     const roomId = await ensureRoomId()
 
     const reasonLabel = reason === 'burst' ? '爆发' : '例行'
-    if (targets.length === 1) {
-      const { text, uniqueUsers, totalCount } = targets[0]
-      const senderInfo = uniqueUsers > 0 ? `${uniqueUsers} 人 / ${totalCount} 条` : `${totalCount} 条`
-      appendLog(`🚲 自动融入触发 (${reasonLabel} · ${senderInfo}): ${text}`)
-    } else {
-      appendLog(`🚲 自动融入触发 (${reasonLabel} × ${targets.length} 条趋势)`)
-    }
 
+    // For multi-trend burst: log the summary header upfront.
+    // For single target: skip the trigger line — result will carry all info in one line.
     // For multi-trend burst each message is sent once; for single-message
     // triggers autoBlendSendCount controls how many times to repeat.
     const isMulti = targets.length > 1
+    if (isMulti) {
+      appendLog(`🚲 自动融入触发 (${reasonLabel} × ${targets.length} 条趋势)`)
+    }
 
     let memeRecorded = false
 
@@ -248,10 +246,25 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
         }
 
         const result = await enqueueDanmaku(toSend, roomId, csrfToken, SendPriority.AUTO)
-        const baseLabel = result.isEmoticon ? '自动融入(表情)' : '自动融入'
-        const label = repeatCount > 1 ? `${baseLabel} [${i + 1}/${repeatCount}]` : baseLabel
         const display = wasReplaced || toSend !== originalText ? `${originalText} → ${toSend}` : toSend
-        appendLog(result, label, display)
+
+        if (isMulti) {
+          const baseLabel = result.isEmoticon ? '自动融入(表情)' : '自动融入'
+          const label = repeatCount > 1 ? `${baseLabel} [${i + 1}/${repeatCount}]` : baseLabel
+          appendLog(result, label, display)
+        } else {
+          // Single target: one compact line combining trigger info + result
+          const senderInfo = uniqueUsers > 0 ? `${uniqueUsers}人/${totalCount}条` : `${totalCount}条`
+          const repeatSuffix = repeatCount > 1 ? ` [${i + 1}/${repeatCount}]` : ''
+          const info = `(${reasonLabel}·${senderInfo})${repeatSuffix}`
+          if (result.cancelled) {
+            appendLog(`⏭ 自动融入 ${info}: ${display}（被手动发送中断）`)
+          } else if (result.success) {
+            appendLog(`🚲 自动融入 ${info}: ${display}`)
+          } else {
+            appendLog(`❌ 自动融入 ${info}: ${display}，原因：${formatDanmakuError(result.error)}`)
+          }
+        }
 
         if (result.success && !result.cancelled && !isEmote && !memeRecorded) {
           memeRecorded = true

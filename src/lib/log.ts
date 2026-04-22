@@ -21,14 +21,17 @@ export const logLines = signal<string[]>([])
 export function appendLog(message: string): void
 export function appendLog(result: SendDanmakuResult, label: string, display: string): void
 export function appendLog(arg: string | SendDanmakuResult, label?: string, display?: string): void {
+  const now = new Date()
+  const ts = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+
   const message =
     typeof arg === 'string'
-      ? arg
+      ? `${ts} ${arg}`
       : arg.cancelled
-        ? `⏭ ${label}: ${display}（被手动发送中断）`
+        ? `${ts} ⏭ ${label}: ${display}（被手动发送中断）`
         : arg.success
-          ? `✅ ${label}: ${display}`
-          : `❌ ${label}: ${display}，原因：${formatDanmakuError(arg.error)}`
+          ? `${ts} ✅ ${label}: ${display}`
+          : `${ts} ❌ ${label}: ${display}，原因：${formatDanmakuError(arg.error)}`
 
   const max = maxLogLines.value
   const lines = logLines.value
