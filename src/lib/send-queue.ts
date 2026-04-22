@@ -47,6 +47,21 @@ let processing = false
 let lastSendCompletedAt = 0
 
 /**
+ * The item that has been dequeued but is still waiting through the hard
+ * rate-limit gap before sendDanmaku() is called.  During this window the item
+ * is no longer in `queue`, so cancelPendingAuto() tracks it here so that
+ * clicking 停车 can mark it cancelled before the HTTP request fires.
+ */
+let inflight: QueueItem | null = null
+
+/** Cancel a single AUTO item and resolve its promise with a cancellation result. */
+function cancelAutoItem(item: QueueItem, error: string): void {
+  if (item.cancelled || item.priority !== SendPriority.AUTO) return
+  item.cancelled = true
+  item.resolve({ success: false, cancelled: true, message: item.message, isEmoticon: false, error })
+}
+
+/**
  * Insert keeping FIFO order WITHIN a priority level, and ordering BETWEEN
  * priority levels (highest first). New item goes after all existing items
  * with priority >= its own.
@@ -66,12 +81,24 @@ async function processQueue(): Promise<void> {
       const item = queue.shift()
       if (!item) break
 
+      // Track this item so cancelPendingAuto() can reach it while it is
+      // waiting through the rate-limit gap (no longer in queue at this point).
+      inflight = item
+
       if (lastSendCompletedAt > 0) {
         const sinceLast = Date.now() - lastSendCompletedAt
         if (sinceLast < HARD_MIN_GAP_MS) {
           await new Promise(r => setTimeout(r, HARD_MIN_GAP_MS - sinceLast))
         }
       }
+
+      // Re-check cancellation: the item may have been marked cancelled during
+      // the sleep above (e.g. user clicked 停车 while we were waiting).
+      if (item.cancelled) {
+        inflight = null
+        continue
+      }
+
       try {
         const result = await sendDanmaku(item.message, item.roomId, item.csrfToken)
         lastSendCompletedAt = Date.now()
@@ -79,6 +106,8 @@ async function processQueue(): Promise<void> {
       } catch (err) {
         lastSendCompletedAt = Date.now()
         item.reject(err)
+      } finally {
+        inflight = null
       }
     }
   } finally {
@@ -108,17 +137,10 @@ export function enqueueDanmaku(
     insertByPriority(item)
 
     if (priority === SendPriority.MANUAL) {
+      // Cancel the AUTO item already dequeued and sleeping through the rate-limit gap.
+      if (inflight !== null) cancelAutoItem(inflight, 'preempted')
       for (const q of queue) {
-        if (q !== item && !q.cancelled && q.priority === SendPriority.AUTO) {
-          q.cancelled = true
-          q.resolve({
-            success: false,
-            cancelled: true,
-            message: q.message,
-            isEmoticon: false,
-            error: 'preempted',
-          })
-        }
+        if (q !== item) cancelAutoItem(q, 'preempted')
       }
     }
 
@@ -132,21 +154,12 @@ export function getQueueDepth(): number {
 }
 
 /**
- * Immediately cancels all queued AUTO-priority items. Called by cancelLoop()
- * so clicking 停车 drains the queue at once rather than waiting for each
- * in-queue item to be dequeued and discovered as stale.
+ * Immediately cancels all queued AUTO-priority items, plus any AUTO item that
+ * has already been dequeued but is still waiting through the hard rate-limit
+ * gap. Called by cancelLoop() so clicking 停车 drains the queue at once
+ * rather than waiting for each item to be dequeued and discovered as stale.
  */
 export function cancelPendingAuto(): void {
-  for (const q of queue) {
-    if (!q.cancelled && q.priority === SendPriority.AUTO) {
-      q.cancelled = true
-      q.resolve({
-        success: false,
-        cancelled: true,
-        message: q.message,
-        isEmoticon: false,
-        error: 'loop-stopped',
-      })
-    }
-  }
+  if (inflight !== null) cancelAutoItem(inflight, 'loop-stopped')
+  for (const q of queue) cancelAutoItem(q, 'loop-stopped')
 }

@@ -8,7 +8,6 @@ import { cancelPendingAuto, enqueueDanmaku, SendPriority } from './send-queue'
 import {
   activeTemplateIndex,
   availableDanmakuColors,
-  cachedRoomId,
   forceScrollDanmaku,
   isEmoticonUnique,
   maxLength,
@@ -55,70 +54,26 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<boolean> {
  */
 export async function loop(): Promise<void> {
   let count = 0
-
-  let roomId = cachedRoomId.value
-  if (roomId === null) {
-    try {
-      roomId = await ensureRoomId()
-      buildReplacementMap()
-
-      await waitForWbiKeys()
-      if (cachedWbiKeys) {
-        try {
-          const configQuery = encodeWbi(
-            {
-              room_id: String(cachedRoomId.value),
-              web_location: getSpmPrefix(),
-            },
-            cachedWbiKeys
-          )
-          const configUrl = `${BASE_URL.BILIBILI_GET_DM_CONFIG}?${configQuery}`
-          const configResp: DanmakuConfigResponse = await fetch(configUrl, {
-            method: 'GET',
-            credentials: 'include',
-          }).then(r => r.json())
-
-          if (configResp?.data?.group) {
-            const colors: string[] = []
-            for (const group of configResp.data.group) {
-              for (const color of group.color) {
-                if (color.status === 1) {
-                  colors.push(`0x${color.color_hex}`)
-                }
-              }
-            }
-            if (colors.length > 0) {
-              availableDanmakuColors.value = colors
-              console.log('[LAPLACE Chatterbox] Available colors:', colors)
-            }
-          }
-        } catch {
-          // non-critical
-        }
-      }
-
-      try {
-        await fetchEmoticons(roomId)
-      } catch {
-        // non-critical
-      }
-
-      if (forceScrollDanmaku.value) {
-        const initCsrfToken = getCsrfToken()
-        if (initCsrfToken) {
-          await setDanmakuMode(roomId, initCsrfToken, '1')
-        }
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      appendLog(`❌ 获取房间ID失败: ${message}`)
-      await new Promise(r => setTimeout(r, 5000))
-      return
-    }
-  }
+  // One-time init (WBI keys, color palette, emoticons, scroll mode) runs only
+  // on the first active round.  roomId itself is refreshed every round so SPA
+  // navigation to a different live room is picked up without restarting the loop.
+  let initialized = false
 
   while (true) {
     if (sendMsg.value) {
+      // Re-resolve the room ID each round.  ensureRoomId() compares the cached
+      // slug against the current URL and invalidates when the user navigates to
+      // another room, so this is the only place that needs to change.
+      let roomId: number
+      try {
+        roomId = await ensureRoomId()
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        appendLog(`❌ 获取房间ID失败: ${message}`)
+        await new Promise(r => setTimeout(r, 5000))
+        continue
+      }
+
       // Read the token fresh each round so login/logout changes are picked up
       // without needing a page reload.
       const csrfToken = getCsrfToken()
@@ -126,6 +81,59 @@ export async function loop(): Promise<void> {
         appendLog('❌ 未找到登录信息，已自动停止运行，请先登录 Bilibili')
         sendMsg.value = false
         continue
+      }
+
+      if (!initialized) {
+        initialized = true
+        buildReplacementMap()
+
+        await waitForWbiKeys()
+        if (cachedWbiKeys) {
+          try {
+            const configQuery = encodeWbi(
+              {
+                room_id: String(roomId),
+                web_location: getSpmPrefix(),
+              },
+              cachedWbiKeys
+            )
+            const configUrl = `${BASE_URL.BILIBILI_GET_DM_CONFIG}?${configQuery}`
+            const configResp: DanmakuConfigResponse = await fetch(configUrl, {
+              method: 'GET',
+              credentials: 'include',
+            }).then(r => r.json())
+
+            if (configResp?.data?.group) {
+              const colors: string[] = []
+              for (const group of configResp.data.group) {
+                for (const color of group.color) {
+                  if (color.status === 1) {
+                    colors.push(`0x${color.color_hex}`)
+                  }
+                }
+              }
+              if (colors.length > 0) {
+                availableDanmakuColors.value = colors
+                console.log('[LAPLACE Chatterbox] Available colors:', colors)
+              }
+            }
+          } catch {
+            // non-critical
+          }
+        }
+
+        try {
+          await fetchEmoticons(roomId)
+        } catch {
+          // non-critical
+        }
+
+        if (forceScrollDanmaku.value) {
+          const initCsrfToken = getCsrfToken()
+          if (initCsrfToken) {
+            await setDanmakuMode(roomId, initCsrfToken, '1')
+          }
+        }
       }
 
       currentAbort = new AbortController()
