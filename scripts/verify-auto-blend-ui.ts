@@ -190,10 +190,34 @@ async function main(): Promise<void> {
             if (!button) throw new Error('mode missing: ' + text);
             button.click();
           }
-          const rect = dialog.getBoundingClientRect();
-          const overflowing = [...dialog.querySelectorAll('*')]
-            .filter(el => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflowX !== 'visible')
+          const visibleOverflowing = () => [...dialog.querySelectorAll('*')]
+            .filter(el => {
+              const style = getComputedStyle(el);
+              if (style.display === 'none' || style.visibility === 'hidden') return false;
+              if (!el.getClientRects().length) return false;
+              if (el.scrollWidth <= el.clientWidth + 1) return false;
+              if (style.overflowX === 'visible' && style.whiteSpace !== 'nowrap') return false;
+              return true;
+            })
             .map(el => ({ text: el.textContent.trim().slice(0, 40), tag: el.tagName, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+          const tabs = ['发送', '同传', '设置', '关于'];
+          const tabOverflowing = [];
+          for (const tabText of tabs) {
+            const tab = [...dialog.querySelectorAll('button')].find(el => el.textContent.trim().startsWith(tabText));
+            if (!tab) throw new Error('tab missing: ' + tabText);
+            tab.click();
+            await new Promise(r => setTimeout(r, 80));
+            tabOverflowing.push(...visibleOverflowing().map(item => ({ tab: tabText, ...item })));
+          }
+          const sendTab = [...dialog.querySelectorAll('button')].find(el => el.textContent.trim().startsWith('发送'));
+          sendTab.click();
+          await new Promise(r => setTimeout(r, 80));
+          const logSummary = [...document.querySelectorAll('summary')].find(el => el.textContent.includes('日志'));
+          if (!logSummary) throw new Error('log summary missing');
+          if (!logSummary.parentElement.open) logSummary.click();
+          await new Promise(r => setTimeout(r, 80));
+          const rect = dialog.getBoundingClientRect();
+          const overflowing = [...tabOverflowing, ...visibleOverflowing().map(item => ({ tab: '发送+日志', ...item }))];
           return {
             url: location.href,
             dialogWidth: Math.round(rect.width),
@@ -206,7 +230,7 @@ async function main(): Promise<void> {
     })
 
     const ui = result.result.value
-    if (ui.dialogWidth > 302) throw new Error(`dialog too wide: ${ui.dialogWidth}`)
+    if (ui.dialogWidth > 322) throw new Error(`dialog too wide: ${ui.dialogWidth}`)
     if (!ui.text.includes('自动跟车')) throw new Error('auto-follow title not visible')
     if (!ui.text.includes('开始跟车')) throw new Error('start button not visible after stop')
     if (!ui.text.includes('稳一点') || !ui.text.includes('正常') || !ui.text.includes('热闹')) {

@@ -11,36 +11,21 @@ export function Tabs() {
   const current = activeTab.value
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        marginBlockEnd: '5px',
-        padding: '0 10px',
-        gap: '.25em',
-        borderBottom: '1px solid var(--Ga2, #ddd)',
-      }}
-    >
+    <div className='cb-tabs'>
       {TABS.map(tab => (
         <button
           type='button'
           key={tab.id}
+          className='cb-tab'
+          data-active={current === tab.id}
           onClick={() => {
             activeTab.value = tab.id
           }}
-          style={{
-            padding: '.25em .75em',
-            marginBottom: '-1px',
-            border: 'none',
-            background: 'none',
-            cursor: 'pointer',
-            borderBottom: current === tab.id ? '1px solid #36a185' : '1px solid transparent',
-            fontWeight: current === tab.id ? 'bold' : 'normal',
-          }}
         >
           {tab.label}
-          {tab.id === 'fasong' && sendMsg.value ? ' 🟢' : ''}
-          {tab.id === 'fasong' && autoBlendEnabled.value ? ' 🟣' : ''}
-          {tab.id === 'tongchuan' && sttRunning.value ? ' 🔵' : ''}
+          {tab.id === 'fasong' && sendMsg.value ? ' · 车' : ''}
+          {tab.id === 'fasong' && autoBlendEnabled.value ? ' · 跟' : ''}
+          {tab.id === 'tongchuan' && sttRunning.value ? ' · 开' : ''}
         </button>
       ))}
     </div>

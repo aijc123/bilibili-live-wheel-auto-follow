@@ -64,9 +64,11 @@ const EXTERNAL_SERVICES: ExternalService[] = [
 export function AboutTab() {
   return (
     <>
-      <div style={SECTION_STYLE}>
-        <div style={HEADING_STYLE}>LAPLACE Chatterbox 弹幕助手</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '.25em', color: '#666' }}>
+      <div className='cb-section cb-stack' style={SECTION_STYLE}>
+        <div className='cb-heading' style={HEADING_STYLE}>
+          LAPLACE Chatterbox 弹幕助手
+        </div>
+        <div className='cb-note' style={{ display: 'flex', flexDirection: 'column', gap: '.25em', color: '#666' }}>
           <span>版本: {VERSION}</span>
           <span>
             作者:{' '}
@@ -84,16 +86,19 @@ export function AboutTab() {
         </div>
       </div>
 
-      <div style={{ ...SECTION_STYLE, borderBottom: 'none' }}>
-        <div style={HEADING_STYLE}>隐私说明</div>
-        <div style={{ color: '#666', marginBottom: '.75em' }}>
+      <div className='cb-section cb-stack' style={{ ...SECTION_STYLE, borderBottom: 'none' }}>
+        <div className='cb-heading' style={HEADING_STYLE}>
+          隐私说明
+        </div>
+        <div className='cb-note' style={{ color: '#666', marginBottom: '.75em' }}>
           本脚本在运行时可能会与以下外部服务通信。不同功能触发的请求不同，请按需启用。
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '.75em' }}>
+        <div className='cb-list' style={{ display: 'flex', flexDirection: 'column', gap: '.75em' }}>
           {EXTERNAL_SERVICES.map(service => (
             <div
               key={service.name}
+              className='cb-list-item'
               style={{
                 padding: '.5em',
                 borderRadius: '4px',

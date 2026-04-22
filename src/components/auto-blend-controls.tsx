@@ -58,15 +58,7 @@ function markCustom(): void {
 
 function modeButtonStyle(active: boolean) {
   return {
-    appearance: 'none',
-    border: active ? '1px solid #1677ff' : '1px solid var(--Ga2, rgba(0, 0, 0, .18))',
-    background: active ? '#1677ff' : 'transparent',
-    color: active ? '#fff' : undefined,
-    borderRadius: '4px',
-    padding: '4px 0',
-    cursor: 'pointer',
     fontWeight: active ? 'bold' : undefined,
-    minWidth: 0,
   }
 }
 
@@ -97,24 +89,13 @@ export function AutoBlendControls() {
       }}
     >
       <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }}>
-        自动跟车{isOn ? ' · 已开' : ''}
+        <span>自动跟车</span>
+        {isOn && <span className='cb-soft'>已开</span>}
       </summary>
 
-      <div style={{ margin: '.5em 0', display: 'grid', gap: '.5em' }}>
+      <div className='cb-body cb-stack'>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '.5em', alignItems: 'center' }}>
-          <button
-            type='button'
-            onClick={toggleEnabled}
-            style={{
-              border: '1px solid transparent',
-              borderRadius: '4px',
-              padding: '6px 8px',
-              cursor: 'pointer',
-              background: isOn ? '#d64545' : '#0a7f55',
-              color: '#fff',
-              fontWeight: 'bold',
-            }}
-          >
+          <button type='button' className={isOn ? 'cb-danger' : 'cb-primary'} onClick={toggleEnabled}>
             {isOn ? '停止跟车' : '开始跟车'}
           </button>
           <span
@@ -124,12 +105,12 @@ export function AutoBlendControls() {
               whiteSpace: 'nowrap',
             }}
           >
-            {autoBlendStatusText.value}
+            <span className='cb-status-dot' /> {autoBlendStatusText.value}
           </span>
         </div>
 
         <div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '.25em' }}>
+          <div className='cb-segment'>
             {(['safe', 'normal', 'hot'] as const).map(preset => (
               <button
                 key={preset}
@@ -142,16 +123,15 @@ export function AutoBlendControls() {
               </button>
             ))}
           </div>
-          <div style={{ color: '#777', fontSize: '12px', lineHeight: 1.5, marginTop: '.25em' }}>当前：{presetHint}</div>
+          <div className='cb-note' style={{ marginTop: '.25em' }}>
+            当前：{presetHint}
+          </div>
         </div>
 
         <div
+          className='cb-panel'
           style={{
-            border: '1px solid var(--Ga2, rgba(0, 0, 0, .14))',
-            borderRadius: '4px',
-            padding: '.4em .5em',
             color: isOn ? undefined : '#999',
-            fontSize: '12px',
             lineHeight: 1.6,
           }}
         >

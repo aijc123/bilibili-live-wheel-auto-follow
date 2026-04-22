@@ -75,20 +75,43 @@ export function AlertDialog() {
         if (p.anchor && e.key === 'Escape') close(false)
       }}
       style={{
-        border: '1px solid var(--Ga2, #ccc)',
+        border: '1px solid rgba(0, 0, 0, .08)',
         borderRadius: '8px',
-        padding: '1em',
+        padding: '14px',
         maxWidth: '320px',
         fontSize: '12px',
+        color: '#1d1d1f',
+        background: 'rgba(248, 248, 250, .92)',
+        boxShadow: '0 22px 60px rgba(0,0,0,.24)',
+        backdropFilter: 'blur(26px) saturate(1.5)',
       }}
     >
       {p.title && <p style={{ margin: '0 0 .75em', wordBreak: 'break-all' }}>{p.title}</p>}
       {p.body && <div style={{ margin: '0 0 .75em', wordBreak: 'break-all' }}>{p.body}</div>}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '.5em' }}>
-        <button type='button' onClick={() => close(false)}>
+        <button
+          type='button'
+          onClick={() => close(false)}
+          style={{
+            border: '1px solid rgba(0,0,0,.08)',
+            borderRadius: '8px',
+            background: '#fff',
+            padding: '5px 10px',
+          }}
+        >
           {p.cancelText ?? '取消'}
         </button>
-        <button type='button' onClick={() => close(true)}>
+        <button
+          type='button'
+          onClick={() => close(true)}
+          style={{
+            border: '1px solid #007aff',
+            borderRadius: '8px',
+            background: '#007aff',
+            color: '#fff',
+            padding: '5px 10px',
+          }}
+        >
           {p.confirmText ?? '确认'}
         </button>
       </div>

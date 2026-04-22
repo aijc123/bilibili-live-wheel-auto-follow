@@ -257,9 +257,17 @@ export function SttTab() {
 
   return (
     <>
-      <div style={{ margin: '.5em 0', paddingBottom: '.5em', borderBottom: '1px solid var(--Ga2, #eee)' }}>
-        <div style={{ fontWeight: 'bold', marginBottom: '.5em' }}>Soniox API 设置</div>
-        <div style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}>
+      <div
+        className='cb-section cb-stack'
+        style={{ margin: '.5em 0', paddingBottom: '.5em', borderBottom: '1px solid var(--Ga2, #eee)' }}
+      >
+        <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
+          Soniox API 设置
+        </div>
+        <div
+          className='cb-row'
+          style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
+        >
           <input
             type={apiKeyVisible.value ? 'text' : 'password'}
             placeholder='输入 Soniox API Key'
@@ -279,7 +287,7 @@ export function SttTab() {
             {apiKeyVisible.value ? '隐藏' : '显示'}
           </button>
         </div>
-        <div style={{ marginBlock: '.5em', color: '#666', fontSize: '0.9em' }}>
+        <div className='cb-note' style={{ marginBlock: '.5em', color: '#666', fontSize: '0.9em' }}>
           前往{' '}
           <a href='https://soniox.com/' target='_blank' style={{ color: '#288bb8' }} rel='noopener'>
             Soniox
@@ -288,14 +296,26 @@ export function SttTab() {
         </div>
       </div>
 
-      <div style={{ margin: '.5em 0', paddingBottom: '.5em', borderBottom: '1px solid var(--Ga2, #eee)' }}>
-        <div style={{ fontWeight: 'bold', marginBottom: '.5em' }}>语音识别设置</div>
-        <div style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}>
+      <div
+        className='cb-section cb-stack'
+        style={{ margin: '.5em 0', paddingBottom: '.5em', borderBottom: '1px solid var(--Ga2, #eee)' }}
+      >
+        <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
+          语音识别设置
+        </div>
+        <div
+          className='cb-row'
+          style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
+        >
           <span>语言提示：</span>
           {(['zh', 'en', 'ja', 'ko'] as const).map(lang => {
             const labels: Record<string, string> = { zh: '中文', en: 'English', ja: '日本語', ko: '한국어' }
             return (
-              <span key={lang} style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+              <span
+                key={lang}
+                className='cb-switch-row'
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}
+              >
                 <input
                   type='checkbox'
                   checked={hints.includes(lang)}
@@ -319,8 +339,8 @@ export function SttTab() {
           />
           <span>字自动分段</span>
         </div>
-        <div style={{ display: 'flex', gap: '.75em', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+        <div className='cb-row' style={{ display: 'flex', gap: '.75em', alignItems: 'center', flexWrap: 'wrap' }}>
+          <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
             <input
               id='sonioxAutoSend'
               type='checkbox'
@@ -331,7 +351,7 @@ export function SttTab() {
             />
             <label htmlFor='sonioxAutoSend'>识别完成后自动发送弹幕</label>
           </span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+          <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
             <input
               id='sonioxWrapBrackets'
               type='checkbox'
@@ -345,10 +365,18 @@ export function SttTab() {
         </div>
       </div>
 
-      <div style={{ margin: '.5em 0', paddingBottom: '.5em', borderBottom: '1px solid var(--Ga2, #eee)' }}>
-        <div style={{ fontWeight: 'bold', marginBottom: '.5em' }}>实时翻译设置</div>
-        <div style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+      <div
+        className='cb-section cb-stack'
+        style={{ margin: '.5em 0', paddingBottom: '.5em', borderBottom: '1px solid var(--Ga2, #eee)' }}
+      >
+        <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.5em' }}>
+          实时翻译设置
+        </div>
+        <div
+          className='cb-row'
+          style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
+        >
+          <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
             <input
               id='sonioxTranslationEnabled'
               type='checkbox'
@@ -360,7 +388,7 @@ export function SttTab() {
             <label htmlFor='sonioxTranslationEnabled'>启用实时翻译</label>
           </span>
         </div>
-        <div style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className='cb-row' style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap' }}>
           <label htmlFor='sonioxTranslationTarget'>翻译目标语言：</label>
           <select
             id='sonioxTranslationTarget'
@@ -375,19 +403,27 @@ export function SttTab() {
             <option value='ja'>日本語</option>
           </select>
         </div>
-        <div style={{ marginTop: '.5em', color: '#666', fontSize: '0.9em' }}>启用后将发送翻译结果而非原始识别文字</div>
+        <div className='cb-note' style={{ marginTop: '.5em', color: '#666', fontSize: '0.9em' }}>
+          启用后将发送翻译结果而非原始识别文字
+        </div>
       </div>
 
-      <div style={{ margin: '.5em 0' }}>
-        <div style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}>
+      <div className='cb-section cb-stack' style={{ margin: '.5em 0' }}>
+        <div
+          className='cb-row'
+          style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5em' }}
+        >
           <button type='button' onClick={() => void toggle()}>
             {btnText}
           </button>
           <span style={{ color: statusColor.value }}>{statusText.value}</span>
         </div>
         <div style={{ marginBlock: '.5em' }}>
-          <div style={{ fontWeight: 'bold', marginBottom: '.25em' }}>实时识别结果：</div>
+          <div className='cb-heading' style={{ fontWeight: 'bold', marginBottom: '.25em' }}>
+            实时识别结果：
+          </div>
           <div
+            className='cb-result'
             style={{
               padding: '.5em',
               background: 'var(--bg2, #f5f5f5)',

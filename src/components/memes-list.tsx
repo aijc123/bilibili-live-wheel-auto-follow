@@ -150,6 +150,7 @@ function MemeItem({
                 <button
                   type='button'
                   key={tag.id}
+                  className='cb-tag'
                   onClick={() => onTagClick(tag.name)}
                   title={`按「${tag.name}」筛选`}
                   style={{
@@ -165,6 +166,7 @@ function MemeItem({
                     fontSize: '10px',
                     lineHeight: 1.6,
                     color: '#fff',
+                    '--cb-tag-bg': bgColor,
                     background: bgColor,
                     fontFamily: 'inherit',
                     transition: 'filter .15s',
@@ -388,7 +390,9 @@ export function MemesList() {
                 enableMemeContribution.value = e.currentTarget.checked
               }}
             />
-            <label for='enableMemeContribution' style={{ fontSize: '12px' }}>自动挖掘待贡献梗</label>
+            <label for='enableMemeContribution' style={{ fontSize: '12px' }}>
+              自动挖掘待贡献梗
+            </label>
           </div>
 
           {enableMemeContribution.value && memeContributorCandidates.value.length > 0 && (
@@ -414,11 +418,7 @@ export function MemesList() {
                     onClick={() => {
                       void navigator.clipboard.writeText(text)
                       const uid = cachedStreamerUid.value
-                      window.open(
-                        `https://laplace.live/memes${uid ? `?contribute=${uid}` : ''}`,
-                        '_blank',
-                        'noopener',
-                      )
+                      window.open(`https://laplace.live/memes${uid ? `?contribute=${uid}` : ''}`, '_blank', 'noopener')
                       ignoreMemeCandidate(text)
                     }}
                   >

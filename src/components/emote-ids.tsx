@@ -7,7 +7,11 @@ export function EmoteIds() {
   const copiedId = useSignal<string | null>(null)
 
   if (packages.length === 0) {
-    return <div style={{ color: '#999' }}>表情数据加载中…</div>
+    return (
+      <div className='cb-empty' style={{ color: '#999' }}>
+        表情数据加载中…
+      </div>
+    )
   }
 
   const handleCopy = async (unique: string) => {
@@ -28,6 +32,7 @@ export function EmoteIds() {
       {packages.map(pkg => (
         <div key={pkg.pkg_id} style={{ marginBottom: '.75em' }}>
           <div
+            className='cb-heading'
             style={{
               fontWeight: 'bold',
               marginBottom: '.25em',
@@ -38,13 +43,15 @@ export function EmoteIds() {
             {pkg.pkg_name}
             <span style={{ fontWeight: 'normal', marginLeft: '.5em' }}>({pkg.emoticons.length})</span>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+          <div className='cb-row' style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
             {pkg.emoticons.map(emo => {
               const isCopied = copiedId.value === emo.emoticon_unique
               return (
                 <button
                   type='button'
                   key={emo.emoticon_id}
+                  className='cb-emote'
+                  data-copied={isCopied}
                   title={`${emo.emoji}\n点击复制: ${emo.emoticon_unique}`}
                   onClick={() => void handleCopy(emo.emoticon_unique)}
                   style={{
