@@ -40,9 +40,9 @@ const STYLE = `
   letter-spacing: 0;
 }
 #${ROOT_ID} {
-  --lc-chat-bg: #f2f2f7;
-  --lc-chat-panel: rgba(255, 255, 255, .78);
-  --lc-chat-border: rgba(60, 60, 67, .16);
+  --lc-chat-bg: #f5f5f7;
+  --lc-chat-panel: rgba(255, 255, 255, .84);
+  --lc-chat-border: rgba(60, 60, 67, .12);
   --lc-chat-text: #111;
   --lc-chat-muted: #6e6e73;
   --lc-chat-name: #007aff;
@@ -53,7 +53,8 @@ const STYLE = `
   --lc-chat-chip: rgba(118, 118, 128, .14);
   --lc-chat-chip-text: #1d1d1f;
   --lc-chat-accent: #34c759;
-  --lc-chat-shadow: rgba(0, 0, 0, .12);
+  --lc-chat-shadow: rgba(0, 0, 0, .10);
+  --lc-chat-bubble-shadow: 0 1px 1px rgba(0, 0, 0, .035), 0 8px 22px rgba(0, 0, 0, .075);
   height: 100%;
   width: 100%;
   min-width: 0;
@@ -76,20 +77,21 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 }
 #${ROOT_ID}[data-theme="laplace"],
 #${ROOT_ID}[data-theme="compact"] {
-  --lc-chat-bg: #0b0f14;
-  --lc-chat-panel: rgba(28, 31, 36, .82);
-  --lc-chat-border: rgba(255, 255, 255, .08);
-  --lc-chat-text: #f5f7fb;
-  --lc-chat-muted: #a0a7b3;
+  --lc-chat-bg: #050608;
+  --lc-chat-panel: rgba(22, 24, 29, .86);
+  --lc-chat-border: rgba(255, 255, 255, .075);
+  --lc-chat-text: #f5f5f7;
+  --lc-chat-muted: #98989f;
   --lc-chat-name: #64d2ff;
-  --lc-chat-bubble: #1c1f24;
-  --lc-chat-bubble-text: #f5f7fb;
+  --lc-chat-bubble: #1c1c1e;
+  --lc-chat-bubble-text: #f5f5f7;
   --lc-chat-own: #0a84ff;
   --lc-chat-own-text: #fff;
   --lc-chat-chip: rgba(255, 255, 255, .1);
   --lc-chat-chip-text: #e6edf7;
   --lc-chat-accent: #30d158;
   --lc-chat-shadow: rgba(0, 0, 0, .34);
+  --lc-chat-bubble-shadow: 0 1px 1px rgba(255, 255, 255, .025), 0 10px 28px rgba(0, 0, 0, .28);
 }
 #${ROOT_ID}[data-theme="light"] {
   color: var(--lc-chat-text);
@@ -249,7 +251,7 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 9px 8px 10px;
+  padding: 13px 10px 14px;
   scrollbar-width: thin;
   scroll-behavior: smooth;
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
@@ -258,12 +260,12 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 #${ROOT_ID} .lc-chat-message {
   position: relative;
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
-  gap: 2px 8px;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 3px 9px;
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  padding: 5px 2px;
+  padding: 4px 2px 6px;
   border-radius: 0;
   border: 1px solid transparent;
   background: transparent;
@@ -281,14 +283,14 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   border-color: transparent;
 }
 #${ROOT_ID} .lc-chat-card-event {
-  grid-template-columns: 36px minmax(0, 1fr);
-  gap: 3px 10px;
-  padding: 7px 2px;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 4px 10px;
+  padding: 8px 2px;
 }
 #${ROOT_ID} .lc-chat-card-event .lc-chat-avatar {
-  width: 36px;
-  height: 36px;
-  margin-bottom: 8px;
+  width: 38px;
+  height: 38px;
+  margin-bottom: 9px;
 }
 #${ROOT_ID} .lc-chat-card-event .lc-chat-meta {
   padding-left: 6px;
@@ -297,27 +299,28 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   width: 100%;
   max-width: 100%;
   min-height: 66px;
-  padding: 11px 14px;
-  border-radius: 10px;
-  border-top-left-radius: 18px;
-  border-bottom-left-radius: 18px;
+  padding: 12px 15px;
+  border-radius: 18px;
+  border-bottom-left-radius: 8px;
   font-size: 14px;
   font-weight: 720;
-  box-shadow: 0 4px 13px var(--lc-chat-shadow);
+  box-shadow: var(--lc-chat-bubble-shadow);
 }
 #${ROOT_ID} .lc-chat-card-compact .lc-chat-bubble {
   min-height: 0;
-  padding: 8px 11px;
-  border-radius: 18px;
-  border-top-left-radius: 7px;
+  padding: 9px 12px;
+  border-radius: 20px;
+  border-bottom-left-radius: 8px;
   font-size: 13px;
   font-weight: 650;
 }
 #${ROOT_ID} .lc-chat-card-event .lc-chat-bubble::before {
-  top: 10px;
-  left: -8px;
-  width: 15px;
+  top: auto;
+  bottom: 0;
+  left: -4px;
+  width: 13px;
   height: 15px;
+  background: var(--lc-chat-bubble);
 }
 #${ROOT_ID} .lc-chat-card-head {
   display: flex;
@@ -428,18 +431,18 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 3px;
+  gap: 4px;
   color: var(--lc-chat-muted);
   font-size: 11px;
   line-height: 1.2;
-  padding-left: 4px;
+  padding-left: 10px;
   overflow: hidden;
 }
 #${ROOT_ID} .lc-chat-name {
   min-width: 0;
   max-width: min(15em, 64%);
   color: var(--lc-chat-name);
-  font-weight: 650;
+  font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -450,14 +453,14 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 }
 #${ROOT_ID} .lc-chat-avatar {
   grid-row: 1 / 3;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   object-fit: cover;
   background: var(--lc-chat-chip);
   align-self: end;
-  margin-bottom: 4px;
-  box-shadow: 0 1px 3px var(--lc-chat-shadow);
+  margin-bottom: 3px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .5), 0 2px 7px var(--lc-chat-shadow);
 }
 #${ROOT_ID} .lc-chat-avatar-fallback {
   display: grid;
@@ -510,7 +513,7 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   min-width: 0;
   display: grid;
   justify-items: start;
-  gap: 3px;
+  gap: 4px;
   overflow: visible;
 }
 #${ROOT_ID} .lc-chat-bubble {
@@ -520,30 +523,31 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   min-width: 2.6em;
   max-width: calc(100% - 14px);
   color: var(--lc-chat-bubble-text);
-  background: var(--lc-chat-bubble);
-  border: 1px solid var(--lc-chat-border);
-  border-radius: 18px;
-  border-top-left-radius: 7px;
-  padding: 8px 11px;
-  font-size: 13px;
-  line-height: 1.42;
+  background: inherit;
+  border: 1px solid color-mix(in srgb, var(--lc-chat-border) 74%, transparent);
+  border-radius: 20px;
+  border-bottom-left-radius: 7px;
+  padding: 8px 13px 9px;
+  font-size: 13.5px;
+  line-height: 1.38;
   word-break: break-word;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-  box-shadow: 0 1px 3px var(--lc-chat-shadow);
+  box-shadow: var(--lc-chat-bubble-shadow);
+  isolation: isolate;
 }
 #${ROOT_ID} .lc-chat-bubble::before {
   content: "";
   position: absolute;
-  left: -7px;
-  top: 6px;
-  width: 13px;
-  height: 13px;
-  background: var(--lc-chat-bubble);
-  border-left: 1px solid var(--lc-chat-border);
-  border-bottom: 1px solid var(--lc-chat-border);
-  border-bottom-left-radius: 10px;
-  transform: rotate(28deg);
+  left: -4px;
+  bottom: 0;
+  width: 12px;
+  height: 15px;
+  background: inherit;
+  border-left: 1px solid color-mix(in srgb, var(--lc-chat-border) 74%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--lc-chat-border) 74%, transparent);
+  border-bottom-left-radius: 12px;
+  transform: skew(-22deg);
   z-index: -1;
 }
 #${ROOT_ID} .lc-chat-message[data-kind="gift"] .lc-chat-bubble {
@@ -585,6 +589,9 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   transform: translateY(0);
   pointer-events: auto;
 }
+#${ROOT_ID} .lc-chat-message.lc-chat-selected .lc-chat-bubble {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--lc-chat-own) 18%, transparent), var(--lc-chat-bubble-shadow);
+}
 #${ROOT_ID} .lc-chat-action {
   min-width: 22px;
   height: 20px;
@@ -609,10 +616,11 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   flex: 0 0 auto;
   min-width: 0;
   min-height: 88px;
-  gap: 5px;
-  padding: 6px;
+  gap: 6px;
+  padding: 9px 8px 8px;
   border-top: 1px solid var(--lc-chat-border);
-  background: var(--lc-chat-panel);
+  background: color-mix(in srgb, var(--lc-chat-panel) 94%, transparent);
+  box-shadow: 0 -10px 24px color-mix(in srgb, var(--lc-chat-bg) 86%, transparent);
   backdrop-filter: blur(16px);
 }
 #${ROOT_ID} .lc-chat-input-wrap {
@@ -621,19 +629,20 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 #${ROOT_ID} textarea {
   width: 100%;
   min-width: 0;
-  height: 48px;
+  height: 46px;
   resize: vertical;
   min-height: 42px;
   max-height: 120px;
   border: 1px solid var(--lc-chat-border);
-  border-radius: 18px;
-  background: var(--lc-chat-bubble);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--lc-chat-bubble) 92%, var(--lc-chat-panel));
   color: var(--lc-chat-bubble-text);
-  padding: 6px 34px 6px 7px;
+  padding: 9px 38px 9px 13px;
   outline: none;
-  font-size: 12px;
-  line-height: 1.35;
+  font-size: 13px;
+  line-height: 1.34;
   overflow-x: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .035);
 }
 #${ROOT_ID} textarea:focus {
   border-color: var(--lc-chat-own);

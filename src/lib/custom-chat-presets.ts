@@ -18,6 +18,7 @@ export const MILK_GREEN_IMESSAGE_CSS = `/* Chatterbox 奶绿 iMessage × Laplace
     --lc-chat-chip-text: #21422f;
     --lc-chat-accent: #34c759;
     --lc-chat-shadow: rgba(36, 74, 48, .16);
+    --lc-chat-bubble-shadow: 0 1px 1px rgba(36, 74, 48, .05), 0 8px 22px rgba(36, 74, 48, .12);
     --lc-event-text: #213d2b;
     --lc-event-bg: #f1fbf5;
     --lc-gift-bg: linear-gradient(135deg, #ffe0cc, #fff3cd);
@@ -74,7 +75,8 @@ export const MILK_GREEN_IMESSAGE_CSS = `/* Chatterbox 奶绿 iMessage × Laplace
   }
 
   #laplace-custom-chat .lc-chat-bubble::before {
-    border-right-color: var(--lc-event-bg);
+    background: var(--lc-event-bg);
+    border-color: rgba(63, 103, 79, .12);
   }
 
   #laplace-custom-chat .lc-chat-reply {
@@ -96,10 +98,14 @@ export const MILK_GREEN_IMESSAGE_CSS = `/* Chatterbox 奶绿 iMessage × Laplace
 
   #laplace-custom-chat .lc-chat-card-event .lc-chat-bubble {
     min-width: min(18em, 100%);
-    padding: 10px 14px;
-    border-radius: 18px;
-    border-top-left-radius: 7px;
+    padding: 11px 15px;
+    border-radius: 20px;
+    border-bottom-left-radius: 8px;
     filter: drop-shadow(0 1px 2px rgba(36, 74, 48, .18));
+  }
+
+  #laplace-custom-chat .lc-chat-card-event .lc-chat-bubble::before {
+    background: inherit;
   }
 
   #laplace-custom-chat .lc-chat-card-title {
