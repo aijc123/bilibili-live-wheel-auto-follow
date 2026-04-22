@@ -33,10 +33,10 @@ export const dialogOpen = gmSignal('dialogOpen', false)
 // then freeze the detector for C seconds. A routine timer picks from active candidates
 // by weighted random choice for sustained multi-topic trends.
 // Optional: require N distinct users for a stricter social-consensus trigger.
-export const autoBlendWindowSec = gmSignal('autoBlendWindowSec', 15) // rolling window W
-export const autoBlendThreshold = gmSignal('autoBlendThreshold', 3) // burst threshold N
-export const autoBlendCooldownSec = gmSignal('autoBlendCooldownSec', 15) // post-send freeze C
-export const autoBlendRoutineIntervalSec = gmSignal('autoBlendRoutineIntervalSec', 30) // routine timer period
+export const autoBlendWindowSec = gmSignal('autoBlendWindowSec', 20) // rolling window W
+export const autoBlendThreshold = gmSignal('autoBlendThreshold', 4) // burst threshold N
+export const autoBlendCooldownSec = gmSignal('autoBlendCooldownSec', 35) // post-send freeze C
+export const autoBlendRoutineIntervalSec = gmSignal('autoBlendRoutineIntervalSec', 60) // routine timer period
 export const autoBlendPreset = gmSignal<'safe' | 'normal' | 'hot' | 'custom'>('autoBlendPreset', 'normal')
 export const autoBlendAdvancedOpen = gmSignal('autoBlendAdvancedOpen', false)
 export const autoBlendDryRun = gmSignal('autoBlendDryRun', true)
@@ -45,7 +45,7 @@ export const autoBlendBlockedWords = gmSignal('autoBlendBlockedWords', '抽奖\n
 export const autoBlendIncludeReply = gmSignal('autoBlendIncludeReply', false)
 export const autoBlendUseReplacements = gmSignal('autoBlendUseReplacements', true)
 export const autoBlendRequireDistinctUsers = gmSignal('autoBlendRequireDistinctUsers', true)
-export const autoBlendMinDistinctUsers = gmSignal('autoBlendMinDistinctUsers', 2)
+export const autoBlendMinDistinctUsers = gmSignal('autoBlendMinDistinctUsers', 3)
 export const autoBlendSendCount = gmSignal('autoBlendSendCount', 1)
 // When enabled, a burst trigger sends ALL currently-trending messages (sorted by
 // count) instead of just the one that crossed the threshold first.

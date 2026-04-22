@@ -124,6 +124,8 @@ export interface SendDanmakuResult {
   message: string
   isEmoticon: boolean
   error?: string
+  errorCode?: number
+  errorData?: unknown
   /**
    * Set by the global send queue when this item was preempted by a
    * higher-priority send before it could go out. Callers should treat this
@@ -191,7 +193,7 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
     // Bilibili returns code 0 on success; non-zero means failure even when
     // HTTP status is 200. Both `message` and `msg` are used for error text
     // depending on the endpoint version.
-    const json: { code?: number; message?: string; msg?: string } = await resp.json()
+    const json: { code?: number; message?: string; msg?: string; data?: unknown } = await resp.json()
 
     if (json.code !== 0) {
       return {
@@ -199,6 +201,8 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
         message,
         isEmoticon: emoticon,
         error: json.message ?? json.msg ?? `code ${json.code}`,
+        errorCode: json.code,
+        errorData: json.data,
       }
     }
 

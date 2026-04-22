@@ -1,4 +1,4 @@
-import { ensureRoomId, getCsrfToken, getDedeUid, setRandomDanmakuColor } from './api'
+import { ensureRoomId, getCsrfToken, getDedeUid, type SendDanmakuResult, setRandomDanmakuColor } from './api'
 import {
   formatAutoBlendCandidate,
   formatAutoBlendSenderInfo,
@@ -56,6 +56,8 @@ let cooldownUntil = 0
 
 let unsubscribe: (() => void) | null = null
 let cleanupTimer: ReturnType<typeof setInterval> | null = null
+let burstSettleTimer: ReturnType<typeof setTimeout> | null = null
+let pendingBurstText: string | null = null
 // Self-rescheduling timeout instead of setInterval: reads autoBlendRoutineIntervalSec
 // fresh each tick, so changing the setting takes effect immediately without
 // requiring a stop-and-restart.
@@ -63,6 +65,160 @@ let routineTimeout: ReturnType<typeof setTimeout> | null = null
 let routineActive = false
 let myUid: string | null = null
 let isSending = false
+let rateLimitHitCount = 0
+let firstRateLimitHitAt = 0
+let moderationStopReason: string | null = null
+
+// Let a freshly-started wave breathe briefly before following it. With a
+// threshold of 2, firing on the exact second message makes every log look like
+// "just started, 2 messages" and prevents all-trending mode from seeing the
+// rest of the same wave.
+const BURST_SETTLE_MS = 1500
+const RATE_LIMIT_BACKOFF_MS = 2 * 60 * 1000
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000
+const RATE_LIMIT_STOP_THRESHOLD = 3
+
+function isRateLimitError(error: string | undefined): boolean {
+  if (!error) return false
+  return error.includes('频率') || error.includes('过快') || error.toLowerCase().includes('rate')
+}
+
+function isMutedError(error: string | undefined): boolean {
+  if (!error) return false
+  return error.includes('禁言') || error.includes('被封') || error.toLowerCase().includes('muted')
+}
+
+function isAccountRestrictedError(error: string | undefined): boolean {
+  if (!error) return false
+  const lower = error.toLowerCase()
+  return (
+    error.includes('账号') ||
+    error.includes('账户') ||
+    error.includes('风控') ||
+    error.includes('封号') ||
+    error.includes('封禁') ||
+    lower.includes('account') ||
+    lower.includes('risk')
+  )
+}
+
+function formatDuration(seconds: number): string {
+  const rounded = Math.max(1, Math.ceil(seconds))
+  if (rounded < 60) return `${rounded} 秒`
+  const minutes = Math.ceil(rounded / 60)
+  if (minutes < 60) return `${minutes} 分钟`
+  const hours = Math.ceil(minutes / 60)
+  if (hours < 24) return `${hours} 小时`
+  return `${Math.ceil(hours / 24)} 天`
+}
+
+function durationFromString(text: string): string | null {
+  const unitMatch = text.match(/(\d+)\s*(秒|分钟|分|小时|天)/)
+  if (unitMatch) {
+    const value = Number(unitMatch[1])
+    const unit = unitMatch[2]
+    if (unit === '秒') return formatDuration(value)
+    if (unit === '分' || unit === '分钟') return formatDuration(value * 60)
+    if (unit === '小时') return formatDuration(value * 60 * 60)
+    if (unit === '天') return formatDuration(value * 24 * 60 * 60)
+  }
+
+  const dateMatch = text.match(/(20\d{2}[-/]\d{1,2}[-/]\d{1,2}(?:\s+\d{1,2}:\d{1,2}(?::\d{1,2})?)?)/)
+  if (!dateMatch) return null
+  const end = new Date(dateMatch[1].replace(/\//g, '-')).getTime()
+  if (!Number.isFinite(end) || end <= Date.now()) return null
+  return `${formatDuration((end - Date.now()) / 1000)}（到 ${dateMatch[1]}）`
+}
+
+function durationFromData(data: unknown): string | null {
+  if (typeof data === 'string') return durationFromString(data)
+  if (typeof data !== 'object' || data === null) return null
+
+  for (const [key, value] of Object.entries(data)) {
+    const lowerKey = key.toLowerCase()
+    if (typeof value === 'string') {
+      const parsed = durationFromString(value)
+      if (parsed) return parsed
+    } else if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      if (
+        lowerKey.includes('remain') ||
+        lowerKey.includes('left') ||
+        lowerKey.includes('duration') ||
+        lowerKey.includes('second') ||
+        lowerKey.includes('ttl') ||
+        key.includes('剩余') ||
+        key.includes('时长')
+      ) {
+        return formatDuration(value)
+      }
+      if (lowerKey.includes('end') || lowerKey.includes('expire') || lowerKey.includes('until') || key.includes('解除')) {
+        const ms = value > 10_000_000_000 ? value : value * 1000
+        if (ms > Date.now()) return `${formatDuration((ms - Date.now()) / 1000)}（到 ${new Date(ms).toLocaleString()}）`
+      }
+    } else {
+      const nested = durationFromData(value)
+      if (nested) return nested
+    }
+  }
+
+  return null
+}
+
+function describeRestrictionDuration(result: SendDanmakuResult): string {
+  return durationFromString(result.error ?? '') ?? durationFromData(result.errorData) ?? '接口未返回时长'
+}
+
+function clearPendingAutoBlend(reason: string): void {
+  if (burstSettleTimer) {
+    clearTimeout(burstSettleTimer)
+    burstSettleTimer = null
+  }
+  pendingBurstText = null
+  trendMap.clear()
+  updateCandidateText()
+  autoBlendLastActionText.value = reason
+}
+
+function stopAutoBlendAfterModeration(reason: string): void {
+  moderationStopReason = reason
+  clearPendingAutoBlend(reason)
+  autoBlendEnabled.value = false
+  appendLog(reason)
+}
+
+function handleSendFailure(result: SendDanmakuResult): boolean {
+  const now = Date.now()
+  const error = result.error
+  const duration = describeRestrictionDuration(result)
+
+  if (isMutedError(error)) {
+    stopAutoBlendAfterModeration(`自动跟车：检测到你在本房间被禁言，已自动关闭。禁言时长：${duration}。`)
+    return true
+  }
+
+  if (isAccountRestrictedError(error)) {
+    stopAutoBlendAfterModeration(`自动跟车：检测到账号级限制/风控，已自动关闭。限制时长：${duration}。`)
+    return true
+  }
+
+  if (!isRateLimitError(error)) return false
+
+  if (now - firstRateLimitHitAt > RATE_LIMIT_WINDOW_MS) {
+    firstRateLimitHitAt = now
+    rateLimitHitCount = 0
+  }
+  rateLimitHitCount += 1
+
+  if (rateLimitHitCount >= RATE_LIMIT_STOP_THRESHOLD) {
+    stopAutoBlendAfterModeration('自动跟车：10 分钟内多次触发发送频率限制，已自动关闭，避免继续被系统/房管盯上。')
+    return true
+  }
+
+  cooldownUntil = Math.max(cooldownUntil, now + RATE_LIMIT_BACKOFF_MS)
+  clearPendingAutoBlend(`自动跟车：触发发送频率限制，已暂停 ${Math.round(RATE_LIMIT_BACKOFF_MS / 60000)} 分钟并清空本轮候选。`)
+  updateStatusText()
+  return true
+}
 
 function countUniqueUids(events: TrendEvent[]): number {
   const s = new Set<string>()
@@ -98,6 +254,14 @@ function pruneExpired(now: number): void {
   updateCandidateText()
 }
 
+function getAutoBlendRepeatGapMs(): number {
+  return Math.max(autoBlendCooldownSec.value * 1000, msgSendInterval.value * 1000, 1010)
+}
+
+function getAutoBlendBurstGapMs(): number {
+  return Math.max(msgSendInterval.value * 1000, 1010)
+}
+
 function meetsThreshold(entry: TrendEntry): boolean {
   if (entry.events.length < autoBlendThreshold.value) return false
   if (autoBlendRequireDistinctUsers.value) {
@@ -111,14 +275,50 @@ function meetsThreshold(entry: TrendEntry): boolean {
   return true
 }
 
+function pickBestTrendingText(preferredText: string | null): string | null {
+  let bestText: string | null = null
+  let bestCount = 0
+  for (const [text, entry] of trendMap) {
+    if (!meetsThreshold(entry)) continue
+    if (preferredText === text) return text
+    if (entry.events.length > bestCount) {
+      bestText = text
+      bestCount = entry.events.length
+    }
+  }
+  return bestText
+}
+
+function scheduleBurstSend(text: string): void {
+  pendingBurstText ??= text
+  if (burstSettleTimer !== null) return
+
+  burstSettleTimer = setTimeout(() => {
+    burstSettleTimer = null
+    const preferredText = pendingBurstText
+    pendingBurstText = null
+
+    if (!autoBlendEnabled.value || isSending || Date.now() < cooldownUntil) {
+      updateStatusText()
+      return
+    }
+
+    pruneExpired(Date.now())
+    const chosen = pickBestTrendingText(preferredText)
+    if (chosen !== null) void triggerSend(chosen, 'burst')
+  }, BURST_SETTLE_MS)
+}
+
+function maybeScheduleBurstFromCurrentTrends(): void {
+  if (!autoBlendEnabled.value || isSending || Date.now() < cooldownUntil || burstSettleTimer !== null) return
+  const chosen = pickBestTrendingText(pendingBurstText)
+  if (chosen !== null) scheduleBurstSend(chosen)
+}
+
 function recordDanmaku(rawText: string, uid: string | null, isReply: boolean): void {
   if (!autoBlendEnabled.value) return
 
   const now = Date.now()
-  if (now < cooldownUntil) {
-    updateStatusText()
-    return
-  }
   updateStatusText()
 
   const text = rawText.trim()
@@ -138,10 +338,12 @@ function recordDanmaku(rawText: string, uid: string | null, isReply: boolean): v
   entry.events.push({ ts: now, uid })
   updateCandidateText()
 
-  // Immediate trigger: catch the wave the moment threshold is crossed.
-  if (meetsThreshold(entry)) {
-    void triggerSend(text, 'burst')
-  }
+  // During cooldown/sending we still keep counting, but defer the actual follow
+  // until the feature is allowed to send again. This preserves the wave for
+  // later routine or burst handling instead of throwing away the hottest part.
+  if (now < cooldownUntil || isSending) return
+
+  if (meetsThreshold(entry)) scheduleBurstSend(text)
 }
 
 function scheduleNextRoutine(): void {
@@ -282,7 +484,7 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
         appendLog(`  - ${shortAutoBlendText(originalText)}（${formatAutoBlendSenderInfo(uniqueUsers, totalCount)}）`)
       }
 
-      const repeatCount = isMulti ? 1 : Math.max(1, autoBlendSendCount.value)
+      const repeatCount = reason === 'burst' && autoBlendSendAllTrending.value ? 1 : Math.max(1, autoBlendSendCount.value)
 
       for (let i = 0; i < repeatCount; i++) {
         let toSend = replaced
@@ -323,21 +525,26 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
           }
         }
 
+        if (!result.success && !result.cancelled && handleSendFailure(result)) return
+
         if (result.success && !result.cancelled && !isEmote && !memeRecorded) {
           memeRecorded = true
           recordMemeCandidate(originalText)
         }
 
+        cooldownUntil = Math.max(cooldownUntil, Date.now() + autoBlendCooldownSec.value * 1000)
+        updateStatusText()
+
         if (i < repeatCount - 1) {
-          const interval = msgSendInterval.value * 1000
+          const interval = getAutoBlendRepeatGapMs()
           const offset = randomInterval.value ? Math.floor(Math.random() * 500) : 0
-          await new Promise(r => setTimeout(r, Math.max(0, interval - offset)))
+          await new Promise(r => setTimeout(r, interval + offset))
         }
       }
 
       // Gap between different trending messages in a multi-send burst.
       if (isMulti && ti < targets.length - 1) {
-        await new Promise(r => setTimeout(r, msgSendInterval.value * 1000))
+        await new Promise(r => setTimeout(r, getAutoBlendBurstGapMs()))
       }
     }
   } catch (err) {
@@ -353,6 +560,9 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
 export function startAutoBlend(): void {
   if (unsubscribe) return
   myUid = getDedeUid() ?? null
+  rateLimitHitCount = 0
+  firstRateLimitHitAt = 0
+  moderationStopReason = null
   autoBlendStatusText.value = '观察中'
   autoBlendCandidateText.value = '暂无'
   autoBlendLastActionText.value = '暂无'
@@ -365,6 +575,7 @@ export function startAutoBlend(): void {
     cleanupTimer = setInterval(() => {
       pruneExpired(Date.now())
       updateStatusText()
+      maybeScheduleBurstFromCurrentTrends()
     }, 1000)
   }
 
@@ -382,6 +593,11 @@ export function stopAutoBlend(): void {
     clearTimeout(routineTimeout)
     routineTimeout = null
   }
+  if (burstSettleTimer) {
+    clearTimeout(burstSettleTimer)
+    burstSettleTimer = null
+  }
+  pendingBurstText = null
   if (unsubscribe) {
     unsubscribe()
     unsubscribe = null
@@ -391,5 +607,6 @@ export function stopAutoBlend(): void {
   cooldownUntil = 0
   autoBlendStatusText.value = '已关闭'
   autoBlendCandidateText.value = '暂无'
-  autoBlendLastActionText.value = '暂无'
+  autoBlendLastActionText.value = moderationStopReason ?? '暂无'
+  moderationStopReason = null
 }

@@ -54,9 +54,9 @@ assertEqual(
 )
 
 const normal = getAutoBlendPresetValues('normal')
-assertEqual('preset: normal window', normal.windowSec, 15)
-assertEqual('preset: normal threshold', normal.threshold, 3)
-assertEqual('preset: normal cooldown', normal.cooldownSec, 15)
+assertEqual('preset: normal window', normal.windowSec, 20)
+assertEqual('preset: normal threshold', normal.threshold, 4)
+assertEqual('preset: normal cooldown', normal.cooldownSec, 35)
 assertEqual('preset: resets @ replies', normal.includeReply, false)
 assertEqual('preset: requires multiple users', normal.requireDistinctUsers, true)
 assertEqual('preset: resets send count', normal.sendCount, 1)
