@@ -1,4 +1,16 @@
-export type CustomChatKind = 'danmaku' | 'gift' | 'superchat' | 'enter' | 'notice' | 'system'
+export type CustomChatKind =
+  | 'danmaku'
+  | 'gift'
+  | 'superchat'
+  | 'guard'
+  | 'redpacket'
+  | 'lottery'
+  | 'enter'
+  | 'follow'
+  | 'like'
+  | 'share'
+  | 'notice'
+  | 'system'
 
 export interface CustomChatEvent {
   id: string
@@ -29,9 +41,33 @@ export function subscribeCustomChatEvents(handler: CustomChatEventHandler): () =
   return () => handlers.delete(handler)
 }
 
+function normalizeEventKind(event: CustomChatEvent): CustomChatKind {
+  const signal = `${event.kind} ${event.text} ${event.badges.join(' ')} ${event.rawCmd ?? ''}`
+  if (/SUPER_CHAT/i.test(signal)) return 'superchat'
+  if (/GUARD|舰长|提督|总督|大航海|privilege/i.test(signal)) return 'guard'
+  if (/红包|RED|ENVELOP/i.test(signal)) return 'redpacket'
+  if (/天选|LOTTERY|ANCHOR_LOT/i.test(signal)) return 'lottery'
+  if (/点赞|LIKE/i.test(signal)) return 'like'
+  if (/分享|SHARE/i.test(signal)) return 'share'
+  if (/关注|FOLLOW/i.test(signal)) return 'follow'
+  return event.kind
+}
+
+export function normalizeCustomChatEvent(event: CustomChatEvent): CustomChatEvent {
+  const kind = normalizeEventKind(event)
+  return {
+    ...event,
+    kind,
+    text: event.text.trim(),
+    uname: event.uname.trim() || '匿名',
+    badges: [...new Set(event.badges.map(item => item.trim()).filter(Boolean))],
+  }
+}
+
 export function emitCustomChatEvent(event: CustomChatEvent): void {
+  const normalized = normalizeCustomChatEvent(event)
   for (const handler of handlers) {
-    handler(event)
+    handler(normalized)
   }
 }
 

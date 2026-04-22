@@ -163,7 +163,7 @@ function bindEvents(roomId: number, live: KeepLiveWS): void {
     if (d.msg_type !== 1 && d.msg_type !== 2) return
     emit({
       id: `interact-${d.uid}-${d.trigger_time || Date.now()}`,
-      kind: 'enter',
+      kind: d.msg_type === 2 ? 'follow' : 'enter',
       text: d.msg_type === 2 ? '关注了直播间' : '进入直播间',
       uname: d.uname || d.uinfo?.base?.name || '匿名',
       uid: String(d.uid ?? ''),
@@ -172,6 +172,60 @@ function bindEvents(roomId: number, live: KeepLiveWS): void {
       source: 'ws',
       badges: d.privilege_type ? [`舰队 ${d.privilege_type}`, `GUARD ${d.privilege_type}`] : [],
       avatarUrl: avatarUrl(String(d.uid ?? '')),
+      rawCmd: data.cmd,
+    })
+  })
+
+  live.addEventListener('GUARD_BUY', ({ data }) => {
+    const d = data.data
+    const uid = String(d.uid ?? '')
+    const guard = String(d.guard_level ?? d.privilege_type ?? '')
+    const guardName = guard === '1' ? '总督' : guard === '2' ? '提督' : '舰长'
+    emit({
+      id: eventId(data.cmd, d as unknown as UnknownRecord, `guard-${Date.now()}`),
+      kind: 'guard',
+      text: `${d.username || d.uname || '用户'} 开通 ${guardName}${d.num ? ` x${d.num}` : ''}`,
+      uname: d.username || d.uname || '匿名',
+      uid,
+      time: chatEventTime(),
+      isReply: false,
+      source: 'ws',
+      badges: guard ? [`GUARD ${guard}`] : [],
+      avatarUrl: avatarUrl(uid),
+      amount: asNumber(d.price),
+      rawCmd: data.cmd,
+    })
+  })
+
+  live.addEventListener('POPULARITY_RED_POCKET_START', ({ data }) => {
+    const d = asRecord(data.data)
+    emit({
+      id: eventId(data.cmd, d, `redpacket-${Date.now()}`),
+      kind: 'redpacket',
+      text: asString(d.title || d.lot_name || d.sender_name, '直播间红包开启'),
+      uname: asString(d.sender_name || d.uname, '红包'),
+      uid: String(d.sender_uid ?? d.uid ?? ''),
+      time: chatEventTime(),
+      isReply: false,
+      source: 'ws',
+      badges: ['红包'],
+      avatarUrl: avatarUrl(String(d.sender_uid ?? d.uid ?? '')),
+      rawCmd: data.cmd,
+    })
+  })
+
+  live.addEventListener('ANCHOR_LOT_START', ({ data }) => {
+    const d = asRecord(data.data)
+    emit({
+      id: eventId(data.cmd, d, `lottery-${Date.now()}`),
+      kind: 'lottery',
+      text: asString(d.award_name || d.require_text || d.title, '天选时刻开启'),
+      uname: '天选时刻',
+      uid: null,
+      time: chatEventTime(),
+      isReply: false,
+      source: 'ws',
+      badges: ['天选'],
       rawCmd: data.cmd,
     })
   })

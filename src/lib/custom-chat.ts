@@ -21,8 +21,10 @@ import {
   customChatShowGift,
   customChatShowNotice,
   customChatShowSuperchat,
+  customChatPerfDebug,
   customChatTheme,
   danmakuDirectConfirm,
+  fasongText,
 } from './store'
 
 const ROOT_ID = 'laplace-custom-chat'
@@ -33,7 +35,7 @@ const MAX_MESSAGES = 220
 const STYLE = `
 #${ROOT_ID}, #${ROOT_ID} * {
   box-sizing: border-box;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  font-family: var(--lc-chat-font, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif);
   letter-spacing: 0;
 }
 #${ROOT_ID} {
@@ -357,13 +359,29 @@ const STYLE = `
   color: #fff;
   border-color: rgba(47, 128, 237, .32);
 }
+#${ROOT_ID} .lc-chat-card-event[data-card="redpacket"] .lc-chat-bubble {
+  background: linear-gradient(135deg, #ff375f, #ffcc00);
+  color: #fff;
+  border-color: rgba(255, 55, 95, .32);
+}
+#${ROOT_ID} .lc-chat-card-event[data-card="lottery"] .lc-chat-bubble {
+  background: linear-gradient(135deg, #34c759, #64d2ff);
+  color: #063320;
+  border-color: rgba(52, 199, 89, .28);
+}
 #${ROOT_ID} .lc-chat-card-event[data-guard="2"] .lc-chat-bubble {
   background: linear-gradient(135deg, #af52de, #ff7ad9);
 }
 #${ROOT_ID} .lc-chat-card-event[data-guard="1"] .lc-chat-bubble {
   background: linear-gradient(135deg, #ff2d55, #ff9f0a);
 }
+#${ROOT_ID} .lc-chat-message[data-kind="guard"],
 #${ROOT_ID} .lc-chat-message[data-kind="enter"],
+#${ROOT_ID} .lc-chat-message[data-kind="follow"],
+#${ROOT_ID} .lc-chat-message[data-kind="like"],
+#${ROOT_ID} .lc-chat-message[data-kind="share"],
+#${ROOT_ID} .lc-chat-message[data-kind="redpacket"],
+#${ROOT_ID} .lc-chat-message[data-kind="lottery"],
 #${ROOT_ID} .lc-chat-message[data-kind="notice"],
 #${ROOT_ID} .lc-chat-message[data-kind="system"] {
   opacity: .86;
@@ -627,6 +645,19 @@ const STYLE = `
 #${ROOT_ID} .lc-chat-ws-status[data-status="error"] {
   color: #ff453a;
 }
+#${ROOT_ID} .lc-chat-perf {
+  display: none;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 12px;
+  color: var(--lc-chat-muted);
+  background: color-mix(in srgb, var(--lc-chat-chip) 72%, transparent);
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+#${ROOT_ID}[data-debug="true"] .lc-chat-perf {
+  display: block;
+}
 html.lc-custom-chat-hide-native .chat-items,
 html.lc-custom-chat-hide-native .super-chat-card,
 html.lc-custom-chat-hide-native .gift-item,
@@ -653,6 +684,7 @@ let unreadEl: HTMLElement | null = null
 let searchInput: HTMLInputElement | null = null
 let matchCountEl: HTMLElement | null = null
 let wsStatusEl: HTMLElement | null = null
+let perfEl: HTMLElement | null = null
 let textarea: HTMLTextAreaElement | null = null
 let countEl: HTMLElement | null = null
 let styleEl: HTMLStyleElement | null = null
@@ -665,6 +697,9 @@ let searchQuery = ''
 const messages: CustomChatEvent[] = []
 const recentEventKeys = new Map<string, number>()
 const renderQueue: CustomChatEvent[] = []
+const eventTicks: number[] = []
+const sourceCounts: Record<CustomChatEvent['source'], number> = { dom: 0, ws: 0, local: 0 }
+let lastBatchSize = 0
 let renderFrame: number | null = null
 
 function eventToSendableMessage(ev: DanmakuEvent): string {
@@ -698,7 +733,13 @@ function kindLabel(kind: CustomChatKind): string {
   if (kind === 'danmaku') return '弹幕'
   if (kind === 'gift') return '礼物'
   if (kind === 'superchat') return 'SC'
+  if (kind === 'guard') return '舰队'
+  if (kind === 'redpacket') return '红包'
+  if (kind === 'lottery') return '天选'
   if (kind === 'enter') return '进场'
+  if (kind === 'follow') return '关注'
+  if (kind === 'like') return '点赞'
+  if (kind === 'share') return '分享'
   if (kind === 'notice') return '通知'
   return '系统'
 }
@@ -724,6 +765,22 @@ function rememberEvent(event: Pick<CustomChatEvent, 'kind' | 'uid' | 'text'>): b
   if (recentEventKeys.has(key)) return false
   recentEventKeys.set(key, now)
   return true
+}
+
+function recordEventStats(event: CustomChatEvent): void {
+  const now = Date.now()
+  eventTicks.push(now)
+  while (eventTicks.length > 0 && now - eventTicks[0] > 1000) eventTicks.shift()
+  sourceCounts[event.source]++
+}
+
+function updatePerfDebug(): void {
+  if (!perfEl || !root) return
+  root.dataset.debug = customChatPerfDebug.value ? 'true' : 'false'
+  if (!customChatPerfDebug.value) return
+  const totalSources = sourceCounts.dom + sourceCounts.ws + sourceCounts.local || 1
+  const pct = (value: number) => Math.round((value / totalSources) * 100)
+  perfEl.textContent = `msg ${messages.length}/${MAX_MESSAGES} | eps ${eventTicks.length}/s | batch ${lastBatchSize} | q ${renderQueue.length} | ws ${pct(sourceCounts.ws)}% dom ${pct(sourceCounts.dom)}% local ${pct(sourceCounts.local)}%`
 }
 
 function isNoiseEventText(text: string): boolean {
@@ -804,24 +861,31 @@ function guardLevel(message: CustomChatEvent): string | null {
   return null
 }
 
-function cardType(message: CustomChatEvent): 'gift' | 'superchat' | 'guard' | null {
+function cardType(message: CustomChatEvent): 'gift' | 'superchat' | 'guard' | 'redpacket' | 'lottery' | null {
   if (message.kind === 'superchat') return 'superchat'
   if (message.kind === 'gift') return 'gift'
+  if (message.kind === 'guard') return 'guard'
+  if (message.kind === 'redpacket') return 'redpacket'
+  if (message.kind === 'lottery') return 'lottery'
   if (guardLevel(message)) return 'guard'
   return null
 }
 
-function cardTitle(type: 'gift' | 'superchat' | 'guard', message: CustomChatEvent, guard: string | null): string {
+function cardTitle(type: 'gift' | 'superchat' | 'guard' | 'redpacket' | 'lottery', message: CustomChatEvent, guard: string | null): string {
   if (type === 'superchat') return message.amount ? `醒目留言 ¥${message.amount}` : '醒目留言'
   if (type === 'gift') return message.amount ? `礼物 ¥${Math.round(message.amount / 1000)}` : '礼物事件'
+  if (type === 'redpacket') return '红包事件'
+  if (type === 'lottery') return '天选时刻'
   if (guard === '1') return '总督事件'
   if (guard === '2') return '提督事件'
   return '舰长事件'
 }
 
-function cardMark(type: 'gift' | 'superchat' | 'guard', guard: string | null): string {
+function cardMark(type: 'gift' | 'superchat' | 'guard' | 'redpacket' | 'lottery', guard: string | null): string {
   if (type === 'superchat') return 'SC'
   if (type === 'gift') return '礼物'
+  if (type === 'redpacket') return '红包'
+  if (type === 'lottery') return '天选'
   if (guard === '1') return '总督'
   if (guard === '2') return '提督'
   return '舰长'
@@ -888,7 +952,12 @@ function nativeAvatar(node: HTMLElement): string | undefined {
 function nativeKind(node: HTMLElement, text: string): CustomChatKind | null {
   const signal = `${node.className} ${text}`
   if (/super[-_ ]?chat|superchat|醒目留言|醒目|￥|¥|\bSC\b/i.test(signal)) return 'superchat'
-  if (/舰长|提督|总督|大航海|guard|privilege|开通|续费/i.test(signal)) return 'enter'
+  if (/舰长|提督|总督|大航海|guard|privilege|开通|续费/i.test(signal)) return 'guard'
+  if (/红包|red[-_ ]?envelop/i.test(signal)) return 'redpacket'
+  if (/天选|lottery|抽奖/i.test(signal)) return 'lottery'
+  if (/关注|follow/i.test(signal)) return 'follow'
+  if (/点赞|like/i.test(signal)) return 'like'
+  if (/分享|share/i.test(signal)) return 'share'
   if (/gift|礼物|赠送|投喂|送出|小花花|辣条|电池|x\s*\d+/i.test(signal)) return 'gift'
   return null
 }
@@ -956,8 +1025,8 @@ function kindVisible(kind: CustomChatKind): boolean {
   if (kind === 'danmaku') return customChatShowDanmaku.value
   if (kind === 'gift') return customChatShowGift.value
   if (kind === 'superchat') return customChatShowSuperchat.value
-  if (kind === 'enter') return customChatShowEnter.value
-  if (kind === 'notice' || kind === 'system') return customChatShowNotice.value
+  if (kind === 'guard' || kind === 'enter' || kind === 'follow' || kind === 'like' || kind === 'share') return customChatShowEnter.value
+  if (kind === 'redpacket' || kind === 'lottery' || kind === 'notice' || kind === 'system') return customChatShowNotice.value
   return true
 }
 
@@ -1005,6 +1074,7 @@ function updateUnread(): void {
     unreadEl.style.display = unread > 0 ? '' : 'none'
   }
   if (pauseBtn) pauseBtn.setAttribute('aria-pressed', paused ? 'true' : 'false')
+  updatePerfDebug()
 }
 
 function isNearBottom(): boolean {
@@ -1024,6 +1094,7 @@ function pruneMessages(): void {
   while (listEl && listEl.children.length > MAX_MESSAGES) {
     listEl?.firstElementChild?.remove()
   }
+  updatePerfDebug()
 }
 
 function renderMessage(message: CustomChatEvent, countUnread = true, updateCount = true, manageFlow = true): boolean {
@@ -1039,6 +1110,7 @@ function renderMessage(message: CustomChatEvent, countUnread = true, updateCount
   row.dataset.uid = message.uid ?? ''
   row.dataset.kind = message.kind
   row.dataset.source = message.source
+  row.dataset.user = displayName(message)
   row.tabIndex = 0
   const guard = guardLevel(message)
   const card = cardType(message)
@@ -1172,6 +1244,7 @@ function flushRenderQueue(): void {
   renderFrame = null
   if (!listEl || renderQueue.length === 0) return
   const batch = renderQueue.splice(0)
+  lastBatchSize = batch.length
   const shouldStickToBottom = !paused && isNearBottom()
   const animate = batch.length <= 12
   let appended = 0
@@ -1190,10 +1263,12 @@ function flushRenderQueue(): void {
     scrollToBottom()
   }
   updateMatchCount()
+  updatePerfDebug()
 }
 
 function scheduleRender(event: CustomChatEvent): void {
   renderQueue.push(event)
+  updatePerfDebug()
   if (renderFrame !== null) return
   renderFrame = window.requestAnimationFrame(flushRenderQueue)
 }
@@ -1207,6 +1282,7 @@ async function sendFromComposer(): Promise<void> {
   const sent = await sendManualDanmaku(text)
   if (sent) {
     textarea.value = ''
+    fasongText.value = ''
     updateCount()
   }
   sending = false
@@ -1217,10 +1293,17 @@ function updateCount(): void {
   if (countEl && textarea) countEl.textContent = String(textarea.value.length)
 }
 
+function syncComposerFromStore(): void {
+  if (!textarea || textarea.value === fasongText.value) return
+  textarea.value = fasongText.value
+  updateCount()
+}
+
 function createRoot(): HTMLElement {
   const panel = document.createElement('section')
   panel.id = ROOT_ID
   panel.dataset.theme = customChatTheme.value
+  panel.dataset.debug = customChatPerfDebug.value ? 'true' : 'false'
 
   const toolbar = document.createElement('div')
   toolbar.className = 'lc-chat-toolbar'
@@ -1259,6 +1342,9 @@ function createRoot(): HTMLElement {
   wsStatusEl = document.createElement('span')
   wsStatusEl.className = 'lc-chat-ws-status'
   updateWsStatus('off')
+  perfEl = document.createElement('div')
+  perfEl.className = 'lc-chat-perf'
+  updatePerfDebug()
 
   searchInput = document.createElement('input')
   searchInput.type = 'search'
@@ -1315,7 +1401,7 @@ function createRoot(): HTMLElement {
   filterRow.className = 'lc-chat-menu-row'
   filterRow.append(filterLabel, filterbar)
 
-  menu.append(searchRow, controlRow, filterRow, statusRow)
+  menu.append(searchRow, controlRow, filterRow, statusRow, perfEl)
   toolbar.append(spacer, title, menuBtn)
 
   listEl = document.createElement('div')
@@ -1334,8 +1420,12 @@ function createRoot(): HTMLElement {
   inputWrap.className = 'lc-chat-input-wrap'
 
   textarea = document.createElement('textarea')
+  textarea.value = fasongText.value
   textarea.placeholder = '输入弹幕... Enter 发送，Shift+Enter 换行'
-  textarea.addEventListener('input', updateCount)
+  textarea.addEventListener('input', () => {
+    fasongText.value = textarea?.value ?? ''
+    updateCount()
+  })
   textarea.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault()
@@ -1437,6 +1527,7 @@ function addEvent(event: CustomChatEvent): void {
   if (!isReliableEvent(event)) return
   if (messages.some(message => message.id === event.id && message.source === event.source)) return
   if (!rememberEvent(event)) return
+  recordEventStats(event)
   messages.push(event)
   scheduleRender(event)
 }
@@ -1448,6 +1539,9 @@ export function startCustomChat(): void {
   disposeSettings = signalEffect(() => {
     document.documentElement.classList.toggle('lc-custom-chat-hide-native', customChatHideNative.value)
     if (root) root.dataset.theme = customChatTheme.value
+    if (root) root.dataset.debug = customChatPerfDebug.value ? 'true' : 'false'
+    syncComposerFromStore()
+    updatePerfDebug()
     ensureStyles()
   })
 
@@ -1494,8 +1588,14 @@ export function stopCustomChat(): void {
   searchInput = null
   matchCountEl = null
   wsStatusEl = null
+  perfEl = null
   messages.length = 0
   renderQueue.length = 0
+  eventTicks.length = 0
+  sourceCounts.dom = 0
+  sourceCounts.ws = 0
+  sourceCounts.local = 0
+  lastBatchSize = 0
   if (renderFrame !== null) {
     window.cancelAnimationFrame(renderFrame)
     renderFrame = null

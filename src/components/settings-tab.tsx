@@ -19,6 +19,7 @@ import {
   customChatCss,
   customChatEnabled,
   customChatHideNative,
+  customChatPerfDebug,
   customChatTheme,
   customChatUseWs,
   danmakuDirectAlwaysShow,
@@ -1196,10 +1197,27 @@ export function SettingsTab() {
                 style={{ minHeight: '90px', resize: 'vertical', width: '100%' }}
               />
               <div className='cb-note'>
-                可覆盖 #laplace-custom-chat 的 --lc-chat-* 变量，以及 .lc-chat-bubble、.lc-chat-medal、.lc-chat-name、.lc-chat-action 等选择器。
+                可覆盖 #laplace-custom-chat 的 --lc-chat-* 变量，以及 .lc-chat-bubble、.lc-chat-medal、.lc-chat-name、.lc-chat-action、.lc-chat-card-event、[data-kind]、[data-card]、[data-guard] 等选择器。
               </div>
             </div>
           </details>
+          <span
+            className='cb-switch-row'
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
+          >
+            <input
+              id='customChatPerfDebug'
+              type='checkbox'
+              checked={customChatPerfDebug.value}
+              disabled={!customChatEnabled.value}
+              onInput={e => {
+                customChatPerfDebug.value = e.currentTarget.checked
+              }}
+            />
+            <label htmlFor='customChatPerfDebug' style={{ color: customChatEnabled.value ? undefined : '#999' }}>
+              显示 Chatterbox 性能调试信息
+            </label>
+          </span>
           <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
             <input
               id='danmakuDirectMode'
