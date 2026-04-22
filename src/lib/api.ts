@@ -1,7 +1,7 @@
 import type { BilibiliGetEmoticonsResponse } from '../types'
 
 import { BASE_URL } from './const'
-import { describeRestrictionDuration, scanRestrictionSignals, type RestrictionSignal } from './moderation'
+import { describeRestrictionDuration, type RestrictionSignal, scanRestrictionSignals } from './moderation'
 import { buildReplacementMap } from './replacement'
 import {
   availableDanmakuColors,
@@ -66,7 +66,8 @@ export function getDedeUid(): string | undefined {
  * Fetches the real room ID for a Bilibili live room from the API.
  */
 export async function getRoomId(url = window.location.href): Promise<number> {
-  const shortUid = extractRoomNumber(url)
+  const shortUid = safeExtractRoomNumber(url)
+  if (!shortUid) throw new Error('无法从当前页面 URL 解析直播间号')
 
   const room = await fetch(`${BASE_URL.BILIBILI_ROOM_INIT}?id=${shortUid}`, {
     method: 'GET',
@@ -93,7 +94,7 @@ let cachedRoomSlug: string | null = null
  * that was used to populate it, so SPA navigation picks up the new room.
  */
 export async function ensureRoomId(): Promise<number> {
-  const currentSlug = extractRoomNumber(window.location.href) ?? null
+  const currentSlug = safeExtractRoomNumber(window.location.href)
   if (cachedRoomId.value !== null && cachedRoomSlug === currentSlug) {
     return cachedRoomId.value
   }
@@ -133,6 +134,14 @@ export interface SendDanmakuResult {
    * as a benign skip rather than a failure.
    */
   cancelled?: boolean
+}
+
+function safeExtractRoomNumber(url: string): string | null {
+  try {
+    return extractRoomNumber(url) ?? null
+  } catch {
+    return null
+  }
 }
 
 export interface MedalRoom {
@@ -188,17 +197,27 @@ function findMedalEntries(data: unknown): unknown[] {
 function medalEntryToRoom(entry: unknown): MedalRoom | null {
   if (typeof entry !== 'object' || entry === null) return null
   const obj = entry as Record<string, unknown>
-  const medal = typeof obj.medal_info === 'object' && obj.medal_info !== null ? (obj.medal_info as Record<string, unknown>) : {}
-  const anchor = typeof obj.anchor_info === 'object' && obj.anchor_info !== null ? (obj.anchor_info as Record<string, unknown>) : {}
+  const medal =
+    typeof obj.medal_info === 'object' && obj.medal_info !== null ? (obj.medal_info as Record<string, unknown>) : {}
+  const anchor =
+    typeof obj.anchor_info === 'object' && obj.anchor_info !== null ? (obj.anchor_info as Record<string, unknown>) : {}
   const linkedRoomId = roomIdFromLiveLink(obj.link) ?? roomIdFromLiveLink(medal.link) ?? roomIdFromLiveLink(anchor.link)
-  const directRoomId = toNumber(medal.roomid) ?? toNumber(medal.room_id) ?? toNumber(obj.roomid) ?? toNumber(obj.room_id)
+  const directRoomId =
+    toNumber(medal.roomid) ?? toNumber(medal.room_id) ?? toNumber(obj.roomid) ?? toNumber(obj.room_id)
   const roomId = directRoomId ?? linkedRoomId
   const anchorUid = toNumber(medal.target_id) ?? toNumber(anchor.uid) ?? toNumber(obj.target_id)
   if (roomId === null || roomId <= 0) return null
   return {
     roomId,
     medalName: firstString(medal.medal_name, medal.name, obj.medal_name, obj.medal_name, obj.name),
-    anchorName: firstString(obj.target_name, anchor.uname, anchor.name, medal.anchor_uname, obj.anchor_uname, obj.uname),
+    anchorName: firstString(
+      obj.target_name,
+      anchor.uname,
+      anchor.name,
+      medal.anchor_uname,
+      obj.anchor_uname,
+      obj.uname
+    ),
     anchorUid,
     source: directRoomId !== null ? 'medal-room-id' : 'medal-link',
   }
@@ -207,13 +226,22 @@ function medalEntryToRoom(entry: unknown): MedalRoom | null {
 function medalEntryToAnchorFallback(entry: unknown): Omit<MedalRoom, 'roomId' | 'source'> | null {
   if (typeof entry !== 'object' || entry === null) return null
   const obj = entry as Record<string, unknown>
-  const medal = typeof obj.medal_info === 'object' && obj.medal_info !== null ? (obj.medal_info as Record<string, unknown>) : {}
-  const anchor = typeof obj.anchor_info === 'object' && obj.anchor_info !== null ? (obj.anchor_info as Record<string, unknown>) : {}
+  const medal =
+    typeof obj.medal_info === 'object' && obj.medal_info !== null ? (obj.medal_info as Record<string, unknown>) : {}
+  const anchor =
+    typeof obj.anchor_info === 'object' && obj.anchor_info !== null ? (obj.anchor_info as Record<string, unknown>) : {}
   const anchorUid = toNumber(medal.target_id) ?? toNumber(anchor.uid) ?? toNumber(obj.target_id)
   if (anchorUid === null || anchorUid <= 0) return null
   return {
     medalName: firstString(medal.medal_name, medal.name, obj.medal_name, obj.name),
-    anchorName: firstString(obj.target_name, anchor.uname, anchor.name, medal.anchor_uname, obj.anchor_uname, obj.uname),
+    anchorName: firstString(
+      obj.target_name,
+      anchor.uname,
+      anchor.name,
+      medal.anchor_uname,
+      obj.anchor_uname,
+      obj.uname
+    ),
     anchorUid,
   }
 }

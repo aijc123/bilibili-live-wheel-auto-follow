@@ -8,6 +8,7 @@ import { enqueueDanmaku, SendPriority } from './send-queue'
 import {
   activeTab,
   aiEvasion,
+  customChatEnabled,
   dialogOpen,
   fasongText,
   isEmoticonUnique,
@@ -36,9 +37,23 @@ export async function copyText(text: string): Promise<boolean> {
 export async function stealDanmaku(msg: string): Promise<void> {
   const copied = await copyText(msg)
   fasongText.value = msg
-  activeTab.value = 'fasong'
-  dialogOpen.value = true
+  if (!focusCustomChatComposer()) {
+    activeTab.value = 'fasong'
+    dialogOpen.value = true
+  }
   appendLog(copied ? `🥷 偷并复制: ${msg}` : `🥷 偷: ${msg}`)
+}
+
+function focusCustomChatComposer(): boolean {
+  if (!customChatEnabled.value) return false
+  const input = document.querySelector<HTMLTextAreaElement>('#laplace-custom-chat textarea')
+  if (!input) return false
+
+  input.value = fasongText.value
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  input.focus()
+  input.setSelectionRange(input.value.length, input.value.length)
+  return true
 }
 
 export async function repeatDanmaku(

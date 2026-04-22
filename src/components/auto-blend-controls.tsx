@@ -2,6 +2,7 @@ import { AUTO_BLEND_PRESETS } from '../lib/auto-blend-preset-config'
 import { applyAutoBlendPreset } from '../lib/auto-blend-presets'
 import {
   autoBlendAdvancedOpen,
+  autoBlendBurstSettleMs,
   autoBlendCandidateText,
   autoBlendCooldownSec,
   autoBlendEnabled,
@@ -10,6 +11,8 @@ import {
   autoBlendMinDistinctUsers,
   autoBlendPanelOpen,
   autoBlendPreset,
+  autoBlendRateLimitStopThreshold,
+  autoBlendRateLimitWindowMin,
   autoBlendRequireDistinctUsers,
   autoBlendRoutineIntervalSec,
   autoBlendSendAllTrending,
@@ -208,6 +211,47 @@ export function AutoBlendControls() {
               }}
             />
             <span>秒</span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.25em' }}>
+            <span>突发等待</span>
+            <NumberInput
+              value={autoBlendBurstSettleMs.value}
+              min={0}
+              max={10000}
+              width='58px'
+              onChange={v => {
+                markCustom()
+                autoBlendBurstSettleMs.value = v
+              }}
+            />
+            <span>毫秒</span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.25em' }}>
+            <span>限频保护：</span>
+            <NumberInput
+              value={autoBlendRateLimitWindowMin.value}
+              min={1}
+              max={60}
+              width='44px'
+              onChange={v => {
+                markCustom()
+                autoBlendRateLimitWindowMin.value = v
+              }}
+            />
+            <span>分钟内</span>
+            <NumberInput
+              value={autoBlendRateLimitStopThreshold.value}
+              min={1}
+              max={20}
+              width='40px'
+              onChange={v => {
+                markCustom()
+                autoBlendRateLimitStopThreshold.value = v
+              }}
+            />
+            <span>次后停车</span>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '.25em' }}>

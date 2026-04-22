@@ -25,6 +25,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "bun test",
     "test:auto-blend": "bun scripts/test-auto-blend.ts",
     "verify:auto-blend-ui": "bun scripts/verify-auto-blend-ui.ts"
   },

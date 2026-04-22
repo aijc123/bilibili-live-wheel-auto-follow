@@ -5,6 +5,7 @@ import {
   formatAutoBlendStatus,
   shortAutoBlendText,
 } from './auto-blend-status'
+import { detectTrend, type TrendEvent } from './auto-blend-trend'
 import { subscribeDanmaku } from './danmaku-stream'
 import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
 import { appendLog } from './log'
@@ -13,12 +14,15 @@ import { describeRestrictionDuration, isAccountRestrictedError, isMutedError, is
 import { applyReplacements } from './replacement'
 import { enqueueDanmaku, SendPriority } from './send-queue'
 import {
+  autoBlendBurstSettleMs,
   autoBlendCandidateText,
   autoBlendCooldownSec,
   autoBlendEnabled,
   autoBlendIncludeReply,
   autoBlendLastActionText,
   autoBlendMinDistinctUsers,
+  autoBlendRateLimitStopThreshold,
+  autoBlendRateLimitWindowMin,
   autoBlendRequireDistinctUsers,
   autoBlendRoutineIntervalSec,
   autoBlendSendAllTrending,
@@ -36,7 +40,9 @@ import {
 } from './store'
 import { addRandomCharacter, formatDanmakuError, trimText } from './utils'
 
-interface TrendEvent {
+export { detectTrend, type TrendCandidate, type TrendEvent, type TrendResult } from './auto-blend-trend'
+
+interface TrendRecordEvent {
   ts: number
   uid: string | null
 }
@@ -46,7 +52,7 @@ interface TrendEntry {
   // drop both at once. Previously, timestamps and uniqueUids were stored
   // separately, leaving stale uids behind after old timestamps were pruned —
   // inflating the distinct-user count and causing false-positive triggers.
-  events: TrendEvent[]
+  events: TrendRecordEvent[]
 }
 
 // message → rolling-window trend data
@@ -75,10 +81,23 @@ let moderationStopReason: string | null = null
 // threshold of 2, firing on the exact second message makes every log look like
 // "just started, 2 messages" and prevents all-trending mode from seeing the
 // rest of the same wave.
-const BURST_SETTLE_MS = 1500
 const RATE_LIMIT_BACKOFF_MS = 2 * 60 * 1000
-const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000
-const RATE_LIMIT_STOP_THRESHOLD = 3
+
+function getBurstSettleMs(): number {
+  return Math.max(0, autoBlendBurstSettleMs.value)
+}
+
+function getRateLimitWindowMs(): number {
+  return Math.max(1, autoBlendRateLimitWindowMin.value) * 60 * 1000
+}
+
+function getRateLimitStopThreshold(): number {
+  return Math.max(1, autoBlendRateLimitStopThreshold.value)
+}
+
+function getRateLimitWindowLabel(): string {
+  return `${Math.max(1, autoBlendRateLimitWindowMin.value)} 分钟内`
+}
 
 function clearPendingAutoBlend(reason: string): void {
   if (burstSettleTimer) {
@@ -110,7 +129,7 @@ function handleSendFailure(result: SendDanmakuResult, roomId?: number): boolean 
       source: 'auto-blend',
       roomId,
       errorCode: result.errorCode,
-      reason: result.error
+      reason: result.error,
     })
     stopAutoBlendAfterModeration(`自动跟车：检测到你在本房间被禁言，已自动关闭。禁言时长：${duration}。`)
     return true
@@ -123,7 +142,7 @@ function handleSendFailure(result: SendDanmakuResult, roomId?: number): boolean 
       source: 'auto-blend',
       roomId,
       errorCode: result.errorCode,
-      reason: result.error
+      reason: result.error,
     })
     stopAutoBlendAfterModeration(`自动跟车：检测到账号级限制/风控，已自动关闭。限制时长：${duration}。`)
     return true
@@ -136,18 +155,19 @@ function handleSendFailure(result: SendDanmakuResult, roomId?: number): boolean 
       source: 'auto-blend',
       roomId,
       errorCode: result.errorCode,
-      reason: result.error
+      reason: result.error,
     })
     return false
   }
 
-  if (now - firstRateLimitHitAt > RATE_LIMIT_WINDOW_MS) {
+  if (now - firstRateLimitHitAt > getRateLimitWindowMs()) {
     firstRateLimitHitAt = now
     rateLimitHitCount = 0
   }
   rateLimitHitCount += 1
 
-  if (rateLimitHitCount >= RATE_LIMIT_STOP_THRESHOLD) {
+  if (rateLimitHitCount >= getRateLimitStopThreshold()) {
+    const windowLabel = getRateLimitWindowLabel()
     void syncGuardRoomRiskEvent({
       kind: 'rate_limited',
       source: 'auto-blend',
@@ -155,9 +175,9 @@ function handleSendFailure(result: SendDanmakuResult, roomId?: number): boolean 
       roomId,
       errorCode: result.errorCode,
       reason: result.error,
-      advice: '10 分钟内多次触发频率限制，自动跟车已经停车，建议休息一阵再开。'
+      advice: `${windowLabel}多次触发频率限制，自动跟车已经停车，建议休息一阵再开。`,
     })
-    stopAutoBlendAfterModeration('自动跟车：10 分钟内多次触发发送频率限制，已自动关闭，避免继续被系统/房管盯上。')
+    stopAutoBlendAfterModeration(`自动跟车：${windowLabel}多次触发发送频率限制，已自动关闭，避免继续被系统/房管盯上。`)
     return true
   }
 
@@ -168,15 +188,17 @@ function handleSendFailure(result: SendDanmakuResult, roomId?: number): boolean 
     roomId,
     errorCode: result.errorCode,
     reason: result.error,
-    advice: '触发发送频率限制，自动跟车会先歇 2 分钟。'
+    advice: '触发发送频率限制，自动跟车会先歇 2 分钟。',
   })
   cooldownUntil = Math.max(cooldownUntil, now + RATE_LIMIT_BACKOFF_MS)
-  clearPendingAutoBlend(`自动跟车：触发发送频率限制，已暂停 ${Math.round(RATE_LIMIT_BACKOFF_MS / 60000)} 分钟并清空本轮候选。`)
+  clearPendingAutoBlend(
+    `自动跟车：触发发送频率限制，已暂停 ${Math.round(RATE_LIMIT_BACKOFF_MS / 60000)} 分钟并清空本轮候选。`
+  )
   updateStatusText()
   return true
 }
 
-function countUniqueUids(events: TrendEvent[]): number {
+function countUniqueUids(events: TrendRecordEvent[]): number {
   const s = new Set<string>()
   for (const e of events) if (e.uid) s.add(e.uid)
   return s.size
@@ -232,17 +254,16 @@ function meetsThreshold(entry: TrendEntry): boolean {
 }
 
 function pickBestTrendingText(preferredText: string | null): string | null {
-  let bestText: string | null = null
-  let bestCount = 0
+  const windowMs = autoBlendWindowSec.value * 1000
+  const events: TrendEvent[] = []
   for (const [text, entry] of trendMap) {
     if (!meetsThreshold(entry)) continue
-    if (preferredText === text) return text
-    if (entry.events.length > bestCount) {
-      bestText = text
-      bestCount = entry.events.length
-    }
+    for (const event of entry.events) events.push({ ...event, text })
   }
-  return bestText
+  const result = detectTrend(events, windowMs, autoBlendThreshold.value)
+  if (!result.shouldSend) return null
+  if (preferredText && result.candidates.some(candidate => candidate.text === preferredText)) return preferredText
+  return result.text
 }
 
 function scheduleBurstSend(text: string): void {
@@ -262,7 +283,7 @@ function scheduleBurstSend(text: string): void {
     pruneExpired(Date.now())
     const chosen = pickBestTrendingText(preferredText)
     if (chosen !== null) void triggerSend(chosen, 'burst')
-  }, BURST_SETTLE_MS)
+  }, getBurstSettleMs())
 }
 
 function maybeScheduleBurstFromCurrentTrends(): void {
@@ -440,7 +461,8 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
         appendLog(`  - ${shortAutoBlendText(originalText)}（${formatAutoBlendSenderInfo(uniqueUsers, totalCount)}）`)
       }
 
-      const repeatCount = reason === 'burst' && autoBlendSendAllTrending.value ? 1 : Math.max(1, autoBlendSendCount.value)
+      const repeatCount =
+        reason === 'burst' && autoBlendSendAllTrending.value ? 1 : Math.max(1, autoBlendSendCount.value)
 
       for (let i = 0; i < repeatCount; i++) {
         let toSend = replaced

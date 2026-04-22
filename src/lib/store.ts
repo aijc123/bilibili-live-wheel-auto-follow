@@ -38,7 +38,6 @@ export const activeTemplateIndex = gmSignal('activeTemplateIndex', 0)
 export const logPanelOpen = gmSignal('logPanelOpen', false)
 export const autoSendPanelOpen = gmSignal('autoSendPanelOpen', true)
 export const autoBlendPanelOpen = gmSignal('autoBlendPanelOpen', true)
-export const normalSendPanelOpen = gmSignal('normalSendPanelOpen', true)
 export const memesPanelOpen = gmSignal('memesPanelOpen', true)
 export const dialogOpen = gmSignal('dialogOpen', false)
 
@@ -50,6 +49,9 @@ export const autoBlendWindowSec = gmSignal('autoBlendWindowSec', 20) // rolling 
 export const autoBlendThreshold = gmSignal('autoBlendThreshold', 4) // burst threshold N
 export const autoBlendCooldownSec = gmSignal('autoBlendCooldownSec', 35) // post-send freeze C
 export const autoBlendRoutineIntervalSec = gmSignal('autoBlendRoutineIntervalSec', 60) // routine timer period
+export const autoBlendBurstSettleMs = gmSignal('autoBlendBurstSettleMs', 1500)
+export const autoBlendRateLimitWindowMin = gmSignal('autoBlendRateLimitWindowMin', 10)
+export const autoBlendRateLimitStopThreshold = gmSignal('autoBlendRateLimitStopThreshold', 3)
 export const autoBlendPreset = gmSignal<'safe' | 'normal' | 'hot' | 'custom'>('autoBlendPreset', 'normal')
 export const autoBlendAdvancedOpen = gmSignal('autoBlendAdvancedOpen', false)
 export const autoBlendDryRun = gmSignal('autoBlendDryRun', true)

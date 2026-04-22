@@ -3,11 +3,11 @@ import { KeepLiveWS } from '@laplace.live/ws/client'
 import { ensureRoomId } from './api'
 import { BASE_URL } from './const'
 import {
+  type CustomChatEvent,
+  type CustomChatField,
   chatEventTime,
   emitCustomChatEvent,
   emitCustomChatWsStatus,
-  type CustomChatEvent,
-  type CustomChatField,
 } from './custom-chat-events'
 import { appendLog } from './log'
 
@@ -74,7 +74,7 @@ function rememberWsDanmaku(text: string, uid: string | null): void {
   recentDanmaku.set(`${uid ?? ''}:${text}`, Date.now())
 }
 
-function eventId(cmd: string, data: UnknownRecord, fallback: string): string {
+function eventId(_cmd: string, data: UnknownRecord, fallback: string): string {
   return asString(data.msg_id) || String(data.id ?? data.uid ?? fallback)
 }
 
@@ -116,7 +116,7 @@ function bindEvents(roomId: number, live: KeepLiveWS): void {
     const uid = String(user[0])
     rememberWsDanmaku(text, uid)
     const badges: string[] = []
-    if (badge && badge[0]) badges.push(`${badge[1]} ${badge[0]}`)
+    if (badge?.[0]) badges.push(`${badge[1]} ${badge[0]}`)
     if (level?.[0]) badges.push(`UL ${level[0]}`)
     if (user[2] === 1) badges.push('房管')
     emit({

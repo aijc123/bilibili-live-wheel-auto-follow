@@ -51,6 +51,9 @@ let lastSendCompletedAt = 0
  * rate-limit gap before sendDanmaku() is called.  During this window the item
  * is no longer in `queue`, so cancelPendingAuto() tracks it here so that
  * clicking 停车 can mark it cancelled before the HTTP request fires.
+ *
+ * Once sendDanmaku() starts, this is cleared; an actual in-flight HTTP request
+ * is never cancelled.
  */
 let inflight: QueueItem | null = null
 
@@ -99,6 +102,7 @@ async function processQueue(): Promise<void> {
         continue
       }
 
+      inflight = null
       try {
         const result = await sendDanmaku(item.message, item.roomId, item.csrfToken)
         lastSendCompletedAt = Date.now()
@@ -106,8 +110,6 @@ async function processQueue(): Promise<void> {
       } catch (err) {
         lastSendCompletedAt = Date.now()
         item.reject(err)
-      } finally {
-        inflight = null
       }
     }
   } finally {

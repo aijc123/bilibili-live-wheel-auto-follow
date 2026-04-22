@@ -80,7 +80,12 @@ export function durationFromData(data: unknown): string | null {
       ) {
         return formatDuration(value)
       }
-      if (lowerKey.includes('end') || lowerKey.includes('expire') || lowerKey.includes('until') || key.includes('解除')) {
+      if (
+        lowerKey.includes('end') ||
+        lowerKey.includes('expire') ||
+        lowerKey.includes('until') ||
+        key.includes('解除')
+      ) {
         const ms = value > 10_000_000_000 ? value : value * 1000
         if (ms > Date.now()) return `${formatDuration((ms - Date.now()) / 1000)}（到 ${new Date(ms).toLocaleString()}）`
       }
@@ -116,9 +121,24 @@ function scanNode(data: unknown, source: string, signals: RestrictionSignal[], p
     const currentPath = path ? `${path}.${key}` : key
     if (typeof value === 'boolean' && value) {
       if (lowerKey.includes('silent') || lowerKey.includes('mute') || key.includes('禁言')) {
-        signals.push({ kind: 'muted', message: currentPath, duration: describeRestrictionDuration(undefined, data), source })
-      } else if (lowerKey.includes('forbid') || lowerKey.includes('block') || key.includes('封') || key.includes('黑')) {
-        signals.push({ kind: 'blocked', message: currentPath, duration: describeRestrictionDuration(undefined, data), source })
+        signals.push({
+          kind: 'muted',
+          message: currentPath,
+          duration: describeRestrictionDuration(undefined, data),
+          source,
+        })
+      } else if (
+        lowerKey.includes('forbid') ||
+        lowerKey.includes('block') ||
+        key.includes('封') ||
+        key.includes('黑')
+      ) {
+        signals.push({
+          kind: 'blocked',
+          message: currentPath,
+          duration: describeRestrictionDuration(undefined, data),
+          source,
+        })
       }
     }
     scanNode(value, source, signals, currentPath)

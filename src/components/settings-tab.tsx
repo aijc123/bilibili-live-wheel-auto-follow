@@ -79,8 +79,13 @@ function formatCheckTime(ts: number): string {
 }
 
 function sortMedalResults(results: MedalRestrictionCheck[]): MedalRestrictionCheck[] {
-  const rank = { restricted: 0, unknown: 1, deactivated: 2, ok: 3 } satisfies Record<MedalRestrictionCheck['status'], number>
-  return [...results].sort((a, b) => rank[a.status] - rank[b.status] || a.room.anchorName.localeCompare(b.room.anchorName))
+  const rank = { restricted: 0, unknown: 1, deactivated: 2, ok: 3 } satisfies Record<
+    MedalRestrictionCheck['status'],
+    number
+  >
+  return [...results].sort(
+    (a, b) => rank[a.status] - rank[b.status] || a.room.anchorName.localeCompare(b.room.anchorName)
+  )
 }
 
 function medalStatusTitle(status: MedalRestrictionCheck['status']): string {
@@ -112,7 +117,9 @@ function formatMedalResultLine(result: MedalRestrictionCheck): string {
   const header = `${medalStatusTitle(result.status)}｜${room}｜房间号：${result.room.roomId}｜检查时间：${formatCheckTime(result.checkedAt)}`
   if (result.signals.length === 0) return `${header}\n${result.note ?? '接口未发现禁言/封禁信号'}`
   const details = result.signals
-    .map(signal => `${signalKindLabel(signal.kind)}：${signal.message}；时长：${signal.duration}；来源：${signal.source}`)
+    .map(
+      signal => `${signalKindLabel(signal.kind)}：${signal.message}；时长：${signal.duration}；来源：${signal.source}`
+    )
     .join('\n')
   return `${header}\n${details}`
 }
@@ -520,7 +527,9 @@ export function SettingsTab() {
       return
     }
     try {
-      await navigator.clipboard.writeText(formatMedalCheckReport(results, medalCheckStatus.value, medalCheckFilter.value))
+      await navigator.clipboard.writeText(
+        formatMedalCheckReport(results, medalCheckStatus.value, medalCheckFilter.value)
+      )
       medalCheckCopyStatus.value = `已复制${medalFilterLabel(medalCheckFilter.value)}结果`
       setTimeout(() => {
         medalCheckCopyStatus.value = ''
@@ -963,7 +972,11 @@ export function SettingsTab() {
           <button type='button' disabled={checkingMedalRooms.value} onClick={() => void checkMedalRooms()}>
             {checkingMedalRooms.value ? '检查中…' : '检查粉丝牌禁言'}
           </button>
-          <button type='button' disabled={medalCheckResults.value.length === 0} onClick={() => void copyMedalCheckResults()}>
+          <button
+            type='button'
+            disabled={medalCheckResults.value.length === 0}
+            onClick={() => void copyMedalCheckResults()}
+          >
             复制巡检结果
           </button>
           <span style={{ color: medalCheckStatus.value.includes('发现限制') ? '#a15c00' : '#666' }}>
@@ -1059,38 +1072,42 @@ export function SettingsTab() {
               )
             })()}
             <div style={{ maxHeight: '220px', overflowY: 'auto', display: 'grid', gap: '.35em' }}>
-            {getFilteredMedalResults(medalCheckResults.value, medalCheckFilter.value).map(result => {
-              const color = medalStatusColor(result.status)
-              const title = medalStatusTitle(result.status)
-              return (
-                <div
-                  key={result.room.roomId}
-                  className='cb-panel'
-                  style={{ display: 'grid', gap: '.25em', borderColor: result.status === 'restricted' ? '#f0b35a' : undefined }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5em' }}>
-                    <strong style={{ wordBreak: 'break-all' }}>
-                      {result.room.anchorName} / {result.room.medalName}
-                    </strong>
-                    <span style={{ color, whiteSpace: 'nowrap' }}>{title}</span>
+              {getFilteredMedalResults(medalCheckResults.value, medalCheckFilter.value).map(result => {
+                const color = medalStatusColor(result.status)
+                const title = medalStatusTitle(result.status)
+                return (
+                  <div
+                    key={result.room.roomId}
+                    className='cb-panel'
+                    style={{
+                      display: 'grid',
+                      gap: '.25em',
+                      borderColor: result.status === 'restricted' ? '#f0b35a' : undefined,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5em' }}>
+                      <strong style={{ wordBreak: 'break-all' }}>
+                        {result.room.anchorName} / {result.room.medalName}
+                      </strong>
+                      <span style={{ color, whiteSpace: 'nowrap' }}>{title}</span>
+                    </div>
+                    <div className='cb-note'>
+                      房间号：{result.room.roomId} · 检查时间：{formatCheckTime(result.checkedAt)}
+                    </div>
+                    {result.signals.length > 0 ? (
+                      result.signals.map((signal, index) => (
+                        <div key={index} style={{ color, wordBreak: 'break-all', lineHeight: 1.5 }}>
+                          {signalKindLabel(signal.kind)}：{signal.message}
+                          <br />
+                          时长：{signal.duration} · 来源：{signal.source}
+                        </div>
+                      ))
+                    ) : (
+                      <div className='cb-note'>{result.note ?? '接口未发现禁言/封禁信号'}</div>
+                    )}
                   </div>
-                  <div className='cb-note'>
-                    房间号：{result.room.roomId} · 检查时间：{formatCheckTime(result.checkedAt)}
-                  </div>
-                  {result.signals.length > 0 ? (
-                    result.signals.map((signal, index) => (
-                      <div key={index} style={{ color, wordBreak: 'break-all', lineHeight: 1.5 }}>
-                        {signalKindLabel(signal.kind)}：{signal.message}
-                        <br />
-                        时长：{signal.duration} · 来源：{signal.source}
-                      </div>
-                    ))
-                  ) : (
-                    <div className='cb-note'>{result.note ?? '接口未发现禁言/封禁信号'}</div>
-                  )}
-                </div>
-              )
-            })}
+                )
+              })}
             </div>
           </div>
         )}
@@ -1197,7 +1214,9 @@ export function SettingsTab() {
                 style={{ minHeight: '90px', resize: 'vertical', width: '100%' }}
               />
               <div className='cb-note'>
-                可覆盖 #laplace-custom-chat 的 --lc-chat-* 变量，以及 .lc-chat-bubble、.lc-chat-medal、.lc-chat-name、.lc-chat-action、.lc-chat-card-event、[data-kind]、[data-card]、[data-guard] 等选择器。
+                可覆盖 #laplace-custom-chat 的 --lc-chat-* 变量，以及
+                .lc-chat-bubble、.lc-chat-medal、.lc-chat-name、.lc-chat-action、.lc-chat-card-event、[data-kind]、[data-card]、[data-guard]
+                等选择器。
               </div>
             </div>
           </details>

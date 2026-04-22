@@ -1,0 +1,1955 @@
+import { effect as signalEffect } from '@preact/signals'
+
+import { BASE_URL } from './const'
+import {
+  type CustomChatEvent,
+  type CustomChatField,
+  type CustomChatKind,
+  type CustomChatWsStatus,
+  chatEventTime,
+  emitCustomChatEvent,
+  subscribeCustomChatEvents,
+  subscribeCustomChatWsStatus,
+} from './custom-chat-events'
+import {
+  CUSTOM_CHAT_MAX_MESSAGES,
+  CUSTOM_CHAT_MAX_RENDER_BATCH,
+  shouldAnimateRenderBatch,
+  takeRenderBatch,
+  trimRenderQueue,
+  visibleRenderMessages,
+} from './custom-chat-render'
+import { kindLabel, messageMatchesCustomChatSearch } from './custom-chat-search'
+import { copyText, repeatDanmaku, sendManualDanmaku, stealDanmaku } from './danmaku-actions'
+import { type DanmakuEvent, subscribeDanmaku } from './danmaku-stream'
+import { hasRecentWsDanmaku } from './live-ws-source'
+import {
+  customChatCss,
+  customChatHideNative,
+  customChatPerfDebug,
+  customChatShowDanmaku,
+  customChatShowEnter,
+  customChatShowGift,
+  customChatShowNotice,
+  customChatShowSuperchat,
+  customChatTheme,
+  danmakuDirectConfirm,
+  fasongText,
+} from './store'
+
+const ROOT_ID = 'laplace-custom-chat'
+const STYLE_ID = 'laplace-custom-chat-style'
+const USER_STYLE_ID = 'laplace-custom-chat-user-style'
+const MAX_MESSAGES = CUSTOM_CHAT_MAX_MESSAGES
+const MAX_NATIVE_SCAN_BATCH = 48
+const MAX_NATIVE_INITIAL_SCAN = 80
+const NATIVE_EVENT_SELECTOR =
+  '.chat-item, .super-chat-card, .gift-item, [class*="super"], [class*="gift"], [class*="guard"], [class*="privilege"]'
+
+const STYLE = `
+#${ROOT_ID}, #${ROOT_ID} * {
+  box-sizing: border-box;
+  font-family: var(--lc-chat-font, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif);
+  letter-spacing: 0;
+}
+#${ROOT_ID} {
+  --lc-chat-bg: #f5f5f7;
+  --lc-chat-panel: rgba(255, 255, 255, .84);
+  --lc-chat-border: rgba(60, 60, 67, .12);
+  --lc-chat-text: #111;
+  --lc-chat-muted: #6e6e73;
+  --lc-chat-name: #007aff;
+  --lc-chat-bubble: #ffffff;
+  --lc-chat-bubble-text: #111;
+  --lc-chat-own: #007aff;
+  --lc-chat-own-text: #fff;
+  --lc-chat-chip: rgba(118, 118, 128, .14);
+  --lc-chat-chip-text: #1d1d1f;
+  --lc-chat-accent: #34c759;
+  --lc-chat-shadow: rgba(0, 0, 0, .10);
+  --lc-chat-bubble-shadow: 0 1px 1px rgba(0, 0, 0, .035), 0 8px 22px rgba(0, 0, 0, .075);
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+  min-height: 340px;
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  color: var(--lc-chat-text);
+  background: var(--lc-chat-bg);
+  border-left: 1px solid var(--lc-chat-border);
+  overflow: hidden;
+  contain: layout style;
+}
+html.lc-custom-chat-mounted #${ROOT_ID} {
+  display: grid !important;
+}
+html.lc-custom-chat-root-outside-history #${ROOT_ID} {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+#${ROOT_ID}[data-theme="laplace"],
+#${ROOT_ID}[data-theme="compact"] {
+  --lc-chat-bg: #050608;
+  --lc-chat-panel: rgba(22, 24, 29, .86);
+  --lc-chat-border: rgba(255, 255, 255, .075);
+  --lc-chat-text: #f5f5f7;
+  --lc-chat-muted: #98989f;
+  --lc-chat-name: #64d2ff;
+  --lc-chat-bubble: #1c1c1e;
+  --lc-chat-bubble-text: #f5f5f7;
+  --lc-chat-own: #0a84ff;
+  --lc-chat-own-text: #fff;
+  --lc-chat-chip: rgba(255, 255, 255, .1);
+  --lc-chat-chip-text: #e6edf7;
+  --lc-chat-accent: #30d158;
+  --lc-chat-shadow: rgba(0, 0, 0, .34);
+  --lc-chat-bubble-shadow: 0 1px 1px rgba(255, 255, 255, .025), 0 10px 28px rgba(0, 0, 0, .28);
+}
+#${ROOT_ID}[data-theme="light"] {
+  color: var(--lc-chat-text);
+}
+#${ROOT_ID}[data-theme="compact"] .lc-chat-avatar {
+  display: none;
+}
+#${ROOT_ID}[data-theme="compact"] .lc-chat-message {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 4px 6px;
+  gap: 3px 5px;
+}
+#${ROOT_ID}[data-theme="compact"] .lc-chat-body {
+  grid-column: 1 / 2;
+}
+#${ROOT_ID}[data-theme="compact"] .lc-chat-bubble {
+  font-size: 12px;
+}
+#${ROOT_ID} .lc-chat-toolbar {
+  position: relative;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  background: var(--lc-chat-panel);
+  border-bottom: 1px solid var(--lc-chat-border);
+  backdrop-filter: blur(16px);
+  min-width: 0;
+  overflow: hidden;
+}
+#${ROOT_ID} .lc-chat-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.1;
+  font-weight: 700;
+  color: var(--lc-chat-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#${ROOT_ID} .lc-chat-pill {
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--lc-chat-chip);
+  color: var(--lc-chat-chip-text);
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+#${ROOT_ID} .lc-chat-icon {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--lc-chat-chip);
+  color: var(--lc-chat-own);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+#${ROOT_ID} .lc-chat-menu {
+  display: none;
+  min-width: 0;
+  margin: 0 8px 8px;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  max-height: min(280px, 38vh);
+  overflow-y: auto;
+  padding: 10px;
+  border: 1px solid var(--lc-chat-border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--lc-chat-bg) 92%, #fff);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, .28);
+  backdrop-filter: blur(24px) saturate(1.35);
+  -webkit-backdrop-filter: blur(24px) saturate(1.35);
+}
+#${ROOT_ID}.lc-chat-menu-open .lc-chat-menu {
+  display: grid;
+}
+#${ROOT_ID} .lc-chat-menu-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+#${ROOT_ID} .lc-chat-menu-row + .lc-chat-menu-row {
+  padding-top: 8px;
+  border-top: 1px solid var(--lc-chat-border);
+}
+#${ROOT_ID} .lc-chat-menu-label {
+  flex: 0 0 34px;
+  color: var(--lc-chat-muted);
+  font-size: 11px;
+}
+#${ROOT_ID} .lc-chat-pill[aria-pressed="true"] {
+  color: var(--lc-chat-own-text);
+  background: var(--lc-chat-own);
+  border-color: var(--lc-chat-own);
+}
+#${ROOT_ID} .lc-chat-filterbar {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  padding: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: transparent;
+  border-bottom: 0;
+  backdrop-filter: none;
+}
+#${ROOT_ID} .lc-chat-filter {
+  width: 100%;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 21px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--lc-chat-chip);
+  color: var(--lc-chat-chip-text);
+  padding: 0 3px;
+  font-size: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#${ROOT_ID} .lc-chat-filter[aria-pressed="true"] {
+  background: var(--lc-chat-own);
+  color: var(--lc-chat-own-text);
+  border-color: var(--lc-chat-own);
+}
+#${ROOT_ID} .lc-chat-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 0;
+  max-width: 100%;
+  height: 24px;
+  border: 1px solid var(--lc-chat-border);
+  border-radius: 999px;
+  background: var(--lc-chat-chip);
+  color: var(--lc-chat-text);
+  padding: 0 7px;
+  font-size: 11px;
+  outline: none;
+}
+#${ROOT_ID} .lc-chat-search:focus {
+  border-color: var(--lc-chat-own);
+}
+#${ROOT_ID} .lc-chat-list {
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 13px 10px 14px;
+  scrollbar-width: thin;
+  scroll-behavior: auto;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
+}
+#${ROOT_ID} .lc-chat-message {
+  position: relative;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 3px 9px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 2px 6px;
+  border-radius: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  overflow: visible;
+}
+#${ROOT_ID} .lc-chat-message:hover {
+  background: transparent;
+  border-color: transparent;
+}
+#${ROOT_ID} .lc-chat-message[data-kind="gift"] {
+  background: transparent;
+}
+#${ROOT_ID} .lc-chat-message[data-kind="superchat"] {
+  background: transparent;
+  border-color: transparent;
+}
+#${ROOT_ID} .lc-chat-card-event {
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 4px 10px;
+  padding: 8px 2px;
+}
+#${ROOT_ID} .lc-chat-card-event .lc-chat-avatar {
+  width: 38px;
+  height: 38px;
+  margin-bottom: 9px;
+}
+#${ROOT_ID} .lc-chat-card-event .lc-chat-meta {
+  padding-left: 6px;
+}
+#${ROOT_ID} .lc-chat-card-event .lc-chat-bubble {
+  width: 100%;
+  max-width: 100%;
+  min-height: 66px;
+  padding: 12px 15px;
+  border-radius: 18px;
+  border-bottom-left-radius: 8px;
+  font-size: 14px;
+  font-weight: 720;
+  box-shadow: var(--lc-chat-bubble-shadow);
+}
+#${ROOT_ID} .lc-chat-card-compact .lc-chat-bubble {
+  min-height: 0;
+  padding: 9px 12px;
+  border-radius: 20px;
+  border-bottom-left-radius: 8px;
+  font-size: 13px;
+  font-weight: 650;
+}
+#${ROOT_ID} .lc-chat-card-event .lc-chat-bubble::before {
+  top: auto;
+  bottom: 0;
+  left: -4px;
+  width: 13px;
+  height: 15px;
+  background: var(--lc-chat-bubble);
+}
+#${ROOT_ID} .lc-chat-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 6px;
+  font-size: 12px;
+  line-height: 1.2;
+  opacity: .92;
+}
+#${ROOT_ID} .lc-chat-card-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#${ROOT_ID} .lc-chat-card-mark {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  min-width: 28px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .28);
+  color: currentColor;
+  font-size: 11px;
+  font-weight: 800;
+}
+#${ROOT_ID} .lc-chat-card-text {
+  display: block;
+}
+#${ROOT_ID} .lc-chat-card-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 7px;
+}
+#${ROOT_ID} .lc-chat-card-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .24);
+  color: currentColor;
+  font-size: 11px;
+  line-height: 1.35;
+}
+#${ROOT_ID} .lc-chat-card-field-label {
+  opacity: .72;
+}
+#${ROOT_ID} .lc-chat-card-field-value {
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#${ROOT_ID} .lc-chat-card-event[data-card="gift"] .lc-chat-bubble {
+  background: linear-gradient(135deg, #ffd8bf, #fff2c7);
+  color: #4a2a10;
+  border-color: rgba(191, 92, 0, .2);
+}
+#${ROOT_ID} .lc-chat-card-event[data-card="superchat"] .lc-chat-bubble {
+  background: linear-gradient(135deg, #ff9f0a, #ff453a);
+  color: #fff;
+  border-color: rgba(255, 69, 58, .32);
+}
+#${ROOT_ID} .lc-chat-card-event[data-card="guard"] .lc-chat-bubble {
+  background: linear-gradient(135deg, #2f80ed, #7c5cff);
+  color: #fff;
+  border-color: rgba(47, 128, 237, .32);
+}
+#${ROOT_ID} .lc-chat-card-event[data-card="redpacket"] .lc-chat-bubble {
+  background: linear-gradient(135deg, #ff375f, #ffcc00);
+  color: #fff;
+  border-color: rgba(255, 55, 95, .32);
+}
+#${ROOT_ID} .lc-chat-card-event[data-card="lottery"] .lc-chat-bubble {
+  background: linear-gradient(135deg, #34c759, #64d2ff);
+  color: #063320;
+  border-color: rgba(52, 199, 89, .28);
+}
+#${ROOT_ID} .lc-chat-card-event[data-guard="2"] .lc-chat-bubble {
+  background: linear-gradient(135deg, #af52de, #ff7ad9);
+}
+#${ROOT_ID} .lc-chat-card-event[data-guard="1"] .lc-chat-bubble {
+  background: linear-gradient(135deg, #ff2d55, #ff9f0a);
+}
+#${ROOT_ID} .lc-chat-message[data-kind="guard"],
+#${ROOT_ID} .lc-chat-message[data-kind="enter"],
+#${ROOT_ID} .lc-chat-message[data-kind="follow"],
+#${ROOT_ID} .lc-chat-message[data-kind="like"],
+#${ROOT_ID} .lc-chat-message[data-kind="share"],
+#${ROOT_ID} .lc-chat-message[data-kind="redpacket"],
+#${ROOT_ID} .lc-chat-message[data-kind="lottery"],
+#${ROOT_ID} .lc-chat-message[data-kind="notice"],
+#${ROOT_ID} .lc-chat-message[data-kind="system"] {
+  opacity: .86;
+}
+#${ROOT_ID} .lc-chat-meta {
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  color: var(--lc-chat-muted);
+  font-size: 11px;
+  line-height: 1.2;
+  padding-left: 10px;
+  overflow: hidden;
+}
+#${ROOT_ID} .lc-chat-name {
+  min-width: 0;
+  max-width: min(15em, 64%);
+  color: var(--lc-chat-name);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#${ROOT_ID} .lc-chat-time {
+  flex: 0 0 auto;
+  color: var(--lc-chat-muted);
+}
+#${ROOT_ID} .lc-chat-avatar {
+  grid-row: 1 / 3;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--lc-chat-chip);
+  align-self: end;
+  margin-bottom: 3px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .5), 0 2px 7px var(--lc-chat-shadow);
+}
+#${ROOT_ID} .lc-chat-avatar-fallback {
+  display: grid;
+  place-items: center;
+  color: var(--lc-chat-own-text);
+  background: var(--lc-chat-own);
+  font-weight: 800;
+  font-size: 12px;
+}
+#${ROOT_ID} .lc-chat-reply {
+  color: var(--lc-chat-accent);
+}
+#${ROOT_ID} .lc-chat-badge {
+  flex: 0 1 auto;
+  border-radius: 999px;
+  padding: 1px 5px;
+  background: var(--lc-chat-chip);
+  color: var(--lc-chat-chip-text);
+  font-size: 10px;
+  line-height: 1.25;
+  max-width: min(11em, 58%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#${ROOT_ID} .lc-chat-medal {
+  max-width: min(12em, 72%);
+}
+#${ROOT_ID} .lc-chat-kind {
+  color: var(--lc-chat-own-text);
+  background: var(--lc-chat-own);
+}
+#${ROOT_ID} .lc-chat-message[data-kind="danmaku"] .lc-chat-kind {
+  display: none;
+}
+#${ROOT_ID} .lc-chat-kind[data-kind="gift"] {
+  background: #ffd166;
+}
+#${ROOT_ID} .lc-chat-kind[data-kind="superchat"] {
+  background: #ff7a59;
+  color: #fff;
+}
+#${ROOT_ID} .lc-chat-kind[data-kind="enter"] {
+  background: #9cb8ff;
+}
+#${ROOT_ID} .lc-chat-body {
+  grid-column: 2 / 3;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  overflow: visible;
+}
+#${ROOT_ID} .lc-chat-bubble {
+  position: relative;
+  display: block;
+  width: fit-content;
+  min-width: 2.6em;
+  max-width: calc(100% - 14px);
+  color: var(--lc-chat-bubble-text);
+  background: var(--lc-chat-bubble);
+  border: 1px solid color-mix(in srgb, var(--lc-chat-border) 74%, transparent);
+  border-radius: 20px;
+  border-bottom-left-radius: 7px;
+  padding: 8px 13px 9px;
+  font-size: 13.5px;
+  line-height: 1.38;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  box-shadow: var(--lc-chat-bubble-shadow);
+  isolation: isolate;
+}
+#${ROOT_ID} .lc-chat-bubble::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  bottom: 0;
+  width: 12px;
+  height: 15px;
+  background: inherit;
+  border-left: 1px solid color-mix(in srgb, var(--lc-chat-border) 74%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--lc-chat-border) 74%, transparent);
+  border-bottom-left-radius: 12px;
+  transform: skew(-22deg);
+  z-index: -1;
+}
+#${ROOT_ID} .lc-chat-message[data-kind="gift"] .lc-chat-bubble {
+  background: #fff4c2;
+  color: #4a3400;
+  border-color: rgba(191, 134, 0, .22);
+}
+#${ROOT_ID} .lc-chat-message[data-kind="superchat"] .lc-chat-bubble {
+  background: linear-gradient(180deg, #ff9f0a, #ff7a59);
+  color: #fff;
+  border-color: rgba(255, 122, 89, .28);
+}
+#${ROOT_ID}[data-theme="laplace"] .lc-chat-message[data-kind="gift"] .lc-chat-bubble,
+#${ROOT_ID}[data-theme="compact"] .lc-chat-message[data-kind="gift"] .lc-chat-bubble {
+  background: rgba(255, 214, 10, .22);
+  color: #fff4bf;
+}
+#${ROOT_ID}[data-theme="laplace"] .lc-chat-message[data-kind="superchat"] .lc-chat-bubble,
+#${ROOT_ID}[data-theme="compact"] .lc-chat-message[data-kind="superchat"] .lc-chat-bubble {
+  background: linear-gradient(180deg, rgba(255, 159, 10, .92), rgba(255, 69, 58, .86));
+  color: #fff;
+}
+#${ROOT_ID} .lc-chat-actions {
+  grid-column: 2 / 3;
+  justify-self: start;
+  display: flex;
+  gap: 4px;
+  margin: 0 0 0 4px;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity .12s;
+  max-width: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+#${ROOT_ID} .lc-chat-message:hover .lc-chat-actions,
+#${ROOT_ID} .lc-chat-message.lc-chat-selected .lc-chat-actions {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+#${ROOT_ID} .lc-chat-message.lc-chat-selected .lc-chat-bubble {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--lc-chat-own) 18%, transparent), var(--lc-chat-bubble-shadow);
+}
+#${ROOT_ID} .lc-chat-action {
+  min-width: 22px;
+  height: 20px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--lc-chat-chip);
+  color: var(--lc-chat-chip-text);
+  font-size: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#${ROOT_ID} .lc-chat-action:hover {
+  background: var(--lc-chat-own);
+  color: var(--lc-chat-own-text);
+}
+#${ROOT_ID} .lc-chat-composer {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  display: grid;
+  grid-template-rows: auto auto;
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 88px;
+  gap: 6px;
+  padding: 9px 8px 8px;
+  border-top: 1px solid var(--lc-chat-border);
+  background: color-mix(in srgb, var(--lc-chat-panel) 94%, transparent);
+  box-shadow: 0 -10px 24px color-mix(in srgb, var(--lc-chat-bg) 86%, transparent);
+  backdrop-filter: blur(16px);
+}
+#${ROOT_ID} .lc-chat-input-wrap {
+  position: relative;
+}
+#${ROOT_ID} textarea {
+  width: 100%;
+  min-width: 0;
+  height: 46px;
+  resize: vertical;
+  min-height: 42px;
+  max-height: 120px;
+  border: 1px solid var(--lc-chat-border);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--lc-chat-bubble) 92%, var(--lc-chat-panel));
+  color: var(--lc-chat-bubble-text);
+  padding: 9px 38px 9px 13px;
+  outline: none;
+  font-size: 13px;
+  line-height: 1.34;
+  overflow-x: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .035);
+}
+#${ROOT_ID} textarea:focus {
+  border-color: var(--lc-chat-own);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lc-chat-own) 18%, transparent);
+}
+#${ROOT_ID} .lc-chat-count {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  color: var(--lc-chat-muted);
+  font-size: 11px;
+  pointer-events: none;
+}
+#${ROOT_ID} .lc-chat-send-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+}
+#${ROOT_ID} .lc-chat-send {
+  min-height: 27px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--lc-chat-own);
+  color: var(--lc-chat-own-text);
+  font-weight: 700;
+  cursor: pointer;
+}
+#${ROOT_ID} .lc-chat-send:disabled {
+  opacity: .5;
+  cursor: wait;
+}
+#${ROOT_ID} .lc-chat-hint {
+  color: var(--lc-chat-muted);
+  font-size: 11px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#${ROOT_ID} .lc-chat-ws-status {
+  font-size: 11px;
+  color: var(--lc-chat-muted);
+  min-width: 38px;
+}
+#${ROOT_ID} .lc-chat-ws-status[data-status="live"] {
+  color: var(--lc-chat-accent);
+}
+#${ROOT_ID} .lc-chat-ws-status[data-status="error"] {
+  color: #ff453a;
+}
+#${ROOT_ID} .lc-chat-perf {
+  display: none;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 12px;
+  color: var(--lc-chat-muted);
+  background: color-mix(in srgb, var(--lc-chat-chip) 72%, transparent);
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+#${ROOT_ID}[data-debug="true"] .lc-chat-perf {
+  display: block;
+}
+#${ROOT_ID} .lc-chat-event-debug {
+  display: none;
+  min-width: 0;
+  margin: 0 8px 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--lc-chat-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--lc-chat-panel) 88%, var(--lc-chat-bg));
+  color: var(--lc-chat-muted);
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+#${ROOT_ID}[data-inspecting="true"] .lc-chat-event-debug {
+  display: grid;
+  gap: 5px;
+}
+#${ROOT_ID} .lc-chat-debug-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+#${ROOT_ID} .lc-chat-debug-title {
+  color: var(--lc-chat-text);
+  font-weight: 800;
+}
+#${ROOT_ID} .lc-chat-debug-close {
+  border: 0;
+  border-radius: 999px;
+  background: var(--lc-chat-chip);
+  color: var(--lc-chat-chip-text);
+  cursor: pointer;
+  font-size: 11px;
+}
+#${ROOT_ID} .lc-chat-debug-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 6px;
+}
+#${ROOT_ID} .lc-chat-debug-key {
+  color: var(--lc-chat-muted);
+}
+#${ROOT_ID} .lc-chat-debug-value {
+  color: var(--lc-chat-text);
+}
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-items,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .super-chat-card,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .gift-item,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-control-panel,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-input-panel,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .control-panel-ctnr,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-input-ctnr {
+  display: none !important;
+}
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted.lc-custom-chat-root-outside-history .chat-history-panel {
+  display: none !important;
+}
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#${ROOT_ID}) > :not(#${ROOT_ID}) {
+  display: none !important;
+}
+`
+
+let unsubscribeDom: (() => void) | null = null
+let unsubscribeEvents: (() => void) | null = null
+let unsubscribeWsStatus: (() => void) | null = null
+let disposeSettings: (() => void) | null = null
+let disposeComposer: (() => void) | null = null
+let nativeEventObserver: MutationObserver | null = null
+let root: HTMLElement | null = null
+let rootOutsideHistory = false
+let listEl: HTMLElement | null = null
+let pauseBtn: HTMLButtonElement | null = null
+let unreadEl: HTMLElement | null = null
+let searchInput: HTMLInputElement | null = null
+let matchCountEl: HTMLElement | null = null
+let wsStatusEl: HTMLElement | null = null
+let perfEl: HTMLElement | null = null
+let debugEl: HTMLElement | null = null
+let textarea: HTMLTextAreaElement | null = null
+let countEl: HTMLElement | null = null
+let styleEl: HTMLStyleElement | null = null
+let userStyleEl: HTMLStyleElement | null = null
+let messageSeq = 0
+let paused = false
+let unread = 0
+let sending = false
+let searchQuery = ''
+const messages: CustomChatEvent[] = []
+const messageKeys = new Set<string>()
+const recentEventKeys = new Map<string, number>()
+const renderQueue: CustomChatEvent[] = []
+const eventTicks: number[] = []
+const seenNativeNodes = new WeakSet<HTMLElement>()
+const pendingNativeNodes = new Set<HTMLElement>()
+const sourceCounts: Record<CustomChatEvent['source'], number> = { dom: 0, ws: 0, local: 0 }
+let lastBatchSize = 0
+let renderFrame: number | null = null
+let rerenderFrame: number | null = null
+let nativeScanFrame: number | null = null
+let rerenderToken = 0
+let rootEventController: AbortController | null = null
+
+function eventToSendableMessage(ev: DanmakuEvent): string {
+  if (!ev.isReply) return ev.text
+  return ev.uname ? `@${ev.uname} ${ev.text}` : ev.text
+}
+
+function setText(el: HTMLElement, text: string): void {
+  el.textContent = text
+}
+
+function getRootEventSignal(): AbortSignal {
+  rootEventController ??= new AbortController()
+  return rootEventController.signal
+}
+
+function abortRootEventListeners(): void {
+  rootEventController?.abort()
+  rootEventController = null
+}
+
+function addRootEventListener<K extends keyof GlobalEventHandlersEventMap>(
+  target: HTMLElement,
+  type: K,
+  listener: (event: GlobalEventHandlersEventMap[K]) => void,
+  options?: AddEventListenerOptions
+): void {
+  target.addEventListener(type, listener as EventListener, { ...options, signal: getRootEventSignal() })
+}
+
+function makeButton(
+  className: string,
+  text: string,
+  title: string,
+  onClick: (e: MouseEvent) => void
+): HTMLButtonElement {
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = className
+  btn.textContent = text
+  btn.title = title
+  addRootEventListener(btn, 'click', onClick)
+  return btn
+}
+function avatarUrl(uid: string | null): string | undefined {
+  return uid ? `${BASE_URL.BILIBILI_AVATAR}/${uid}?size=96` : undefined
+}
+
+function compactText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function eventKey(event: Pick<CustomChatEvent, 'kind' | 'uid' | 'text'>): string {
+  return `${event.kind}:${event.uid ?? ''}:${compactText(event.text).slice(0, 80)}`
+}
+
+function messageKey(event: Pick<CustomChatEvent, 'source' | 'id'>): string {
+  return `${event.source}:${event.id}`
+}
+
+function rememberEvent(event: Pick<CustomChatEvent, 'kind' | 'uid' | 'text'>): boolean {
+  const now = Date.now()
+  for (const [key, ts] of recentEventKeys) {
+    if (now - ts > 9000) recentEventKeys.delete(key)
+  }
+  const key = eventKey(event)
+  if (recentEventKeys.has(key)) return false
+  recentEventKeys.set(key, now)
+  return true
+}
+
+function recordEventStats(event: CustomChatEvent): void {
+  const now = Date.now()
+  eventTicks.push(now)
+  while (eventTicks.length > 0 && now - eventTicks[0] > 1000) eventTicks.shift()
+  sourceCounts[event.source]++
+}
+
+function updatePerfDebug(): void {
+  if (!perfEl || !root) return
+  root.dataset.debug = customChatPerfDebug.value ? 'true' : 'false'
+  if (!customChatPerfDebug.value) {
+    root.removeAttribute('data-inspecting')
+    root.querySelectorAll('.lc-chat-message.lc-chat-selected').forEach(el => {
+      el.classList.remove('lc-chat-selected')
+    })
+    debugEl?.replaceChildren()
+    return
+  }
+  const totalSources = sourceCounts.dom + sourceCounts.ws + sourceCounts.local || 1
+  const pct = (value: number) => Math.round((value / totalSources) * 100)
+  perfEl.textContent = `msg ${messages.length}/${MAX_MESSAGES} | eps ${eventTicks.length}/s | batch ${lastBatchSize} | q ${renderQueue.length} | native ${pendingNativeNodes.size} | ws ${pct(sourceCounts.ws)}% dom ${pct(sourceCounts.dom)}% local ${pct(sourceCounts.local)}%`
+}
+
+function isNoiseEventText(text: string): boolean {
+  const clean = compactText(text)
+  if (!clean) return true
+  if (/^(头像|匿名|复制|举报|回复|关闭|更多|展开|收起|弹幕|礼物|SC|进场|通知|暂停|清屏|状态|显示)$/.test(clean))
+    return true
+  if (/^搜索\s*user:/.test(clean)) return true
+  return false
+}
+
+function isReliableEvent(event: CustomChatEvent): boolean {
+  const text = compactText(event.text)
+  if (isNoiseEventText(text)) return false
+  if (event.source === 'dom' && displayName(event) === '匿名' && !event.uid && !event.avatarUrl && text.length <= 2)
+    return false
+  return true
+}
+
+function usefulBadgeText(raw: string, uname: string): string | null {
+  const text = compactText(raw)
+    .replace(/^粉丝牌[:：]?/, '')
+    .replace(/^荣耀[:：]?/, '')
+    .replace(/^用户等级[:：]?/, 'UL ')
+  if (!text || text.length > 16) return null
+  if (/这是\s*TA\s*的|TA 的|TA的|荣耀|粉丝|复制|举报|回复|关闭|头像/.test(text)) return null
+  if (uname && (text === uname || text.startsWith(`${uname} `) || text.startsWith(`${uname}　`))) return null
+  return text
+}
+
+function isBadDisplayName(value: string): boolean {
+  return !value || /通过活动|查看我的装扮|获得|装扮|荣耀|粉丝牌|用户等级|头像|复制|举报|回复|关闭/.test(value)
+}
+
+function cleanDisplayName(value: string): string {
+  return compactText(value).replace(/\s*[：:]\s*$/, '')
+}
+
+function displayName(message: CustomChatEvent): string {
+  let name = cleanDisplayName(message.uname) || '匿名'
+  for (const raw of message.badges) {
+    const badge = compactText(raw)
+    if (badge && name.startsWith(`${badge} `)) {
+      name = cleanDisplayName(name.slice(badge.length))
+    }
+  }
+  const medalPrefix = name.match(/^[^\s:：]{1,10}\s+\d{1,3}\s+(.{1,32})$/)
+  const medalName = cleanDisplayName(medalPrefix?.[1] ?? '')
+  if (medalName && !isBadDisplayName(medalName)) name = medalName
+  name = cleanDisplayName(name)
+  if (isBadDisplayName(name)) return '匿名'
+  return name || '匿名'
+}
+
+function normalizeBadges(message: CustomChatEvent, name = displayName(message)): string[] {
+  const normalized: string[] = []
+  for (const raw of message.badges) {
+    const text = usefulBadgeText(raw, name)
+    if (!text) continue
+    if (text === name || name.includes(text)) continue
+    if (normalized.includes(text)) continue
+    const parts = text.split(/\s+/).filter(Boolean)
+    if (parts.length === 1 && normalized.some(item => item.includes(text))) continue
+    if (parts.length > 1) {
+      for (let i = normalized.length - 1; i >= 0; i--) {
+        if (/^\d{1,3}$/.test(normalized[i]) && text.includes(normalized[i])) normalized.splice(i, 1)
+      }
+    }
+    normalized.push(text)
+    if (normalized.length >= 2) break
+  }
+  return normalized
+}
+
+function guardLevel(message: CustomChatEvent): string | null {
+  const value = `${message.text} ${message.badges.join(' ')} ${message.rawCmd ?? ''}`
+  if (/总督|GUARD\s*1|舰队\s*1|privilege[_-]?type["':\s]*1/i.test(value)) return '1'
+  if (/提督|GUARD\s*2|舰队\s*2|privilege[_-]?type["':\s]*2/i.test(value)) return '2'
+  if (/舰长|GUARD\s*3|舰队\s*3|privilege[_-]?type["':\s]*3/i.test(value)) return '3'
+  return null
+}
+
+function cardType(message: CustomChatEvent): 'gift' | 'superchat' | 'guard' | 'redpacket' | 'lottery' | null {
+  if (message.kind === 'superchat') return 'superchat'
+  if (message.kind === 'gift') return 'gift'
+  if (message.kind === 'guard') return 'guard'
+  if (message.kind === 'redpacket') return 'redpacket'
+  if (message.kind === 'lottery') return 'lottery'
+  if (guardLevel(message)) return 'guard'
+  return null
+}
+
+function cardTitle(
+  type: 'gift' | 'superchat' | 'guard' | 'redpacket' | 'lottery',
+  message: CustomChatEvent,
+  guard: string | null
+): string {
+  if (type === 'superchat') return message.amount ? `醒目留言 ¥${message.amount}` : '醒目留言'
+  if (type === 'gift') return message.amount ? `礼物 ¥${Math.round(message.amount / 1000)}` : '礼物事件'
+  if (type === 'redpacket') return '红包事件'
+  if (type === 'lottery') return '天选时刻'
+  if (guard === '1') return '总督事件'
+  if (guard === '2') return '提督事件'
+  return '舰长事件'
+}
+
+function cardMark(type: 'gift' | 'superchat' | 'guard' | 'redpacket' | 'lottery', guard: string | null): string {
+  if (type === 'superchat') return 'SC'
+  if (type === 'gift') return '礼物'
+  if (type === 'redpacket') return '红包'
+  if (type === 'lottery') return '天选'
+  if (guard === '1') return '总督'
+  if (guard === '2') return '提督'
+  return '舰长'
+}
+
+function formatAmount(message: CustomChatEvent, card: NonNullable<ReturnType<typeof cardType>>): string {
+  if (!message.amount) return ''
+  if (card === 'gift' || card === 'guard') return `¥${Math.round(message.amount / 1000)}`
+  return `¥${message.amount}`
+}
+
+function cardFields(
+  message: CustomChatEvent,
+  card: NonNullable<ReturnType<typeof cardType>>,
+  guard: string | null
+): CustomChatField[] {
+  const fields = message.fields?.filter(field => field.value) ?? []
+  if (fields.length > 0) return fields
+
+  const fallback: CustomChatField[] = []
+  const amount = formatAmount(message, card)
+  if (card === 'superchat' && amount) fallback.push({ key: 'sc-price', label: '金额', value: amount, kind: 'money' })
+  if (card === 'gift') {
+    const giftMatch = message.text.match(/(.+?)\s*x\s*(\d+)/i)
+    if (giftMatch?.[1])
+      fallback.push({
+        key: 'gift-name',
+        label: '礼物',
+        value: giftMatch[1].replace(/^.*?(投喂|赠送|送出)\s*/, ''),
+        kind: 'text',
+      })
+    if (giftMatch?.[2]) fallback.push({ key: 'gift-count', label: '数量', value: `x${giftMatch[2]}`, kind: 'count' })
+    if (amount) fallback.push({ key: 'gift-price', label: '金额', value: amount, kind: 'money' })
+  }
+  if (card === 'guard') {
+    const level = guard === '1' ? '总督' : guard === '2' ? '提督' : '舰长'
+    fallback.push({ key: 'guard-level', label: '等级', value: level, kind: 'level' })
+    const month = message.text.match(/x\s*(\d+)/i)?.[1]
+    if (month) fallback.push({ key: 'guard-months', label: '月份', value: `${month}个月`, kind: 'duration' })
+    if (amount) fallback.push({ key: 'guard-price', label: '金额', value: amount, kind: 'money' })
+  }
+  return fallback
+}
+
+function createAvatar(message: CustomChatEvent): HTMLElement {
+  const fallback = document.createElement('div')
+  fallback.className = 'lc-chat-avatar lc-chat-avatar-fallback'
+  fallback.textContent = message.uname.slice(0, 1).toUpperCase() || '?'
+  fallback.title = message.uid ? `UID ${message.uid}` : message.uname
+
+  const avatar = message.avatarUrl || avatarUrl(message.uid)
+  if (!avatar) return fallback
+
+  const img = document.createElement('img')
+  img.className = 'lc-chat-avatar'
+  img.src = avatar
+  img.alt = '头像'
+  img.referrerPolicy = 'no-referrer'
+  img.loading = 'lazy'
+  img.title = fallback.title
+  addRootEventListener(img, 'error', () => img.replaceWith(fallback), { once: true })
+  return img
+}
+
+function nodeText(node: HTMLElement): string {
+  return compactText(node.textContent ?? '')
+}
+
+function attrText(node: HTMLElement, attr: string): string | null {
+  const value = node.getAttribute(attr)
+  return value ? compactText(value) : null
+}
+
+function nativeUid(node: HTMLElement): string | null {
+  const direct = attrText(node, 'data-uid') ?? node.querySelector<HTMLElement>('[data-uid]')?.getAttribute('data-uid')
+  if (direct) return direct
+  const link = node.querySelector<HTMLAnchorElement>('a[href*="space.bilibili.com"], a[href*="uid="]')
+  const href = link?.href ?? ''
+  return href.match(/space\.bilibili\.com\/(\d+)/)?.[1] ?? href.match(/[?&]uid=(\d+)/)?.[1] ?? null
+}
+
+function nativeUname(node: HTMLElement, text: string): string {
+  const selectors = ['[data-uname]', '.user-name', '.username', '.name', '[class*="user-name"]', '[class*="username"]']
+  for (const selector of selectors) {
+    const el = node.querySelector<HTMLElement>(selector)
+    const value = el?.getAttribute('data-uname') ?? el?.getAttribute('title') ?? el?.textContent
+    const clean = cleanDisplayName(value ?? '')
+    if (clean && clean !== text && clean.length <= 32 && !isBadDisplayName(clean)) return clean
+  }
+  return '匿名'
+}
+
+function nativeAvatar(node: HTMLElement): string | undefined {
+  for (const img of node.querySelectorAll<HTMLImageElement>('img')) {
+    const src = img.currentSrc || img.src || img.getAttribute('data-src') || img.getAttribute('src')
+    if (!src) continue
+    const label = `${img.className} ${img.alt}`.toLowerCase()
+    if (label.includes('avatar') || label.includes('face') || label.includes('head') || label.includes('头像'))
+      return src
+  }
+  return undefined
+}
+
+function nativeKind(node: HTMLElement, text: string): CustomChatKind | null {
+  const signal = `${node.className} ${text}`
+  if (/super[-_ ]?chat|superchat|醒目留言|醒目|￥|¥|\bSC\b/i.test(signal)) return 'superchat'
+  if (/舰长|提督|总督|大航海|guard|privilege|开通|续费/i.test(signal)) return 'guard'
+  if (/红包|red[-_ ]?envelop/i.test(signal)) return 'redpacket'
+  if (/天选|lottery|抽奖/i.test(signal)) return 'lottery'
+  if (/关注|follow/i.test(signal)) return 'follow'
+  if (/点赞|like/i.test(signal)) return 'like'
+  if (/分享|share/i.test(signal)) return 'share'
+  if (/gift|礼物|赠送|投喂|送出|小花花|辣条|电池|x\s*\d+/i.test(signal)) return 'gift'
+  return null
+}
+
+function nativeBadges(node: HTMLElement, text: string, uname: string): string[] {
+  const badges: string[] = []
+  for (const el of node.querySelectorAll<HTMLElement>(
+    '[title], [aria-label], [class*="medal"], [class*="guard"], [class*="level"]'
+  )) {
+    const raw = el.getAttribute('title') ?? el.getAttribute('aria-label') ?? el.textContent ?? ''
+    const clean = usefulBadgeText(raw, uname)
+    if (!clean || clean === text || badges.includes(clean)) continue
+    badges.push(clean)
+    if (badges.length >= 3) break
+  }
+  if (/总督/i.test(text)) badges.unshift('GUARD 1')
+  else if (/提督/i.test(text)) badges.unshift('GUARD 2')
+  else if (/舰长/i.test(text)) badges.unshift('GUARD 3')
+  return [...new Set(badges)]
+}
+
+function parseNativeEvent(node: HTMLElement): CustomChatEvent | null {
+  if (node.classList.contains('danmaku-item')) return null
+  if (node.closest(`#${ROOT_ID}`)) return null
+  const text = nodeText(node)
+  if (isNoiseEventText(text) || text.length < 2) return null
+  const kind = nativeKind(node, text)
+  if (!kind) return null
+  const uname = nativeUname(node, text)
+  const uid = nativeUid(node)
+  const badges = nativeBadges(node, text, uname)
+  const avatar = nativeAvatar(node) || avatarUrl(uid)
+  if (uname === '匿名' && !uid && !avatar && text.length <= 4) return null
+  const giftMatch = kind === 'gift' ? text.match(/([\p{Script=Han}\w·・ぁ-んァ-ンー\s]+?)\s*x\s*(\d+)/iu) : null
+  const fields: CustomChatField[] = []
+  if (kind === 'gift' && giftMatch) {
+    fields.push({ key: 'gift-name', label: '礼物', value: compactText(giftMatch[1]), kind: 'text' })
+    fields.push({ key: 'gift-count', label: '数量', value: `x${giftMatch[2]}`, kind: 'count' })
+  }
+  if (kind === 'guard') {
+    const guard = /总督/.test(text) ? '总督' : /提督/.test(text) ? '提督' : '舰长'
+    fields.push({ key: 'guard-level', label: '等级', value: guard, kind: 'level' })
+    const month = text.match(/(\d+)\s*(个月|月)/)?.[1]
+    if (month) fields.push({ key: 'guard-months', label: '月份', value: `${month}个月`, kind: 'duration' })
+  }
+  return {
+    id: `native-${++messageSeq}`,
+    kind,
+    text,
+    sendText: kind === 'superchat' ? text : undefined,
+    uname,
+    uid,
+    time: chatEventTime(),
+    isReply: false,
+    source: 'dom',
+    badges,
+    avatarUrl: avatar,
+    fields,
+  }
+}
+function kindVisible(kind: CustomChatKind): boolean {
+  if (kind === 'danmaku') return customChatShowDanmaku.value
+  if (kind === 'gift') return customChatShowGift.value
+  if (kind === 'superchat') return customChatShowSuperchat.value
+  if (kind === 'guard' || kind === 'enter' || kind === 'follow' || kind === 'like' || kind === 'share')
+    return customChatShowEnter.value
+  if (kind === 'redpacket' || kind === 'lottery' || kind === 'notice' || kind === 'system')
+    return customChatShowNotice.value
+  return true
+}
+
+function messageMatchesSearch(message: CustomChatEvent): boolean {
+  return messageMatchesCustomChatSearch(message, searchQuery, kindVisible)
+}
+
+function wsStatusLabel(status: CustomChatWsStatus): string {
+  if (status === 'connecting') return '实时事件源连接中'
+  if (status === 'live') return '实时事件源正常'
+  if (status === 'error') return '页面兜底运行中'
+  if (status === 'closed') return '页面兜底运行中'
+  return '实时事件源关闭'
+}
+
+function updateWsStatus(status: CustomChatWsStatus): void {
+  if (!wsStatusEl) return
+  wsStatusEl.textContent = wsStatusLabel(status)
+  wsStatusEl.dataset.status = status === 'error' || status === 'closed' ? 'fallback' : status
+}
+
+function updateMatchCount(): void {
+  if (!matchCountEl) return
+  if (!searchQuery.trim()) {
+    matchCountEl.textContent = ''
+    matchCountEl.style.display = 'none'
+    return
+  }
+  const count = messages.filter(messageMatchesSearch).length
+  matchCountEl.textContent = `${count}/${messages.length}`
+  matchCountEl.style.display = ''
+}
+
+function updateUnread(): void {
+  if (unreadEl) {
+    unreadEl.textContent = unread > 0 ? `${unread} 新` : ''
+    unreadEl.style.display = unread > 0 ? '' : 'none'
+  }
+  if (pauseBtn) pauseBtn.setAttribute('aria-pressed', paused ? 'true' : 'false')
+  updatePerfDebug()
+}
+
+function isNearBottom(): boolean {
+  if (!listEl) return true
+  return listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight < 80
+}
+
+function scrollToBottom(): void {
+  if (!listEl) return
+  listEl.scrollTop = listEl.scrollHeight
+}
+
+function pruneMessages(): void {
+  while (messages.length > MAX_MESSAGES) {
+    const removed = messages.shift()
+    if (removed) messageKeys.delete(messageKey(removed))
+  }
+  while (listEl && listEl.children.length > MAX_MESSAGES) {
+    listEl?.firstElementChild?.remove()
+  }
+  updatePerfDebug()
+}
+
+function renderMessage(message: CustomChatEvent, countUnread = true, updateCount = true, manageFlow = true): boolean {
+  if (!listEl) return false
+  const shouldStickToBottom = !paused && isNearBottom()
+  if (!messageMatchesSearch(message)) {
+    if (updateCount) updateMatchCount()
+    return false
+  }
+
+  const row = document.createElement('div')
+  row.className = countUnread ? 'lc-chat-message lc-chat-peek' : 'lc-chat-message'
+  row.dataset.uid = message.uid ?? ''
+  row.dataset.kind = message.kind
+  row.dataset.source = message.source
+  row.dataset.user = displayName(message)
+  row.tabIndex = 0
+  const guard = guardLevel(message)
+  const card = cardType(message)
+  if (card) {
+    row.classList.add('lc-chat-card-event')
+    row.dataset.card = card
+  }
+  if (card === 'gift' && !message.amount) row.classList.add('lc-chat-card-compact')
+  if (guard) row.dataset.guard = guard
+
+  addRootEventListener(row, 'click', e => {
+    if (!customChatPerfDebug.value) return
+    const target = e.target
+    if (target instanceof HTMLElement && target.closest('button')) return
+    showEventDebug(message, row, card, guard)
+  })
+
+  const avatarEl = createAvatar(message)
+
+  const meta = document.createElement('div')
+  meta.className = 'lc-chat-meta'
+
+  const kind = document.createElement('span')
+  kind.className = 'lc-chat-badge lc-chat-kind'
+  kind.dataset.kind = message.kind
+  setText(kind, kindLabel(message.kind))
+
+  const name = document.createElement('span')
+  name.className = 'lc-chat-name'
+  const shownName = displayName(message)
+  setText(name, shownName)
+
+  const time = document.createElement('span')
+  time.className = 'lc-chat-time'
+  setText(time, message.time)
+
+  if (message.kind !== 'danmaku') meta.append(kind)
+  meta.append(name, time)
+  if (message.isReply) {
+    const reply = document.createElement('span')
+    reply.className = 'lc-chat-reply'
+    reply.textContent = '回复'
+    meta.append(reply)
+  }
+  for (const badgeText of normalizeBadges(message, shownName)) {
+    const badge = document.createElement('span')
+    badge.className = 'lc-chat-badge lc-chat-medal'
+    badge.dataset.badge = badgeText
+    setText(badge, badgeText)
+    meta.append(badge)
+  }
+
+  const actions = document.createElement('div')
+  actions.className = 'lc-chat-actions'
+  if (message.sendText) {
+    actions.append(
+      makeButton('lc-chat-action', '偷', '偷到发送框并复制', () => void stealDanmaku(message.sendText ?? message.text)),
+      makeButton('lc-chat-action', '+1', '+1 发送', e => {
+        void repeatDanmaku(message.sendText ?? message.text, {
+          confirm: danmakuDirectConfirm.value,
+          anchor: { x: e.clientX, y: e.clientY },
+        })
+      })
+    )
+  }
+  actions.append(
+    makeButton('lc-chat-action', '复制', '复制事件文本', () => void copyText(message.sendText ?? message.text))
+  )
+
+  const body = document.createElement('div')
+  body.className = 'lc-chat-body'
+
+  const text = document.createElement('div')
+  text.className = 'lc-chat-bubble lc-chat-text'
+  if (card) {
+    const head = document.createElement('div')
+    head.className = 'lc-chat-card-head'
+
+    const title = document.createElement('span')
+    title.className = 'lc-chat-card-title'
+    setText(title, cardTitle(card, message, guard))
+
+    const mark = document.createElement('span')
+    mark.className = 'lc-chat-card-mark'
+    setText(mark, cardMark(card, guard))
+
+    const content = document.createElement('span')
+    content.className = 'lc-chat-card-text'
+    setText(content, message.text)
+
+    const fields = cardFields(message, card, guard)
+    const fieldsEl = document.createElement('div')
+    fieldsEl.className = 'lc-chat-card-fields'
+    for (const field of fields) {
+      const fieldEl = document.createElement('span')
+      fieldEl.className = 'lc-chat-card-field'
+      fieldEl.dataset.field = field.key
+      if (field.kind) fieldEl.dataset.kind = field.kind
+      const label = document.createElement('span')
+      label.className = 'lc-chat-card-field-label'
+      setText(label, field.label)
+      const value = document.createElement('span')
+      value.className = 'lc-chat-card-field-value'
+      setText(value, field.value)
+      fieldEl.append(label, value)
+      fieldsEl.append(fieldEl)
+    }
+
+    head.append(title, mark)
+    text.append(head)
+    if (fields.length > 0) text.append(fieldsEl)
+    text.append(content)
+  } else {
+    setText(text, message.text)
+  }
+  body.append(meta, text)
+
+  row.append(avatarEl, body, actions)
+  listEl.append(row)
+
+  if (manageFlow) {
+    pruneMessages()
+    if (!shouldStickToBottom && countUnread) {
+      unread++
+      updateUnread()
+    } else {
+      scrollToBottom()
+    }
+    if (updateCount) updateMatchCount()
+  }
+  return true
+}
+
+function clearMessages(): void {
+  messages.length = 0
+  messageKeys.clear()
+  renderQueue.length = 0
+  unread = 0
+  listEl?.replaceChildren()
+  updateUnread()
+  updateMatchCount()
+}
+
+function rerenderMessages(): void {
+  if (!listEl) return
+  listEl.replaceChildren()
+  for (const message of messages) renderMessage(message, false, false, false)
+  pruneMessages()
+  updateMatchCount()
+  if (!paused) scrollToBottom()
+}
+
+function scheduleRerenderMessages(): void {
+  rerenderToken++
+  const token = rerenderToken
+  if (rerenderFrame !== null) window.cancelAnimationFrame(rerenderFrame)
+  rerenderFrame = window.requestAnimationFrame(() => {
+    rerenderFrame = null
+    if (!listEl || token !== rerenderToken) return
+    listEl.replaceChildren()
+    const visible = visibleRenderMessages(messages, messageMatchesSearch)
+    let index = 0
+    const renderChunk = (): void => {
+      if (!listEl || token !== rerenderToken) return
+      const end = Math.min(index + CUSTOM_CHAT_MAX_RENDER_BATCH, visible.length)
+      for (; index < end; index++) renderMessage(visible[index], false, false, false)
+      if (index < visible.length) {
+        rerenderFrame = window.requestAnimationFrame(renderChunk)
+        return
+      }
+      rerenderFrame = null
+      updateMatchCount()
+      updatePerfDebug()
+      if (!paused) scrollToBottom()
+    }
+    renderChunk()
+  })
+}
+
+function flushRenderQueue(): void {
+  renderFrame = null
+  if (!listEl || renderQueue.length === 0) return
+  const batch = takeRenderBatch(renderQueue)
+  lastBatchSize = batch.length
+  const shouldStickToBottom = !paused && isNearBottom()
+  const animate = shouldAnimateRenderBatch(batch.length)
+  let appended = 0
+  for (const event of batch) {
+    if (!messageKeys.has(messageKey(event))) continue
+    if (renderMessage(event, animate, false, false)) appended++
+  }
+  if (renderQueue.length > 0) renderFrame = window.requestAnimationFrame(flushRenderQueue)
+  if (appended === 0) {
+    updateMatchCount()
+    updatePerfDebug()
+    return
+  }
+  pruneMessages()
+  if (!shouldStickToBottom) {
+    unread += appended
+    updateUnread()
+  } else {
+    scrollToBottom()
+  }
+  updateMatchCount()
+  updatePerfDebug()
+}
+
+function scheduleRender(event: CustomChatEvent): void {
+  renderQueue.push(event)
+  trimRenderQueue(renderQueue)
+  updatePerfDebug()
+  if (renderFrame !== null) return
+  renderFrame = window.requestAnimationFrame(flushRenderQueue)
+}
+
+async function sendFromComposer(): Promise<void> {
+  if (!textarea || sending) return
+  const text = textarea.value
+  sending = true
+  const sendBtn = root?.querySelector<HTMLButtonElement>('.lc-chat-send')
+  if (sendBtn) sendBtn.disabled = true
+  const sent = await sendManualDanmaku(text)
+  if (sent) {
+    textarea.value = ''
+    fasongText.value = ''
+    updateCount()
+  }
+  sending = false
+  if (sendBtn) sendBtn.disabled = false
+}
+
+function updateCount(): void {
+  if (countEl && textarea) countEl.textContent = String(textarea.value.length)
+}
+
+function syncComposerFromStore(): void {
+  if (!textarea || textarea.value === fasongText.value) return
+  textarea.value = fasongText.value
+  updateCount()
+}
+
+function updateNativeVisibility(): void {
+  const mounted = !!root?.isConnected && !!root.querySelector('.lc-chat-composer')
+  document.documentElement.classList.toggle('lc-custom-chat-mounted', mounted)
+  document.documentElement.classList.toggle('lc-custom-chat-root-outside-history', mounted && rootOutsideHistory)
+  document.documentElement.classList.toggle('lc-custom-chat-hide-native', mounted && customChatHideNative.value)
+}
+
+function appendDebugRow(parent: HTMLElement, key: string, value: string): void {
+  const row = document.createElement('div')
+  row.className = 'lc-chat-debug-row'
+  const keyEl = document.createElement('span')
+  keyEl.className = 'lc-chat-debug-key'
+  setText(keyEl, key)
+  const valueEl = document.createElement('span')
+  valueEl.className = 'lc-chat-debug-value'
+  setText(valueEl, value || '-')
+  row.append(keyEl, valueEl)
+  parent.append(row)
+}
+
+function showEventDebug(
+  message: CustomChatEvent,
+  row: HTMLElement,
+  card: ReturnType<typeof cardType>,
+  guard: string | null
+): void {
+  if (!root || !debugEl) return
+  root.querySelectorAll('.lc-chat-message.lc-chat-selected').forEach(el => {
+    if (el !== row) el.classList.remove('lc-chat-selected')
+  })
+  row.classList.add('lc-chat-selected')
+  root.dataset.inspecting = 'true'
+  debugEl.replaceChildren()
+
+  const head = document.createElement('div')
+  head.className = 'lc-chat-debug-head'
+  const title = document.createElement('span')
+  title.className = 'lc-chat-debug-title'
+  setText(title, '事件调试')
+  const close = makeButton('lc-chat-debug-close', '关闭', '关闭事件调试', () => {
+    root?.removeAttribute('data-inspecting')
+    row.classList.remove('lc-chat-selected')
+    debugEl?.replaceChildren()
+  })
+  head.append(title, close)
+  debugEl.append(head)
+  appendDebugRow(debugEl, 'id', message.id)
+  appendDebugRow(debugEl, 'data-kind', message.kind)
+  appendDebugRow(debugEl, 'data-card', card ?? '')
+  appendDebugRow(debugEl, 'data-guard', guard ?? '')
+  appendDebugRow(debugEl, 'source', message.source)
+  appendDebugRow(debugEl, 'uid', message.uid ?? '')
+  appendDebugRow(debugEl, 'raw cmd', message.rawCmd ?? '')
+  appendDebugRow(debugEl, 'fields', (message.fields ?? []).map(field => `${field.key}=${field.value}`).join(' | '))
+}
+
+function createRoot(): HTMLElement {
+  const panel = document.createElement('section')
+  panel.id = ROOT_ID
+  panel.dataset.theme = customChatTheme.value
+  panel.dataset.debug = customChatPerfDebug.value ? 'true' : 'false'
+
+  const toolbar = document.createElement('div')
+  toolbar.className = 'lc-chat-toolbar'
+
+  const spacer = document.createElement('span')
+  spacer.className = 'lc-chat-icon'
+  spacer.setAttribute('aria-hidden', 'true')
+  spacer.style.visibility = 'hidden'
+
+  const title = document.createElement('div')
+  title.className = 'lc-chat-title'
+  title.textContent = '直播聊天'
+
+  const menuBtn = makeButton('lc-chat-icon', '…', '聊天工具', () => {
+    panel.classList.toggle('lc-chat-menu-open')
+  })
+  menuBtn.setAttribute('aria-label', '聊天工具')
+
+  const menu = document.createElement('div')
+  menu.className = 'lc-chat-menu'
+
+  pauseBtn = makeButton('lc-chat-pill', '暂停', '暂停自动滚动', () => {
+    paused = !paused
+    if (!paused) {
+      unread = 0
+      scrollToBottom()
+    }
+    updateUnread()
+  })
+  unreadEl = document.createElement('span')
+  unreadEl.className = 'lc-chat-hint'
+  unreadEl.style.display = 'none'
+  matchCountEl = document.createElement('span')
+  matchCountEl.className = 'lc-chat-hint'
+  matchCountEl.style.display = 'none'
+  wsStatusEl = document.createElement('span')
+  wsStatusEl.className = 'lc-chat-ws-status'
+  updateWsStatus('off')
+  perfEl = document.createElement('div')
+  perfEl.className = 'lc-chat-perf'
+  updatePerfDebug()
+
+  searchInput = document.createElement('input')
+  searchInput.type = 'search'
+  searchInput.className = 'lc-chat-search'
+  searchInput.placeholder = '搜索 user:名 kind:gift -词'
+  searchInput.value = searchQuery
+  addRootEventListener(searchInput, 'input', () => {
+    searchQuery = searchInput?.value ?? ''
+    unread = 0
+    scheduleRerenderMessages()
+    updateUnread()
+  })
+
+  const clearBtn = makeButton('lc-chat-pill', '清屏', '清空自定义评论区', clearMessages)
+
+  const filterbar = document.createElement('div')
+  filterbar.className = 'lc-chat-filterbar'
+  const filters: Array<[CustomChatKind, string, typeof customChatShowDanmaku]> = [
+    ['danmaku', '弹幕', customChatShowDanmaku],
+    ['gift', '礼物', customChatShowGift],
+    ['superchat', 'SC', customChatShowSuperchat],
+    ['enter', '进场', customChatShowEnter],
+    ['notice', '通知', customChatShowNotice],
+  ]
+  for (const [, label, signal] of filters) {
+    const btn = makeButton('lc-chat-filter', label, `显示/隐藏${label}`, () => {
+      signal.value = !signal.value
+      btn.setAttribute('aria-pressed', signal.value ? 'true' : 'false')
+      scheduleRerenderMessages()
+    })
+    btn.setAttribute('aria-pressed', signal.value ? 'true' : 'false')
+    filterbar.append(btn)
+  }
+
+  const searchRow = document.createElement('div')
+  searchRow.className = 'lc-chat-menu-row'
+  searchRow.append(searchInput, matchCountEl)
+
+  const controlRow = document.createElement('div')
+  controlRow.className = 'lc-chat-menu-row'
+  controlRow.append(pauseBtn, unreadEl, clearBtn)
+
+  const statusRow = document.createElement('div')
+  statusRow.className = 'lc-chat-menu-row'
+  const statusLabel = document.createElement('span')
+  statusLabel.className = 'lc-chat-menu-label'
+  statusLabel.textContent = '状态'
+  statusRow.append(statusLabel, wsStatusEl)
+
+  const filterLabel = document.createElement('span')
+  filterLabel.className = 'lc-chat-menu-label'
+  filterLabel.textContent = '显示'
+  const filterRow = document.createElement('div')
+  filterRow.className = 'lc-chat-menu-row'
+  filterRow.append(filterLabel, filterbar)
+
+  menu.append(searchRow, controlRow, filterRow, statusRow, perfEl)
+  toolbar.append(spacer, title, menuBtn)
+
+  debugEl = document.createElement('div')
+  debugEl.className = 'lc-chat-event-debug'
+
+  listEl = document.createElement('div')
+  listEl.className = 'lc-chat-list'
+  addRootEventListener(
+    listEl,
+    'scroll',
+    () => {
+      if (isNearBottom() && unread > 0) {
+        unread = 0
+        updateUnread()
+      }
+    },
+    { passive: true }
+  )
+
+  const composer = document.createElement('div')
+  composer.className = 'lc-chat-composer'
+
+  const inputWrap = document.createElement('div')
+  inputWrap.className = 'lc-chat-input-wrap'
+
+  textarea = document.createElement('textarea')
+  textarea.value = fasongText.value
+  textarea.placeholder = '输入弹幕... Enter 发送，Shift+Enter 换行'
+  addRootEventListener(textarea, 'input', () => {
+    fasongText.value = textarea?.value ?? ''
+    updateCount()
+  })
+  addRootEventListener(textarea, 'keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault()
+      void sendFromComposer()
+    }
+  })
+
+  countEl = document.createElement('span')
+  countEl.className = 'lc-chat-count'
+  countEl.textContent = '0'
+
+  inputWrap.append(textarea, countEl)
+
+  const sendRow = document.createElement('div')
+  sendRow.className = 'lc-chat-send-row'
+  const sendBtn = makeButton('lc-chat-send', '发送', '发送弹幕', () => void sendFromComposer())
+  const hint = document.createElement('span')
+  hint.className = 'lc-chat-hint'
+  hint.textContent = '偷 / +1 / 复制，设置可贴 CSS'
+  sendRow.append(sendBtn, hint)
+
+  composer.append(inputWrap, sendRow)
+  panel.append(toolbar, menu, debugEl, listEl, composer)
+  updateUnread()
+  return panel
+}
+
+function ensureStyles(): void {
+  if (!styleEl) {
+    styleEl = document.createElement('style')
+    styleEl.id = STYLE_ID
+    styleEl.textContent = STYLE
+    document.head.appendChild(styleEl)
+  }
+  if (!userStyleEl) {
+    userStyleEl = document.createElement('style')
+    userStyleEl.id = USER_STYLE_ID
+    document.head.appendChild(userStyleEl)
+  }
+  userStyleEl.textContent = customChatCss.value
+}
+
+function mount(container: HTMLElement): void {
+  ensureStyles()
+  abortRootEventListeners()
+  root?.remove()
+  const historyPanel = container.closest<HTMLElement>('.chat-history-panel')
+  const host = historyPanel?.parentElement ?? container.parentElement
+  if (!host) return
+  root = createRoot()
+  rootOutsideHistory = !!historyPanel && host !== historyPanel
+  root.dataset.theme = customChatTheme.value
+  host.appendChild(root)
+  updateNativeVisibility()
+  observeNativeEvents(container)
+  rerenderMessages()
+}
+
+function observeNativeEvents(container: HTMLElement): void {
+  nativeEventObserver?.disconnect()
+  pendingNativeNodes.clear()
+  if (nativeScanFrame !== null) {
+    window.cancelAnimationFrame(nativeScanFrame)
+    nativeScanFrame = null
+  }
+  const isCandidate = (node: HTMLElement): boolean => {
+    if (node.closest(`#${ROOT_ID}`)) return false
+    if (node.classList.contains('danmaku-item')) return false
+    return node.matches(NATIVE_EVENT_SELECTOR) || !!node.querySelector(NATIVE_EVENT_SELECTOR)
+  }
+  const scan = (node: HTMLElement): void => {
+    if (seenNativeNodes.has(node)) return
+    seenNativeNodes.add(node)
+    const event = parseNativeEvent(node)
+    if (event) emitCustomChatEvent(event)
+    for (const child of node.querySelectorAll<HTMLElement>(NATIVE_EVENT_SELECTOR)) {
+      if (seenNativeNodes.has(child) || child.classList.contains('danmaku-item')) continue
+      seenNativeNodes.add(child)
+      const childEvent = parseNativeEvent(child)
+      if (childEvent) emitCustomChatEvent(childEvent)
+    }
+  }
+  const flushScan = (): void => {
+    nativeScanFrame = null
+    let count = 0
+    for (const node of pendingNativeNodes) {
+      pendingNativeNodes.delete(node)
+      if (node.isConnected) scan(node)
+      count++
+      if (count >= MAX_NATIVE_SCAN_BATCH) break
+    }
+    if (pendingNativeNodes.size > 0) nativeScanFrame = window.requestAnimationFrame(flushScan)
+  }
+  const queueScan = (node: HTMLElement): void => {
+    if (!isCandidate(node)) return
+    pendingNativeNodes.add(node)
+    if (nativeScanFrame === null) nativeScanFrame = window.requestAnimationFrame(flushScan)
+  }
+  const existing = Array.from(container.querySelectorAll<HTMLElement>(NATIVE_EVENT_SELECTOR))
+    .filter(node => !node.classList.contains('danmaku-item'))
+    .slice(-MAX_NATIVE_INITIAL_SCAN)
+  for (const node of existing) queueScan(node)
+  nativeEventObserver = new MutationObserver(mutations => {
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (node instanceof HTMLElement) queueScan(node)
+      }
+    }
+  })
+  nativeEventObserver.observe(container, { childList: true, subtree: true })
+}
+
+function addDomMessage(ev: DanmakuEvent): void {
+  const text = ev.text.trim()
+  if (!text) return
+  const uid = ev.uid
+  if (hasRecentWsDanmaku(text, uid)) return
+  emitCustomChatEvent({
+    id: `dom-${++messageSeq}`,
+    kind: 'danmaku',
+    text,
+    sendText: eventToSendableMessage(ev),
+    uname: ev.uname || '匿名',
+    uid,
+    time: chatEventTime(),
+    isReply: ev.isReply,
+    source: 'dom',
+    badges: ev.badges,
+    avatarUrl: ev.avatarUrl || avatarUrl(uid),
+  })
+}
+
+function addEvent(event: CustomChatEvent): void {
+  if (!isReliableEvent(event)) return
+  const key = messageKey(event)
+  if (messageKeys.has(key)) return
+  if (!rememberEvent(event)) return
+  recordEventStats(event)
+  messages.push(event)
+  messageKeys.add(key)
+  pruneMessages()
+  scheduleRender(event)
+}
+
+export function startCustomChatDom(): void {
+  if (unsubscribeDom) return
+
+  ensureStyles()
+  disposeSettings = signalEffect(() => {
+    if (root) root.dataset.theme = customChatTheme.value
+    if (root) root.dataset.debug = customChatPerfDebug.value ? 'true' : 'false'
+    updateNativeVisibility()
+    updatePerfDebug()
+    ensureStyles()
+  })
+  disposeComposer = signalEffect(syncComposerFromStore)
+
+  unsubscribeEvents = subscribeCustomChatEvents(addEvent)
+  unsubscribeWsStatus = subscribeCustomChatWsStatus(updateWsStatus)
+  unsubscribeDom = subscribeDanmaku({
+    onAttach: mount,
+    onMessage: addDomMessage,
+    emitExisting: true,
+  })
+}
+
+export function stopCustomChatDom(): void {
+  if (unsubscribeDom) {
+    unsubscribeDom()
+    unsubscribeDom = null
+  }
+  if (unsubscribeEvents) {
+    unsubscribeEvents()
+    unsubscribeEvents = null
+  }
+  if (unsubscribeWsStatus) {
+    unsubscribeWsStatus()
+    unsubscribeWsStatus = null
+  }
+  if (disposeSettings) {
+    disposeSettings()
+    disposeSettings = null
+  }
+  if (disposeComposer) {
+    disposeComposer()
+    disposeComposer = null
+  }
+  abortRootEventListeners()
+  nativeEventObserver?.disconnect()
+  nativeEventObserver = null
+  pendingNativeNodes.clear()
+  if (nativeScanFrame !== null) {
+    window.cancelAnimationFrame(nativeScanFrame)
+    nativeScanFrame = null
+  }
+  document.documentElement.classList.remove('lc-custom-chat-hide-native')
+  document.documentElement.classList.remove('lc-custom-chat-mounted')
+  document.documentElement.classList.remove('lc-custom-chat-root-outside-history')
+  root?.remove()
+  root = null
+  rootOutsideHistory = false
+  styleEl?.remove()
+  styleEl = null
+  userStyleEl?.remove()
+  userStyleEl = null
+  listEl = null
+  pauseBtn = null
+  unreadEl = null
+  textarea = null
+  countEl = null
+  searchInput = null
+  matchCountEl = null
+  wsStatusEl = null
+  perfEl = null
+  debugEl = null
+  messages.length = 0
+  messageKeys.clear()
+  renderQueue.length = 0
+  eventTicks.length = 0
+  rerenderToken++
+  sourceCounts.dom = 0
+  sourceCounts.ws = 0
+  sourceCounts.local = 0
+  lastBatchSize = 0
+  if (renderFrame !== null) {
+    window.cancelAnimationFrame(renderFrame)
+    renderFrame = null
+  }
+  if (rerenderFrame !== null) {
+    window.cancelAnimationFrame(rerenderFrame)
+    rerenderFrame = null
+  }
+  unread = 0
+  paused = false
+  sending = false
+  searchQuery = ''
+  recentEventKeys.clear()
+}

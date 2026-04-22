@@ -1,9 +1,12 @@
 import { type AutoBlendPreset, getAutoBlendPresetValues } from './auto-blend-preset-config'
 import {
+  autoBlendBurstSettleMs,
   autoBlendCooldownSec,
   autoBlendIncludeReply,
   autoBlendMinDistinctUsers,
   autoBlendPreset,
+  autoBlendRateLimitStopThreshold,
+  autoBlendRateLimitWindowMin,
   autoBlendRequireDistinctUsers,
   autoBlendRoutineIntervalSec,
   autoBlendSendAllTrending,
@@ -20,6 +23,9 @@ export function applyAutoBlendPreset(preset: AutoBlendPreset): void {
   autoBlendThreshold.value = p.threshold
   autoBlendCooldownSec.value = p.cooldownSec
   autoBlendRoutineIntervalSec.value = p.routineIntervalSec
+  autoBlendBurstSettleMs.value = p.burstSettleMs
+  autoBlendRateLimitWindowMin.value = p.rateLimitWindowMin
+  autoBlendRateLimitStopThreshold.value = p.rateLimitStopThreshold
   autoBlendIncludeReply.value = p.includeReply
   autoBlendRequireDistinctUsers.value = p.requireDistinctUsers
   autoBlendMinDistinctUsers.value = p.minDistinctUsers

@@ -14,7 +14,7 @@ interface DetectionResult {
 /**
  * Calls Laplace chat-audit API to detect sensitive words.
  */
-export async function detectSensitiveWords(text: string): Promise<DetectionResult> {
+async function detectSensitiveWords(text: string): Promise<DetectionResult> {
   try {
     const resp = await fetch(BASE_URL.LAPLACE_CHAT_AUDIT, {
       method: 'POST',
@@ -39,10 +39,14 @@ function insertInvisibleChars(word: string): string {
   return graphemes.join('­')
 }
 
-export function replaceSensitiveWords(text: string, sensitiveWords: string[]): string {
+export function processText(text: string): string {
+  return insertInvisibleChars(text)
+}
+
+function replaceSensitiveWords(text: string, sensitiveWords: string[]): string {
   let result = text
   for (const word of sensitiveWords) {
-    result = result.split(word).join(insertInvisibleChars(word))
+    result = result.split(word).join(processText(word))
   }
   return result
 }

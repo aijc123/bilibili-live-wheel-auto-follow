@@ -8,6 +8,9 @@ export interface AutoBlendPresetConfig {
   cooldownSec: number
   routineIntervalSec: number
   minDistinctUsers: number
+  burstSettleMs: number
+  rateLimitWindowMin: number
+  rateLimitStopThreshold: number
 }
 
 export interface AutoBlendPresetValues extends AutoBlendPresetConfig {
@@ -27,6 +30,9 @@ export const AUTO_BLEND_PRESETS: Record<AutoBlendPreset, AutoBlendPresetConfig> 
     cooldownSec: 45,
     routineIntervalSec: 75,
     minDistinctUsers: 3,
+    burstSettleMs: 1800,
+    rateLimitWindowMin: 10,
+    rateLimitStopThreshold: 3,
   },
   normal: {
     label: '正常',
@@ -36,6 +42,9 @@ export const AUTO_BLEND_PRESETS: Record<AutoBlendPreset, AutoBlendPresetConfig> 
     cooldownSec: 35,
     routineIntervalSec: 60,
     minDistinctUsers: 3,
+    burstSettleMs: 1500,
+    rateLimitWindowMin: 10,
+    rateLimitStopThreshold: 3,
   },
   hot: {
     label: '热闹',
@@ -45,6 +54,9 @@ export const AUTO_BLEND_PRESETS: Record<AutoBlendPreset, AutoBlendPresetConfig> 
     cooldownSec: 20,
     routineIntervalSec: 40,
     minDistinctUsers: 2,
+    burstSettleMs: 1200,
+    rateLimitWindowMin: 10,
+    rateLimitStopThreshold: 2,
   },
 }
 

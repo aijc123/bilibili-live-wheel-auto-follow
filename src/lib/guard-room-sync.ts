@@ -28,12 +28,23 @@ function normalizeGuardRoomEndpoint(endpoint: string): string {
   return endpoint.trim().replace(/\/+$/, '')
 }
 
-export function classifyRiskEvent(error?: string, errorData?: unknown): Pick<RiskEventInput, 'kind' | 'level' | 'advice'> {
+export function classifyRiskEvent(
+  error?: string,
+  errorData?: unknown
+): Pick<RiskEventInput, 'kind' | 'level' | 'advice'> {
   if (isMutedError(error)) {
-    return { kind: 'muted', level: 'stop', advice: `检测到房间禁言，先停车。禁言时长：${describeRestrictionDuration(error, errorData)}。` }
+    return {
+      kind: 'muted',
+      level: 'stop',
+      advice: `检测到房间禁言，先停车。禁言时长：${describeRestrictionDuration(error, errorData)}。`,
+    }
   }
   if (isAccountRestrictedError(error)) {
-    return { kind: 'account_restricted', level: 'stop', advice: `检测到账号级风控，先停发。限制时长：${describeRestrictionDuration(error, errorData)}。` }
+    return {
+      kind: 'account_restricted',
+      level: 'stop',
+      advice: `检测到账号级风控，先停发。限制时长：${describeRestrictionDuration(error, errorData)}。`,
+    }
   }
   if (isRateLimitError(error)) {
     return { kind: 'rate_limited', level: 'observe', advice: '发送频率过快，先降频或暂停自动跟车。' }

@@ -86,7 +86,7 @@ export async function loop(): Promise<void> {
           level: 'observe',
           roomId,
           reason: '自动发送没有检测到 B 站登录态。',
-          advice: '先登录 B 站，再重新开车。'
+          advice: '先登录 B 站，再重新开车。',
         })
         sendMsg.value = false
         continue
@@ -207,7 +207,7 @@ export async function loop(): Promise<void> {
               source: 'auto-send',
               roomId,
               errorCode: result.errorCode,
-              reason: result.error
+              reason: result.error,
             })
           }
 

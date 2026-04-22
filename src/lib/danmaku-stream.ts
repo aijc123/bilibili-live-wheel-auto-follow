@@ -97,9 +97,7 @@ function isBadNameCandidate(value: string, text = ''): boolean {
 
 function firstUsefulText(el: Element | null): string | null {
   if (!el) return null
-  const value =
-    el.getAttribute('data-uname') ||
-    cleanInlineText(el.textContent)
+  const value = el.getAttribute('data-uname') || cleanInlineText(el.textContent)
   return value ? value : null
 }
 
@@ -125,10 +123,7 @@ function extractBadges(node: HTMLElement, text: string): string[] {
   const badges: string[] = []
   for (const el of node.querySelectorAll(BADGE_SELECTORS.join(','))) {
     const value = cleanInlineText(
-      el.getAttribute('data-title') ||
-        el.getAttribute('title') ||
-        el.getAttribute('aria-label') ||
-        el.textContent
+      el.getAttribute('data-title') || el.getAttribute('title') || el.getAttribute('aria-label') || el.textContent
     )
     if (!value || value === text || value.length > 18) continue
     if (/^(头像|复制|回复|举报|关闭)$/.test(value)) continue
@@ -143,7 +138,8 @@ function extractAvatar(node: HTMLElement): string | undefined {
     const src = img.currentSrc || img.src || img.getAttribute('data-src') || img.getAttribute('src')
     if (!src) continue
     const label = `${img.className} ${img.alt}`.toLowerCase()
-    if (label.includes('avatar') || label.includes('face') || label.includes('head') || label.includes('头像')) return src
+    if (label.includes('avatar') || label.includes('face') || label.includes('head') || label.includes('头像'))
+      return src
   }
   return undefined
 }
