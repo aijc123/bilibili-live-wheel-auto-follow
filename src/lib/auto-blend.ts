@@ -210,8 +210,13 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
     const roomId = await ensureRoomId()
 
     const reasonLabel = reason === 'burst' ? '爆发' : '例行'
-    const multiLabel = targets.length > 1 ? ` × ${targets.length} 条趋势` : ''
-    appendLog(`🚲 自动融入触发 (${reasonLabel}${multiLabel})`)
+    if (targets.length === 1) {
+      const { text, uniqueUsers, totalCount } = targets[0]
+      const senderInfo = uniqueUsers > 0 ? `${uniqueUsers} 人 / ${totalCount} 条` : `${totalCount} 条`
+      appendLog(`🚲 自动融入触发 (${reasonLabel} · ${senderInfo}): ${text}`)
+    } else {
+      appendLog(`🚲 自动融入触发 (${reasonLabel} × ${targets.length} 条趋势)`)
+    }
 
     // For multi-trend burst each message is sent once; for single-message
     // triggers autoBlendSendCount controls how many times to repeat.
@@ -226,8 +231,10 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
       const replaced = useReplacements ? applyReplacements(originalText) : originalText
       const wasReplaced = useReplacements && originalText !== replaced
 
-      const senderInfo = uniqueUsers > 0 ? `${uniqueUsers} 人 / ${totalCount} 条` : `${totalCount} 条`
-      appendLog(`🚲   → ${originalText} (${senderInfo})`)
+      if (isMulti) {
+        const senderInfo = uniqueUsers > 0 ? `${uniqueUsers} 人 / ${totalCount} 条` : `${totalCount} 条`
+        appendLog(`🚲   → ${originalText} (${senderInfo})`)
+      }
 
       const repeatCount = isMulti ? 1 : Math.max(1, autoBlendSendCount.value)
 
