@@ -3,20 +3,20 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>B站独轮车 + 自动跟车 | Bilibili Live Auto Follow</title>
+    <title>B站独轮车 + 自动跟车 | Bilibili Live Chatterbox</title>
     <meta
       name="description"
-      content="B站/哔哩哔哩直播间弹幕助手 userscript，支持独轮车循环发送、自动跟车、粉丝牌禁言巡检、常规发送、同传、烂梗库和弹幕替换规则，可通过 Greasy Fork、Tampermonkey 或 Violentmonkey 安装。"
+      content="B站/哔哩哔哩直播间弹幕助手 userscript，支持独轮车循环发送、自动跟车、Chatterbox Chat 评论区、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避，可通过 Greasy Fork、Tampermonkey 或 Violentmonkey 安装。"
     >
     <meta
       name="keywords"
-      content="B站独轮车,B站自动跟车,哔哩哔哩直播弹幕助手,Bilibili Live Auto Follow,Tampermonkey bilibili userscript,Greasy Fork bilibili"
+      content="B站独轮车,B站自动跟车,哔哩哔哩直播弹幕助手,Bilibili Live Auto Follow,Chatterbox Chat,Tampermonkey bilibili userscript,Greasy Fork bilibili"
     >
     <link rel="canonical" href="https://aijc123.github.io/bilibili-live-wheel-auto-follow/">
     <meta property="og:title" content="B站独轮车 + 自动跟车">
     <meta
       property="og:description"
-      content="给 B 站直播间用的弹幕助手：独轮车循环发送、自动跟车、粉丝牌禁言巡检、同传、烂梗库和弹幕替换规则。"
+      content="给 B 站直播间用的弹幕助手：独轮车、自动跟车、Chatterbox Chat 评论区、粉丝牌禁言巡检、同传、烂梗库和弹幕替换。"
     >
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://aijc123.github.io/bilibili-live-wheel-auto-follow/">
@@ -26,8 +26,12 @@
         font-family:
           Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui,
           sans-serif;
-        background: #f7f7fb;
-        color: #1d2433;
+        background: #f6f8fb;
+        color: #172033;
+      }
+
+      * {
+        box-sizing: border-box;
       }
 
       body {
@@ -35,28 +39,49 @@
       }
 
       main {
-        box-sizing: border-box;
-        min-height: 100vh;
+        width: min(1040px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 56px 0;
+      }
+
+      .hero {
+        min-height: 58vh;
         display: grid;
         align-content: center;
-        gap: 28px;
-        width: min(920px, calc(100% - 32px));
-        margin: 0 auto;
-        padding: 64px 0;
+        gap: 24px;
+        padding-bottom: 36px;
+      }
+
+      .eyebrow {
+        margin: 0;
+        color: #0077a3;
+        font-size: 15px;
+        font-weight: 800;
       }
 
       h1 {
+        max-width: 860px;
         margin: 0;
-        font-size: clamp(36px, 7vw, 72px);
+        font-size: clamp(40px, 7vw, 76px);
         line-height: 1.05;
         letter-spacing: 0;
       }
 
+      h2 {
+        margin: 0 0 18px;
+        font-size: clamp(26px, 4vw, 40px);
+        letter-spacing: 0;
+      }
+
       p {
-        max-width: 720px;
+        max-width: 760px;
         margin: 0;
         font-size: 18px;
         line-height: 1.8;
+      }
+
+      a {
+        color: inherit;
       }
 
       .links {
@@ -65,19 +90,16 @@
         gap: 12px;
       }
 
-      a {
-        color: inherit;
-      }
-
       .button {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         min-height: 44px;
         padding: 0 18px;
-        border: 1px solid #ccd3df;
+        border: 1px solid #cbd5e1;
         border-radius: 8px;
         background: #ffffff;
-        font-weight: 700;
+        font-weight: 800;
         text-decoration: none;
       }
 
@@ -87,28 +109,93 @@
         color: #ffffff;
       }
 
-      ul {
+      .section {
+        padding: 34px 0;
+        border-top: 1px solid #d8e0eb;
+      }
+
+      .feature-grid {
         display: grid;
-        gap: 10px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .feature {
+        min-height: 160px;
+        padding: 18px;
+        border: 1px solid #d8e0eb;
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      .feature h3 {
+        margin: 0 0 10px;
+        font-size: 18px;
+        letter-spacing: 0;
+      }
+
+      .feature p {
+        font-size: 15px;
+        line-height: 1.7;
+      }
+
+      ol,
+      ul {
         margin: 0;
         padding-left: 22px;
-        line-height: 1.7;
+        line-height: 1.8;
+      }
+
+      .note {
+        color: #5d6b7f;
+        font-size: 15px;
+      }
+
+      @media (max-width: 780px) {
+        main {
+          padding: 36px 0;
+        }
+
+        .hero {
+          min-height: auto;
+        }
+
+        .feature-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .button {
+          width: 100%;
+        }
       }
 
       @media (prefers-color-scheme: dark) {
         :root {
-          background: #11141a;
+          background: #10141b;
           color: #eef2f7;
         }
 
+        .eyebrow {
+          color: #5fc7ef;
+        }
+
+        .section,
+        .feature {
+          border-color: #2c3645;
+        }
+
+        .feature,
         .button {
-          border-color: #3d4655;
-          background: #1b2029;
+          background: #171d27;
         }
 
         .primary {
           border-color: #00a1d6;
           background: #00a1d6;
+        }
+
+        .note {
+          color: #a7b2c3;
         }
       }
     </style>
@@ -117,10 +204,10 @@
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
         "name": "B站独轮车 + 自动跟车",
-        "alternateName": "Bilibili Live Auto Follow",
+        "alternateName": "Bilibili Live Chatterbox",
         "applicationCategory": "BrowserApplication",
         "operatingSystem": "Chrome, Edge, Firefox",
-        "description": "B站/哔哩哔哩直播间弹幕助手 userscript，支持独轮车循环发送、自动跟车、常规发送、同传、烂梗库和弹幕替换规则。",
+        "description": "B站/哔哩哔哩直播间弹幕助手 userscript，支持独轮车循环发送、自动跟车、Chatterbox Chat 评论区、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。",
         "url": "https://aijc123.github.io/bilibili-live-wheel-auto-follow/",
         "downloadUrl": "https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6",
         "codeRepository": "https://github.com/aijc123/bilibili-live-wheel-auto-follow",
@@ -134,20 +221,67 @@
   </head>
   <body>
     <main>
-      <h1>B站独轮车 + 自动跟车</h1>
-      <p>
-        给 B 站/哔哩哔哩直播间用的弹幕助手 userscript。支持独轮车循环发送、自动跟车、粉丝牌禁言巡检、常规发送、同传、烂梗库和弹幕替换规则。
-      </p>
-      <div class="links" aria-label="项目链接">
-        <a class="button primary" href="https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6">Greasy Fork 安装</a>
-        <a class="button" href="https://github.com/aijc123/bilibili-live-wheel-auto-follow">GitHub 源码</a>
-      </div>
-      <ul>
-        <li>适用于 Bilibili Live / B 站直播间。</li>
-        <li>支持 Tampermonkey、Violentmonkey 等用户脚本管理器。</li>
-        <li>粉丝牌禁言巡检可分类展示限制、无法确认、主播注销和正常房间，并保留上次结果。</li>
-        <li>常见搜索词：B站独轮车、B站自动跟车、哔哩哔哩直播弹幕助手、Bilibili Live Auto Follow。</li>
-      </ul>
+      <section class="hero">
+        <p class="eyebrow">Bilibili Live userscript</p>
+        <h1>B站独轮车 + 自动跟车</h1>
+        <p>
+          给 B 站/哔哩哔哩直播间用的民间弹幕助手。它可以循环发送提前写好的弹幕，自动跟上正在刷屏的句子，也能把右侧评论区换成更清爽的 Chatterbox Chat。
+        </p>
+        <div class="links" aria-label="项目链接">
+          <a class="button primary" href="https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6">Greasy Fork 安装</a>
+          <a class="button" href="https://github.com/aijc123/bilibili-live-wheel-auto-follow">GitHub 源码</a>
+        </div>
+        <p class="note">
+          支持 Tampermonkey、Violentmonkey 等用户脚本管理器。项目基于 LAPLACE Chatterbox fork 修改。
+        </p>
+      </section>
+
+      <section class="section">
+        <h2>主要功能</h2>
+        <div class="feature-grid">
+          <article class="feature">
+            <h3>独轮车循环发送</h3>
+            <p>多套模板、每行一句、按间隔发送，支持随机颜色、随机间隔、随机字符和长弹幕自动拆分。</p>
+          </article>
+          <article class="feature">
+            <h3>自动跟车</h3>
+            <p>观察短时间内重复出现的弹幕，达到阈值后自动跟一句。内置稳一点、正常、热闹三档预设。</p>
+          </article>
+          <article class="feature">
+            <h3>Chatterbox Chat</h3>
+            <p>接管右侧评论区，显示 iMessage 风格气泡，支持礼物、醒目留言、舰队等事件和自定义 CSS。</p>
+          </article>
+          <article class="feature">
+            <h3>粉丝牌禁言巡检</h3>
+            <p>读取粉丝牌关联房间并分类展示限制、无法确认、主播注销和正常结果，可复制报告或同步摘要。</p>
+          </article>
+          <article class="feature">
+            <h3>替换与 AI 规避</h3>
+            <p>支持云端和本地替换规则，发送失败时可检测敏感词并尝试替换后重试。</p>
+          </article>
+          <article class="feature">
+            <h3>同传和烂梗库</h3>
+            <p>接入 Soniox 语音识别，可自动发送识别或翻译结果，也能搜索、复制和发送常用梗。</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>安装使用</h2>
+        <ol>
+          <li>先安装 Tampermonkey 或 Violentmonkey。</li>
+          <li>打开 Greasy Fork 脚本页，点击安装。</li>
+          <li>进入 B 站直播间，点击右下角的「弹幕助手」。</li>
+          <li>需要接管评论区时，在「设置」里开启 Chatterbox Chat。</li>
+        </ol>
+      </section>
+
+      <section class="section">
+        <h2>搜索词</h2>
+        <p>
+          B站独轮车、B站自动跟车、哔哩哔哩直播弹幕助手、Bilibili Live Auto Follow、Chatterbox Chat、Tampermonkey bilibili userscript。
+        </p>
+      </section>
     </main>
   </body>
 </html>

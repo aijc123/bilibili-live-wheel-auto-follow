@@ -4,7 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Bilibili Live userscript called "LAPLACE Chatterbox" that adds various danmaku (chat message) utilities to Bilibili Live streams. It's built as a userscript that runs in the browser and provides features like auto-send loops, 自动跟车, speech-to-text, meme lists, AI evasion, and more.
+This repository builds a Bilibili Live userscript named `B站独轮车 + 自动跟车`. It is a fork of LAPLACE Chatterbox, packaged for Greasy Fork/Tampermonkey/Violentmonkey, and focuses on live-room danmaku workflows:
+
+- auto-send loops (`独轮车`)
+- repeated-danmaku auto-follow (`自动跟车`)
+- Chatterbox Chat, a custom right-side live chat replacement
+- fan-medal room mute/restriction inspection
+- normal danmaku sending, +1/steal actions, replacement rules, AI evasion
+- Soniox speech-to-text and meme list utilities
+
+Most UI text is Chinese. Keep Markdown, HTML, and TypeScript files encoded as UTF-8.
 
 ## Development Commands
 
@@ -12,80 +21,88 @@ This is a Bilibili Live userscript called "LAPLACE Chatterbox" that adds various
 # Install dependencies
 bun install
 
-# Start development server (watch mode)
+# Start development server
 bun run dev
 
-# Build for production
+# Build production userscript and static release page
 bun run build
 
 # Preview production build
 bun run preview
+
+# Run all tests
+bun test
+
+# Focused checks
+bun run test:auto-blend
+bun run verify:auto-blend-ui
 ```
 
-The build output is written to `dist/` directory.
+The build output is written to `dist/`. The main userscript output is `dist/bilibili-live-wheel-auto-follow.user.js`.
 
 ## Architecture Overview
 
 ### Core Structure
-- **Main Entry Point**: `src/main.tsx` - Mounts the application and handles document-start initialization
-- **App Component**: `src/components/app.tsx` - Main application container that renders all UI components
-- **UI Components**: Located in `src/components/` - Various UI components for different features
-- **Core Logic**: Located in `src/lib/` - Business logic for different features
-- **State Management**: Uses `@preact/signals` for reactive state with GM persistence
-- **Type Definitions**: `src/types.ts` - TypeScript interfaces for API responses and data structures
 
-### Key Features & Modules
-1. **自动跟车 (Auto-follow)**: `src/lib/auto-blend.ts` - Automatically follows repeated danmaku waves with conservative presets and cooldowns
-2. **Danmaku Direct**: `src/lib/danmaku-direct.ts` - Direct danmaku sending functionality
-3. **Speech-to-Text**: `src/lib/stt-tab.tsx` - Integrates Soniox speech-to-text API
-4. **AI Evasion**: `src/lib/ai-evasion.ts` - Techniques to avoid AI detection
-5. **Replacement System**: `src/lib/replacement.ts` - Text replacement rules
-6. **WBI (Watermark Bypass)**: `src/lib/wbi.ts` - Handles Bilibili's anti-bot measures
-7. **Send Queue**: `src/lib/send-queue.ts` - Manages message sending queue
-8. **Logging**: `src/lib/log.ts` - Debug and activity logging
+- `src/main.tsx` mounts the app at `document-start` after the document body is available.
+- `src/components/app.tsx` is the main application shell.
+- `src/components/configurator.tsx` renders the floating panel and tab content.
+- `src/components/*` contains feature UI for sending, auto-send, auto-follow, STT, settings, logs, memes, and about.
+- `src/lib/*` contains the userscript integrations, Bilibili API helpers, state, send queue, replacement logic, custom chat, and auto-follow runtime.
+- `src/types.ts` contains TypeScript interfaces for Bilibili/live-room data.
+- `public/index.html` is the GitHub Pages / release landing page. Keep its copy aligned with `README.md`.
 
-### State Management
-- Uses `@preact/signals` for reactive state
-- GM-persisted settings stored in browser's userscript storage
-- Runtime state signals for temporary state
-- Effects handle send-state persistence and 自动跟车 runtime lifecycle
+### Key Modules
 
-### Build Process
-- Uses Vite with `vite-plugin-monkey` for userscript packaging
-- TypeScript compilation via `tsc`
-- Production build creates a userscript file in `dist/`
-- Externalizes Soniox speech-to-text library for smaller bundle size
+- `src/lib/store.ts` defines GM-persisted signals and runtime state.
+- `src/lib/loop.ts` handles auto-send loop behavior.
+- `src/lib/auto-blend.ts`, `auto-blend-presets.ts`, `auto-blend-status.ts`, and `auto-blend-trend.ts` implement auto-follow detection, presets, status labels, and trend scoring.
+- `src/lib/send-queue.ts` serializes send attempts and helps avoid overlapping danmaku sends.
+- `src/lib/danmaku-direct.ts` implements steal/+1 buttons beside chat messages.
+- `src/lib/custom-chat.ts`, `custom-chat-dom.ts`, `custom-chat-events.ts`, `custom-chat-render.ts`, and `custom-chat-search.ts` implement Chatterbox Chat.
+- `src/lib/live-ws-source.ts` connects directly to Bilibili Live WebSocket events, with DOM fallback through the custom chat modules.
+- `src/lib/api.ts` wraps Bilibili live APIs, including danmaku sending, room info, fan-medal rooms, and restriction checks.
+- `src/lib/guard-room-sync.ts` supports optional sync of fan-medal inspection summaries to the external Guard Room project.
+- `src/lib/replacement.ts` builds remote/local replacement maps.
+- `src/lib/ai-evasion.ts` checks and rewrites blocked danmaku when AI evasion is enabled.
+- `src/lib/wbi.ts` handles Bilibili WBI signing.
+- `src/lib/fetch-hijack.ts` intercepts relevant requests early.
 
-### Key Dependencies
-- `preact` - UI framework
-- `@preact/signals` - Reactive state management
-- `@soniox/speech-to-text-web` - Speech-to-text integration
-- `vite-plugin-monkey` - Userscript build support
-- `@laplace.live/internal` - Internal utility library
+### UI Notes
 
-### Configuration
-- Settings are persisted using GM (Greasemonkey) storage API
-- Configuration stored in `src/lib/store.ts`
-- Supports GM-persisted settings for send and 自动跟车 features
-- Various toggles and settings for different features (auto-send, AI evasion, etc.)
+- Main tabs are `发送`, `同传`, `设置`, and `关于`.
+- Auto-send and auto-follow controls live inside the send tab.
+- Fan-medal inspection, replacement rules, Chatterbox Chat settings, +1 mode, layout options, and log limits live in the settings tab.
+- Chatterbox Chat themes include iMessage Dark, iMessage Light, Compact Bubble, plus the milk-green iMessage CSS preset in `src/lib/custom-chat-presets.ts`.
+- Keep the floating panel compact: it is meant to sit inside Bilibili Live's right-side area.
 
-### UI Structure
-- **Toggle Button**: Main toggle for enabling/disabling the extension
-- **Configurator**: Main settings panel with tabs for different features
-- **Tabs**: Normal send, Auto-send, STT, Memes, About
-- **Alert Dialog**: For displaying messages and notifications
-- **Log Panel**: For viewing debug logs and activity
+## State and Persistence
 
-### API Integration
-- Fetch hijacking via `src/lib/fetch-hijack.ts`
-- Bilibili API integration for danmaku colors and emoticons
-- WBI (Watermark Bypass Integration) for API authentication
-- Soniox API for speech-to-text functionality
+- Reactive state uses `@preact/signals`.
+- Persistent settings use GM storage through `src/lib/gm-signal.ts`; do not move persistent userscript data into browser `localStorage`.
+- Runtime-only state should remain signal-based and should avoid expensive synchronous work in hot paths.
+- Long-running chat data structures have hard caps; preserve those caps when touching Chatterbox Chat performance code.
+
+## Build Process
+
+- Vite and `vite-plugin-monkey` package the userscript.
+- TypeScript compilation runs before Vite in `bun run build`.
+- Soniox SDK is loaded externally to keep the userscript smaller.
+- `public/` assets are copied into `dist/` during build.
+
+## External Services
+
+The script may call these services depending on enabled features:
+
+- `api.live.bilibili.com` for live-room APIs and danmaku sending.
+- `edge-workers.laplace.cn` for AI evasion checks.
+- `workers.vrp.moe` for remote replacement rules and meme lists.
+- `api.soniox.com` and `unpkg.com` for Soniox speech-to-text.
+- A user-configured Guard Room endpoint for optional fan-medal inspection summary sync.
 
 ## Important Notes
 
-- This is a userscript that runs at `document-start` to intercept early page loads
-- The application mounts after the document body is available
-- All persistent state is stored in GM storage, not browser localStorage
-- The build process creates a userscript file compatible with Greasy Fork and userscript managers
-- Features are modular and can be enabled/disabled individually through the UI
+- This is an unofficial userscript, not a Bilibili official feature.
+- Be careful with automated sending behavior. Prefer conservative defaults, cooldowns, and clear UI state.
+- Avoid unrelated refactors in this fork; many modules are tuned for Bilibili Live's changing DOM.
+- When updating README/release-page copy, keep `README.md`, `public/index.html`, and generated `dist/index.html` in sync by running `bun run build`.

@@ -3,7 +3,7 @@
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
 // @version      2.8.17
 // @author       aijc123
-// @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、粉丝牌禁言巡检、常规发送、同传、烂梗库和弹幕替换规则。
+// @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
 // @icon         https://www.bilibili.com/favicon.ico
 // @homepage     https://github.com/aijc123/bilibili-live-wheel-auto-follow
