@@ -18,6 +18,10 @@ export interface DanmakuEvent {
   uname: string | null
   /** Sender uid, if extractable from the DOM. */
   uid: string | null
+  /** Small identity badges extracted from the native DOM, e.g. medal/level/admin. */
+  badges: string[]
+  /** Avatar URL from the native DOM, if Bilibili rendered one. */
+  avatarUrl?: string
   /** Whether `data-replymid` is non-zero (i.e. a reply danmaku). */
   isReply: boolean
 }
@@ -44,6 +48,33 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 let healthTimer: ReturnType<typeof setInterval> | null = null
 let attached: HTMLElement | null = null
 
+const USER_SELECTORS = [
+  '[data-uname]',
+  '[data-uid]',
+  '.user-name',
+  '.username',
+  '.danmaku-item-user',
+  '.danmaku-item-left',
+  '.chat-user-name',
+  '[class*="user-name"]',
+  '[class*="username"]',
+]
+
+const BADGE_SELECTORS = [
+  '.fans-medal-item',
+  '.fans-medal',
+  '.medal-item',
+  '.medal-name',
+  '.chat-medal',
+  '.user-level-icon',
+  '.wealth-medal',
+  '.guard-icon',
+  '[class*="fans-medal"]',
+  '[class*="medal"]',
+  '[class*="level"]',
+  '[class*="guard"]',
+]
+
 export function isValidDanmakuNode(node: HTMLElement): boolean {
   if (!node.classList.contains('chat-item') || !node.classList.contains('danmaku-item')) return false
   const count = node.classList.length
@@ -54,16 +85,78 @@ export function isValidDanmakuNode(node: HTMLElement): boolean {
   return false
 }
 
+function cleanInlineText(value: string | null | undefined): string {
+  return (value ?? '').replace(/\s+/g, ' ').trim()
+}
+
+function firstUsefulText(el: Element | null): string | null {
+  if (!el) return null
+  const value =
+    el.getAttribute('data-uname') ||
+    el.getAttribute('title') ||
+    el.getAttribute('aria-label') ||
+    cleanInlineText(el.textContent)
+  return value ? value : null
+}
+
+function extractUid(node: HTMLElement, userEl: Element | null): string | null {
+  const direct = node.getAttribute('data-uid') || userEl?.getAttribute('data-uid')
+  if (direct) return direct
+  const link = node.querySelector<HTMLAnchorElement>('a[href*="space.bilibili.com"], a[href*="uid="]')
+  const href = link?.href ?? ''
+  return href.match(/space\.bilibili\.com\/(\d+)/)?.[1] ?? href.match(/[?&]uid=(\d+)/)?.[1] ?? null
+}
+
+function extractUname(node: HTMLElement, userEl: Element | null, text: string): string | null {
+  const direct = firstUsefulText(userEl)
+  if (direct && direct !== text && direct.length <= 32) return direct
+  for (const selector of USER_SELECTORS) {
+    const value = firstUsefulText(node.querySelector(selector))
+    if (value && value !== text && value.length <= 32) return value
+  }
+  return null
+}
+
+function extractBadges(node: HTMLElement, text: string): string[] {
+  const badges: string[] = []
+  for (const el of node.querySelectorAll(BADGE_SELECTORS.join(','))) {
+    const value = cleanInlineText(
+      el.getAttribute('data-title') ||
+        el.getAttribute('title') ||
+        el.getAttribute('aria-label') ||
+        el.textContent
+    )
+    if (!value || value === text || value.length > 18) continue
+    if (/^(头像|复制|回复|举报|关闭)$/.test(value)) continue
+    if (!badges.includes(value)) badges.push(value)
+    if (badges.length >= 5) break
+  }
+  return badges
+}
+
+function extractAvatar(node: HTMLElement): string | undefined {
+  for (const img of node.querySelectorAll<HTMLImageElement>('img')) {
+    const src = img.currentSrc || img.src || img.getAttribute('data-src') || img.getAttribute('src')
+    if (!src) continue
+    const label = `${img.className} ${img.alt}`.toLowerCase()
+    if (label.includes('avatar') || label.includes('face') || label.includes('head') || label.includes('头像')) return src
+  }
+  return undefined
+}
+
 export function extractDanmakuInfo(node: HTMLElement): DanmakuEvent | null {
   const text = node.dataset.danmaku
   const replymid = node.dataset.replymid
   if (text === undefined || replymid === undefined) return null
-  const userEl = node.querySelector('[data-uname]') ?? node.querySelector('[data-uid]')
+  const userEl = node.querySelector(USER_SELECTORS.join(','))
+  const uid = extractUid(node, userEl)
   return {
     node,
     text,
-    uname: userEl?.getAttribute('data-uname') ?? null,
-    uid: userEl?.getAttribute('data-uid') ?? null,
+    uname: extractUname(node, userEl, text),
+    uid,
+    badges: extractBadges(node, text),
+    avatarUrl: extractAvatar(node),
     isReply: replymid !== '0',
   }
 }

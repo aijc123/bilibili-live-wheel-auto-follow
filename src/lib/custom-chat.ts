@@ -37,155 +37,166 @@ const STYLE = `
   letter-spacing: 0;
 }
 #${ROOT_ID} {
+  --lc-chat-bg: #f2f2f7;
+  --lc-chat-panel: rgba(255, 255, 255, .78);
+  --lc-chat-border: rgba(60, 60, 67, .16);
+  --lc-chat-text: #111;
+  --lc-chat-muted: #6e6e73;
+  --lc-chat-name: #007aff;
+  --lc-chat-bubble: #ffffff;
+  --lc-chat-bubble-text: #111;
+  --lc-chat-own: #007aff;
+  --lc-chat-own-text: #fff;
+  --lc-chat-chip: rgba(118, 118, 128, .14);
+  --lc-chat-chip-text: #1d1d1f;
+  --lc-chat-accent: #34c759;
   height: 100%;
   min-height: 340px;
   flex: 1 1 auto;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  color: #f2f4f8;
-  background: #101214;
-  border-left: 1px solid rgba(255, 255, 255, .08);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  color: var(--lc-chat-text);
+  background: var(--lc-chat-bg);
+  border-left: 1px solid var(--lc-chat-border);
   overflow: hidden;
 }
+#${ROOT_ID}[data-theme="laplace"],
+#${ROOT_ID}[data-theme="compact"] {
+  --lc-chat-bg: #0b0f14;
+  --lc-chat-panel: rgba(28, 31, 36, .82);
+  --lc-chat-border: rgba(255, 255, 255, .08);
+  --lc-chat-text: #f5f7fb;
+  --lc-chat-muted: #a0a7b3;
+  --lc-chat-name: #64d2ff;
+  --lc-chat-bubble: #1c1f24;
+  --lc-chat-bubble-text: #f5f7fb;
+  --lc-chat-own: #0a84ff;
+  --lc-chat-own-text: #fff;
+  --lc-chat-chip: rgba(255, 255, 255, .1);
+  --lc-chat-chip-text: #e6edf7;
+  --lc-chat-accent: #30d158;
+}
 #${ROOT_ID}[data-theme="light"] {
-  color: #1d1d1f;
-  background: #f7f8fa;
-  border-left-color: rgba(0, 0, 0, .08);
-}
-#${ROOT_ID}[data-theme="light"] .lc-chat-toolbar,
-#${ROOT_ID}[data-theme="light"] .lc-chat-composer {
-  background: rgba(0, 0, 0, .035);
-  border-color: rgba(0, 0, 0, .08);
-}
-#${ROOT_ID}[data-theme="light"] .lc-chat-title,
-#${ROOT_ID}[data-theme="light"] .lc-chat-text,
-#${ROOT_ID}[data-theme="light"] textarea {
-  color: #1d1d1f;
-}
-#${ROOT_ID}[data-theme="light"] textarea,
-#${ROOT_ID}[data-theme="light"] .lc-chat-search {
-  color: #1d1d1f;
-  background: #fff;
-  border-color: rgba(0, 0, 0, .12);
-}
-#${ROOT_ID}[data-theme="light"] .lc-chat-pill,
-#${ROOT_ID}[data-theme="light"] .lc-chat-action,
-#${ROOT_ID}[data-theme="light"] .lc-chat-badge {
-  color: #1d1d1f;
-  background: rgba(0, 0, 0, .06);
+  color: var(--lc-chat-text);
 }
 #${ROOT_ID}[data-theme="compact"] .lc-chat-avatar {
   display: none;
 }
 #${ROOT_ID}[data-theme="compact"] .lc-chat-message {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   padding: 4px 6px;
   gap: 3px 5px;
 }
-#${ROOT_ID}[data-theme="compact"] .lc-chat-meta {
+#${ROOT_ID}[data-theme="compact"] .lc-chat-body {
   grid-column: 1 / 2;
 }
-#${ROOT_ID}[data-theme="compact"] .lc-chat-text {
-  grid-column: 1 / -1;
+#${ROOT_ID}[data-theme="compact"] .lc-chat-bubble {
   font-size: 12px;
 }
 #${ROOT_ID} .lc-chat-toolbar {
-  min-height: 34px;
+  min-height: 30px;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
-  padding: 6px 8px;
-  background: rgba(255, 255, 255, .045);
-  border-bottom: 1px solid rgba(255, 255, 255, .07);
+  padding: 5px 7px;
+  background: var(--lc-chat-panel);
+  border-bottom: 1px solid var(--lc-chat-border);
+  backdrop-filter: blur(16px);
 }
 #${ROOT_ID} .lc-chat-title {
+  flex: 1 1 72px;
+  min-width: 62px;
   font-size: 12px;
+  line-height: 1.05;
   font-weight: 700;
-  color: #fff;
-  margin-right: auto;
+  color: var(--lc-chat-text);
 }
 #${ROOT_ID} .lc-chat-pill {
   min-width: 0;
-  border: 1px solid rgba(255, 255, 255, .12);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, .08);
-  color: #dce3ee;
-  height: 23px;
-  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--lc-chat-chip);
+  color: var(--lc-chat-chip-text);
+  height: 24px;
+  padding: 0 8px;
   font-size: 11px;
   cursor: pointer;
 }
 #${ROOT_ID} .lc-chat-pill[aria-pressed="true"] {
-  color: #111;
-  background: #8ee6c9;
-  border-color: #8ee6c9;
+  color: var(--lc-chat-own-text);
+  background: var(--lc-chat-own);
+  border-color: var(--lc-chat-own);
 }
 #${ROOT_ID} .lc-chat-filterbar {
   display: flex;
-  gap: 4px;
-  padding: 4px 8px;
-  overflow-x: auto;
-  background: rgba(255, 255, 255, .025);
-  border-bottom: 1px solid rgba(255, 255, 255, .06);
+  gap: 3px;
+  padding: 4px 7px;
+  overflow-x: hidden;
+  background: var(--lc-chat-panel);
+  border-bottom: 1px solid var(--lc-chat-border);
+  backdrop-filter: blur(16px);
 }
 #${ROOT_ID} .lc-chat-filter {
-  flex: 0 0 auto;
-  height: 22px;
-  border: 1px solid rgba(255, 255, 255, .12);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, .08);
-  color: #dce3ee;
-  padding: 0 7px;
-  font-size: 11px;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 21px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--lc-chat-chip);
+  color: var(--lc-chat-chip-text);
+  padding: 0 3px;
+  font-size: 10px;
   cursor: pointer;
 }
 #${ROOT_ID} .lc-chat-filter[aria-pressed="true"] {
-  background: #8ee6c9;
-  color: #111;
-  border-color: #8ee6c9;
+  background: var(--lc-chat-own);
+  color: var(--lc-chat-own-text);
+  border-color: var(--lc-chat-own);
 }
 #${ROOT_ID} .lc-chat-search {
-  min-width: 80px;
-  width: 34%;
+  flex: 1 0 100%;
+  min-width: 0;
+  width: 100%;
   height: 24px;
-  border: 1px solid rgba(255, 255, 255, .12);
-  border-radius: 5px;
-  background: rgba(0, 0, 0, .22);
-  color: #fff;
+  border: 1px solid var(--lc-chat-border);
+  border-radius: 999px;
+  background: var(--lc-chat-chip);
+  color: var(--lc-chat-text);
   padding: 0 7px;
   font-size: 11px;
   outline: none;
 }
 #${ROOT_ID} .lc-chat-search:focus {
-  border-color: #8ee6c9;
+  border-color: var(--lc-chat-own);
 }
 #${ROOT_ID} .lc-chat-list {
   min-height: 0;
   overflow: auto;
-  padding: 6px;
+  padding: 5px;
   scrollbar-width: thin;
   scroll-behavior: smooth;
 }
 #${ROOT_ID} .lc-chat-message {
   position: relative;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
-  gap: 5px 7px;
-  padding: 6px 7px;
-  border-radius: 6px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 2px 7px;
+  padding: 4px 7px;
+  border-radius: 0;
   border: 1px solid transparent;
   background: transparent;
 }
 #${ROOT_ID} .lc-chat-message:hover {
-  background: rgba(255, 255, 255, .055);
-  border-color: rgba(255, 255, 255, .08);
+  background: rgba(118, 118, 128, .09);
+  border-color: transparent;
 }
 #${ROOT_ID} .lc-chat-message[data-kind="gift"] {
-  background: rgba(255, 209, 102, .08);
+  background: transparent;
 }
 #${ROOT_ID} .lc-chat-message[data-kind="superchat"] {
-  background: linear-gradient(135deg, rgba(255, 122, 89, .28), rgba(255, 209, 102, .12));
-  border-color: rgba(255, 209, 102, .38);
+  background: transparent;
+  border-color: transparent;
 }
 #${ROOT_ID} .lc-chat-message[data-kind="enter"],
 #${ROOT_ID} .lc-chat-message[data-kind="notice"],
@@ -193,16 +204,17 @@ const STYLE = `
   opacity: .86;
 }
 #${ROOT_ID} .lc-chat-meta {
-  grid-column: 2 / 3;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 5px;
-  color: #8f9aaa;
+  gap: 4px;
+  color: var(--lc-chat-muted);
   font-size: 11px;
+  line-height: 1.2;
+  padding-left: 2px;
 }
 #${ROOT_ID} .lc-chat-name {
-  color: #8ee6c9;
+  color: var(--lc-chat-name);
   font-weight: 650;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -214,30 +226,36 @@ const STYLE = `
   height: 28px;
   border-radius: 50%;
   object-fit: cover;
-  background: rgba(255, 255, 255, .12);
-  align-self: start;
+  background: var(--lc-chat-chip);
+  align-self: end;
+  margin-bottom: 1px;
 }
 #${ROOT_ID} .lc-chat-avatar-fallback {
   display: grid;
   place-items: center;
-  color: #111;
-  background: #8ee6c9;
+  color: var(--lc-chat-own-text);
+  background: var(--lc-chat-own);
   font-weight: 800;
   font-size: 12px;
 }
 #${ROOT_ID} .lc-chat-reply {
-  color: #ffd166;
+  color: var(--lc-chat-accent);
 }
 #${ROOT_ID} .lc-chat-badge {
-  border-radius: 3px;
-  padding: 1px 4px;
-  background: rgba(255, 255, 255, .1);
-  color: #dce3ee;
+  border-radius: 999px;
+  padding: 1px 5px;
+  background: var(--lc-chat-chip);
+  color: var(--lc-chat-chip-text);
   font-size: 10px;
+  line-height: 1.25;
+  max-width: 74px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 #${ROOT_ID} .lc-chat-kind {
-  color: #111;
-  background: #8ee6c9;
+  color: var(--lc-chat-own-text);
+  background: var(--lc-chat-own);
 }
 #${ROOT_ID} .lc-chat-kind[data-kind="gift"] {
   background: #ffd166;
@@ -249,17 +267,52 @@ const STYLE = `
 #${ROOT_ID} .lc-chat-kind[data-kind="enter"] {
   background: #9cb8ff;
 }
-#${ROOT_ID} .lc-chat-text {
-  grid-column: 2 / -1;
-  color: #f5f7fb;
-  font-size: 13px;
-  line-height: 1.42;
+#${ROOT_ID} .lc-chat-body {
+  grid-column: 2 / 3;
+  min-width: 0;
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+}
+#${ROOT_ID} .lc-chat-bubble {
+  max-width: min(100%, 34em);
+  color: var(--lc-chat-bubble-text);
+  background: var(--lc-chat-bubble);
+  border: 1px solid var(--lc-chat-border);
+  border-radius: 17px;
+  border-bottom-left-radius: 5px;
+  padding: 7px 10px;
+  font-size: 12px;
+  line-height: 1.38;
   word-break: break-word;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, .06);
+}
+#${ROOT_ID} .lc-chat-message[data-kind="gift"] .lc-chat-bubble {
+  background: #fff4c2;
+  color: #4a3400;
+  border-color: rgba(191, 134, 0, .22);
+}
+#${ROOT_ID} .lc-chat-message[data-kind="superchat"] .lc-chat-bubble {
+  background: linear-gradient(180deg, #ff9f0a, #ff7a59);
+  color: #fff;
+  border-color: rgba(255, 122, 89, .28);
+}
+#${ROOT_ID}[data-theme="laplace"] .lc-chat-message[data-kind="gift"] .lc-chat-bubble,
+#${ROOT_ID}[data-theme="compact"] .lc-chat-message[data-kind="gift"] .lc-chat-bubble {
+  background: rgba(255, 214, 10, .22);
+  color: #fff4bf;
+}
+#${ROOT_ID}[data-theme="laplace"] .lc-chat-message[data-kind="superchat"] .lc-chat-bubble,
+#${ROOT_ID}[data-theme="compact"] .lc-chat-message[data-kind="superchat"] .lc-chat-bubble {
+  background: linear-gradient(180deg, rgba(255, 159, 10, .92), rgba(255, 69, 58, .86));
+  color: #fff;
 }
 #${ROOT_ID} .lc-chat-actions {
-  grid-column: 3 / 4;
+  position: absolute;
+  top: 3px;
+  right: 5px;
   display: flex;
-  gap: 3px;
+  gap: 2px;
   opacity: 0;
   transition: opacity .12s;
 }
@@ -268,68 +321,69 @@ const STYLE = `
   opacity: 1;
 }
 #${ROOT_ID} .lc-chat-action {
-  min-width: 24px;
-  height: 22px;
+  min-width: 22px;
+  height: 20px;
   border: 0;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, .1);
-  color: #f2f4f8;
-  font-size: 11px;
+  border-radius: 999px;
+  background: var(--lc-chat-chip);
+  color: var(--lc-chat-chip-text);
+  font-size: 10px;
   cursor: pointer;
 }
 #${ROOT_ID} .lc-chat-action:hover {
-  background: #8ee6c9;
-  color: #111;
+  background: var(--lc-chat-own);
+  color: var(--lc-chat-own-text);
 }
 #${ROOT_ID} .lc-chat-composer {
   display: grid;
-  gap: 6px;
-  padding: 7px;
-  border-top: 1px solid rgba(255, 255, 255, .07);
-  background: rgba(255, 255, 255, .045);
+  gap: 5px;
+  padding: 6px;
+  border-top: 1px solid var(--lc-chat-border);
+  background: var(--lc-chat-panel);
+  backdrop-filter: blur(16px);
 }
 #${ROOT_ID} .lc-chat-input-wrap {
   position: relative;
 }
 #${ROOT_ID} textarea {
   width: 100%;
-  height: 54px;
+  height: 48px;
   resize: vertical;
   min-height: 42px;
   max-height: 120px;
-  border: 1px solid rgba(255, 255, 255, .12);
-  border-radius: 6px;
-  background: rgba(0, 0, 0, .28);
-  color: #fff;
-  padding: 7px 38px 7px 8px;
+  border: 1px solid var(--lc-chat-border);
+  border-radius: 18px;
+  background: var(--lc-chat-bubble);
+  color: var(--lc-chat-bubble-text);
+  padding: 6px 34px 6px 7px;
   outline: none;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.35;
 }
 #${ROOT_ID} textarea:focus {
-  border-color: #8ee6c9;
-  box-shadow: 0 0 0 3px rgba(142, 230, 201, .12);
+  border-color: var(--lc-chat-own);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lc-chat-own) 18%, transparent);
 }
 #${ROOT_ID} .lc-chat-count {
   position: absolute;
   right: 8px;
   bottom: 6px;
-  color: #8f9aaa;
+  color: var(--lc-chat-muted);
   font-size: 11px;
   pointer-events: none;
 }
 #${ROOT_ID} .lc-chat-send-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 #${ROOT_ID} .lc-chat-send {
-  min-height: 28px;
-  padding: 0 12px;
+  min-height: 27px;
+  padding: 0 13px;
   border: 0;
-  border-radius: 6px;
-  background: #8ee6c9;
-  color: #111;
+  border-radius: 999px;
+  background: var(--lc-chat-own);
+  color: var(--lc-chat-own-text);
   font-weight: 700;
   cursor: pointer;
 }
@@ -338,18 +392,23 @@ const STYLE = `
   cursor: wait;
 }
 #${ROOT_ID} .lc-chat-hint {
-  color: #8f9aaa;
+  color: var(--lc-chat-muted);
   font-size: 11px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 #${ROOT_ID} .lc-chat-ws-status {
   font-size: 11px;
-  color: #8f9aaa;
+  color: var(--lc-chat-muted);
+  min-width: 38px;
 }
 #${ROOT_ID} .lc-chat-ws-status[data-status="live"] {
-  color: #8ee6c9;
+  color: var(--lc-chat-accent);
 }
 #${ROOT_ID} .lc-chat-ws-status[data-status="error"] {
-  color: #ff7a59;
+  color: #ff453a;
 }
 html.lc-custom-chat-hide-native .chat-items,
 html.lc-custom-chat-hide-native .chat-control-panel,
@@ -425,6 +484,26 @@ function avatarUrl(uid: string | null): string | undefined {
   return uid ? `${BASE_URL.BILIBILI_AVATAR}/${uid}?size=96` : undefined
 }
 
+function createAvatar(message: CustomChatEvent): HTMLElement {
+  const fallback = document.createElement('div')
+  fallback.className = 'lc-chat-avatar lc-chat-avatar-fallback'
+  fallback.textContent = message.uname.slice(0, 1).toUpperCase() || '?'
+  fallback.title = message.uid ? `UID ${message.uid}` : message.uname
+
+  const avatar = message.avatarUrl || avatarUrl(message.uid)
+  if (!avatar) return fallback
+
+  const img = document.createElement('img')
+  img.className = 'lc-chat-avatar'
+  img.src = avatar
+  img.alt = '头像'
+  img.referrerPolicy = 'no-referrer'
+  img.loading = 'lazy'
+  img.title = fallback.title
+  img.addEventListener('error', () => img.replaceWith(fallback), { once: true })
+  return img
+}
+
 function tokenMatches(message: CustomChatEvent, token: string): boolean {
   const normalized = token.trim()
   if (!normalized) return true
@@ -464,10 +543,10 @@ function messageMatchesSearch(message: CustomChatEvent): boolean {
 }
 
 function wsStatusLabel(status: CustomChatWsStatus): string {
-  if (status === 'connecting') return 'WS 连接中'
-  if (status === 'live') return 'WS 已连接'
+  if (status === 'connecting') return 'WS...'
+  if (status === 'live') return 'WS'
   if (status === 'error') return 'WS 异常'
-  if (status === 'closed') return 'WS 已断开'
+  if (status === 'closed') return 'WS 断开'
   return 'WS 关闭'
 }
 
@@ -540,6 +619,7 @@ function renderMessage(message: CustomChatEvent, countUnread = true): void {
     fallback.textContent = message.uname.slice(0, 1).toUpperCase() || '?'
     avatarEl = fallback
   }
+  avatarEl = createAvatar(message)
 
   const meta = document.createElement('div')
   meta.className = 'lc-chat-meta'
@@ -565,7 +645,8 @@ function renderMessage(message: CustomChatEvent, countUnread = true): void {
   }
   for (const badgeText of message.badges.slice(0, 4)) {
     const badge = document.createElement('span')
-    badge.className = 'lc-chat-badge'
+    badge.className = 'lc-chat-badge lc-chat-medal'
+    badge.dataset.badge = badgeText
     setText(badge, badgeText)
     meta.append(badge)
   }
@@ -585,11 +666,15 @@ function renderMessage(message: CustomChatEvent, countUnread = true): void {
   }
   actions.append(makeButton('lc-chat-action', '复制', '复制事件文本', () => void copyText(message.sendText ?? message.text)))
 
-  const text = document.createElement('div')
-  text.className = 'lc-chat-text'
-  setText(text, message.text)
+  const body = document.createElement('div')
+  body.className = 'lc-chat-body'
 
-  row.append(avatarEl, meta, actions, text)
+  const text = document.createElement('div')
+  text.className = 'lc-chat-bubble lc-chat-text'
+  setText(text, message.text)
+  body.append(meta, text)
+
+  row.append(avatarEl, body, actions)
   listEl.append(row)
 
   window.setTimeout(() => row.classList.remove('lc-chat-peek'), 2600)
@@ -648,7 +733,7 @@ function createRoot(): HTMLElement {
 
   const title = document.createElement('div')
   title.className = 'lc-chat-title'
-  title.textContent = 'Chatterbox Chat'
+  title.textContent = 'Chatterbox'
 
   pauseBtn = makeButton('lc-chat-pill', '暂停', '暂停自动滚动', () => {
     paused = !paused
@@ -671,7 +756,7 @@ function createRoot(): HTMLElement {
   searchInput = document.createElement('input')
   searchInput.type = 'search'
   searchInput.className = 'lc-chat-search'
-  searchInput.placeholder = '搜索 user:名 kind:gift source:ws -词'
+  searchInput.placeholder = '搜索 user:名 kind:gift -词'
   searchInput.value = searchQuery
   searchInput.addEventListener('input', () => {
     searchQuery = searchInput?.value ?? ''
@@ -733,7 +818,7 @@ function createRoot(): HTMLElement {
   const sendBtn = makeButton('lc-chat-send', '发送', '发送弹幕', () => void sendFromComposer())
   const hint = document.createElement('span')
   hint.className = 'lc-chat-hint'
-  hint.textContent = '可偷、+1、复制；设置里可贴自定义 CSS'
+  hint.textContent = '偷 / +1 / 复制，设置可贴 CSS'
   sendRow.append(sendBtn, hint)
 
   composer.append(inputWrap, sendRow)
@@ -783,8 +868,8 @@ function addDomMessage(ev: DanmakuEvent): void {
     time: chatEventTime(),
     isReply: ev.isReply,
     source: 'dom',
-    badges: [],
-    avatarUrl: avatarUrl(uid),
+    badges: ev.badges,
+    avatarUrl: ev.avatarUrl || avatarUrl(uid),
   })
 }
 

@@ -1,5 +1,12 @@
 # Greasy Fork Release Notes
 
+## 2.8.2
+
+- Chatterbox Chat 改成 iMessage 气泡式评论区：头像、名字、时间、身份徽章和正文分层显示。
+- DOM 兜底弹幕现在会尽量解析用户名、UID、头像、粉丝牌、用户等级、舰队/房管等信息，不再轻易退成一片匿名。
+- 评论区样式改成 CSS 变量和语义 class，可覆盖 `--lc-chat-*`、`.lc-chat-bubble`、`.lc-chat-medal` 等选择器快速换皮。
+- 压缩顶部工具栏、筛选条和底部发送框，让弹幕多的时候可读内容更多。
+
 ## 2.8.1
 
 - 修复自定义评论区空白：不再隐藏承载自定义 Chat 的 `.chat-history-panel` 父容器。

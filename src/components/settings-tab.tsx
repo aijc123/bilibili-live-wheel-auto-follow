@@ -1157,9 +1157,9 @@ export function SettingsTab() {
                 customChatTheme.value = e.currentTarget.value as typeof customChatTheme.value
               }}
             >
-              <option value='laplace'>Laplace Dark</option>
-              <option value='light'>Light</option>
-              <option value='compact'>Compact</option>
+              <option value='laplace'>iMessage Dark</option>
+              <option value='light'>iMessage Light</option>
+              <option value='compact'>Compact Bubble</option>
             </select>
           </div>
           <details style={{ marginLeft: '1.5em' }}>
@@ -1175,7 +1175,7 @@ export function SettingsTab() {
                 style={{ minHeight: '90px', resize: 'vertical', width: '100%' }}
               />
               <div className='cb-note'>
-                可覆盖 #laplace-custom-chat、.lc-chat-message、.lc-chat-name、.lc-chat-text、.lc-chat-action 等选择器。
+                可覆盖 #laplace-custom-chat 的 --lc-chat-* 变量，以及 .lc-chat-bubble、.lc-chat-medal、.lc-chat-name、.lc-chat-action 等选择器。
               </div>
             </div>
           </details>
