@@ -66,6 +66,9 @@ const STYLE = `
   overflow: hidden;
   contain: layout style;
 }
+html.lc-custom-chat-mounted #${ROOT_ID} {
+  display: grid !important;
+}
 #${ROOT_ID}[data-theme="laplace"],
 #${ROOT_ID}[data-theme="compact"] {
   --lc-chat-bg: #0b0f14;
@@ -566,7 +569,10 @@ const STYLE = `
 }
 #${ROOT_ID} .lc-chat-composer {
   display: grid;
+  grid-template-rows: auto auto;
+  flex: 0 0 auto;
   min-width: 0;
+  min-height: 88px;
   gap: 5px;
   padding: 6px;
   border-top: 1px solid var(--lc-chat-border);
@@ -658,16 +664,16 @@ const STYLE = `
 #${ROOT_ID}[data-debug="true"] .lc-chat-perf {
   display: block;
 }
-html.lc-custom-chat-hide-native .chat-items,
-html.lc-custom-chat-hide-native .super-chat-card,
-html.lc-custom-chat-hide-native .gift-item,
-html.lc-custom-chat-hide-native .chat-control-panel,
-html.lc-custom-chat-hide-native .chat-input-panel,
-html.lc-custom-chat-hide-native .control-panel-ctnr,
-html.lc-custom-chat-hide-native .chat-input-ctnr {
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-items,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .super-chat-card,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .gift-item,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-control-panel,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-input-panel,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .control-panel-ctnr,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-input-ctnr {
   display: none !important;
 }
-html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${ROOT_ID}) {
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#${ROOT_ID}) > :not(#${ROOT_ID}) {
   display: none !important;
 }
 `
@@ -1329,6 +1335,12 @@ function syncComposerFromStore(): void {
   updateCount()
 }
 
+function updateNativeVisibility(): void {
+  const mounted = !!root?.isConnected && !!root.querySelector('.lc-chat-composer')
+  document.documentElement.classList.toggle('lc-custom-chat-mounted', mounted)
+  document.documentElement.classList.toggle('lc-custom-chat-hide-native', mounted && customChatHideNative.value)
+}
+
 function createRoot(): HTMLElement {
   const panel = document.createElement('section')
   panel.id = ROOT_ID
@@ -1506,6 +1518,7 @@ function mount(container: HTMLElement): void {
   root = createRoot()
   root.dataset.theme = customChatTheme.value
   host.appendChild(root)
+  updateNativeVisibility()
   observeNativeEvents(container)
   rerenderMessages()
 }
@@ -1567,9 +1580,9 @@ export function startCustomChat(): void {
 
   ensureStyles()
   disposeSettings = signalEffect(() => {
-    document.documentElement.classList.toggle('lc-custom-chat-hide-native', customChatHideNative.value)
     if (root) root.dataset.theme = customChatTheme.value
     if (root) root.dataset.debug = customChatPerfDebug.value ? 'true' : 'false'
+    updateNativeVisibility()
     updatePerfDebug()
     ensureStyles()
   })
@@ -1608,6 +1621,7 @@ export function stopCustomChat(): void {
   nativeEventObserver?.disconnect()
   nativeEventObserver = null
   document.documentElement.classList.remove('lc-custom-chat-hide-native')
+  document.documentElement.classList.remove('lc-custom-chat-mounted')
   root?.remove()
   root = null
   styleEl?.remove()

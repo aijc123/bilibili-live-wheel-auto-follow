@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.12
+// @version      2.8.13
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、粉丝牌禁言巡检、常规发送、同传、烂梗库和弹幕替换规则。
 // @license      AGPL-3.0
@@ -5280,6 +5280,9 @@ ws;
   overflow: hidden;
   contain: layout style;
 }
+html.lc-custom-chat-mounted #${ROOT_ID} {
+  display: grid !important;
+}
 #${ROOT_ID}[data-theme="laplace"],
 #${ROOT_ID}[data-theme="compact"] {
   --lc-chat-bg: #0b0f14;
@@ -5780,7 +5783,10 @@ ws;
 }
 #${ROOT_ID} .lc-chat-composer {
   display: grid;
+  grid-template-rows: auto auto;
+  flex: 0 0 auto;
   min-width: 0;
+  min-height: 88px;
   gap: 5px;
   padding: 6px;
   border-top: 1px solid var(--lc-chat-border);
@@ -5872,16 +5878,16 @@ ws;
 #${ROOT_ID}[data-debug="true"] .lc-chat-perf {
   display: block;
 }
-html.lc-custom-chat-hide-native .chat-items,
-html.lc-custom-chat-hide-native .super-chat-card,
-html.lc-custom-chat-hide-native .gift-item,
-html.lc-custom-chat-hide-native .chat-control-panel,
-html.lc-custom-chat-hide-native .chat-input-panel,
-html.lc-custom-chat-hide-native .control-panel-ctnr,
-html.lc-custom-chat-hide-native .chat-input-ctnr {
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-items,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .super-chat-card,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .gift-item,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-control-panel,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-input-panel,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .control-panel-ctnr,
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-input-ctnr {
   display: none !important;
 }
-html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${ROOT_ID}) {
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#${ROOT_ID}) > :not(#${ROOT_ID}) {
   display: none !important;
 }
 `;
@@ -6468,6 +6474,11 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     textarea.value = fasongText.value;
     updateCount();
   }
+  function updateNativeVisibility() {
+    const mounted = !!root?.isConnected && !!root.querySelector(".lc-chat-composer");
+    document.documentElement.classList.toggle("lc-custom-chat-mounted", mounted);
+    document.documentElement.classList.toggle("lc-custom-chat-hide-native", mounted && customChatHideNative.value);
+  }
   function createRoot() {
     const panel = document.createElement("section");
     panel.id = ROOT_ID;
@@ -6621,6 +6632,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     root = createRoot();
     root.dataset.theme = customChatTheme.value;
     host.appendChild(root);
+    updateNativeVisibility();
     observeNativeEvents(container);
     rerenderMessages();
   }
@@ -6677,9 +6689,9 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     if (unsubscribeDom) return;
     ensureStyles();
     disposeSettings = j(() => {
-      document.documentElement.classList.toggle("lc-custom-chat-hide-native", customChatHideNative.value);
       if (root) root.dataset.theme = customChatTheme.value;
       if (root) root.dataset.debug = customChatPerfDebug.value ? "true" : "false";
+      updateNativeVisibility();
       updatePerfDebug();
       ensureStyles();
     });
@@ -6716,6 +6728,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     nativeEventObserver?.disconnect();
     nativeEventObserver = null;
     document.documentElement.classList.remove("lc-custom-chat-hide-native");
+    document.documentElement.classList.remove("lc-custom-chat-mounted");
     root?.remove();
     root = null;
     styleEl$1?.remove();
