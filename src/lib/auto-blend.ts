@@ -6,6 +6,7 @@ import {
   shortAutoBlendText,
 } from './auto-blend-status'
 import { subscribeDanmaku } from './danmaku-stream'
+import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
 import { appendLog } from './log'
 import { clearMemeSession, recordMemeCandidate } from './meme-contributor'
 import { describeRestrictionDuration, isAccountRestrictedError, isMutedError, isRateLimitError } from './moderation'
@@ -97,22 +98,48 @@ function stopAutoBlendAfterModeration(reason: string): void {
   appendLog(reason)
 }
 
-function handleSendFailure(result: SendDanmakuResult): boolean {
+function handleSendFailure(result: SendDanmakuResult, roomId?: number): boolean {
   const now = Date.now()
   const error = result.error
   const duration = describeRestrictionDuration(result.error, result.errorData)
 
   if (isMutedError(error)) {
+    const risk = classifyRiskEvent(result.error, result.errorData)
+    void syncGuardRoomRiskEvent({
+      ...risk,
+      source: 'auto-blend',
+      roomId,
+      errorCode: result.errorCode,
+      reason: result.error
+    })
     stopAutoBlendAfterModeration(`自动跟车：检测到你在本房间被禁言，已自动关闭。禁言时长：${duration}。`)
     return true
   }
 
   if (isAccountRestrictedError(error)) {
+    const risk = classifyRiskEvent(result.error, result.errorData)
+    void syncGuardRoomRiskEvent({
+      ...risk,
+      source: 'auto-blend',
+      roomId,
+      errorCode: result.errorCode,
+      reason: result.error
+    })
     stopAutoBlendAfterModeration(`自动跟车：检测到账号级限制/风控，已自动关闭。限制时长：${duration}。`)
     return true
   }
 
-  if (!isRateLimitError(error)) return false
+  if (!isRateLimitError(error)) {
+    const risk = classifyRiskEvent(result.error, result.errorData)
+    void syncGuardRoomRiskEvent({
+      ...risk,
+      source: 'auto-blend',
+      roomId,
+      errorCode: result.errorCode,
+      reason: result.error
+    })
+    return false
+  }
 
   if (now - firstRateLimitHitAt > RATE_LIMIT_WINDOW_MS) {
     firstRateLimitHitAt = now
@@ -121,10 +148,28 @@ function handleSendFailure(result: SendDanmakuResult): boolean {
   rateLimitHitCount += 1
 
   if (rateLimitHitCount >= RATE_LIMIT_STOP_THRESHOLD) {
+    void syncGuardRoomRiskEvent({
+      kind: 'rate_limited',
+      source: 'auto-blend',
+      level: 'stop',
+      roomId,
+      errorCode: result.errorCode,
+      reason: result.error,
+      advice: '10 分钟内多次触发频率限制，自动跟车已经停车，建议休息一阵再开。'
+    })
     stopAutoBlendAfterModeration('自动跟车：10 分钟内多次触发发送频率限制，已自动关闭，避免继续被系统/房管盯上。')
     return true
   }
 
+  void syncGuardRoomRiskEvent({
+    kind: 'rate_limited',
+    source: 'auto-blend',
+    level: 'observe',
+    roomId,
+    errorCode: result.errorCode,
+    reason: result.error,
+    advice: '触发发送频率限制，自动跟车会先歇 2 分钟。'
+  })
   cooldownUntil = Math.max(cooldownUntil, now + RATE_LIMIT_BACKOFF_MS)
   clearPendingAutoBlend(`自动跟车：触发发送频率限制，已暂停 ${Math.round(RATE_LIMIT_BACKOFF_MS / 60000)} 分钟并清空本轮候选。`)
   updateStatusText()
@@ -436,7 +481,7 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
           }
         }
 
-        if (!result.success && !result.cancelled && handleSendFailure(result)) return
+        if (!result.success && !result.cancelled && handleSendFailure(result, roomId)) return
 
         if (result.success && !result.cancelled && !isEmote && !memeRecorded) {
           memeRecorded = true

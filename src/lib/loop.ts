@@ -2,6 +2,7 @@ import type { DanmakuConfigResponse } from '../types'
 
 import { ensureRoomId, fetchEmoticons, getCsrfToken, getSpmPrefix, setDanmakuMode, setRandomDanmakuColor } from './api'
 import { BASE_URL } from './const'
+import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
 import { appendLog } from './log'
 import { applyReplacements, buildReplacementMap } from './replacement'
 import { cancelPendingAuto, enqueueDanmaku, SendPriority } from './send-queue'
@@ -79,6 +80,14 @@ export async function loop(): Promise<void> {
       const csrfToken = getCsrfToken()
       if (!csrfToken) {
         appendLog('❌ 未找到登录信息，已自动停止运行，请先登录 Bilibili')
+        void syncGuardRoomRiskEvent({
+          kind: 'login_missing',
+          source: 'auto-send',
+          level: 'observe',
+          roomId,
+          reason: '自动发送没有检测到 B 站登录态。',
+          advice: '先登录 B 站，再重新开车。'
+        })
         sendMsg.value = false
         continue
       }
@@ -191,6 +200,16 @@ export async function loop(): Promise<void> {
           const baseLabel = result.isEmoticon ? '自动表情' : '自动'
           const label = total > 1 ? `${baseLabel} [${i + 1}/${total}]` : baseLabel
           appendLog(result, label, displayMsg)
+          if (!result.success && !result.cancelled) {
+            const risk = classifyRiskEvent(result.error, result.errorData)
+            void syncGuardRoomRiskEvent({
+              ...risk,
+              source: 'auto-send',
+              roomId,
+              errorCode: result.errorCode,
+              reason: result.error
+            })
+          }
 
           const resolvedRandomInterval = enableRandomInterval ? Math.floor(Math.random() * 500) : 0
           const ok = await abortableSleep(interval * 1000 - resolvedRandomInterval, signal)

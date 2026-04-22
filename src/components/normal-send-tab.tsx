@@ -1,5 +1,6 @@
 import { tryAiEvasion } from '../lib/ai-evasion'
 import { ensureRoomId, getCsrfToken } from '../lib/api'
+import { classifyRiskEvent, syncGuardRoomRiskEvent } from '../lib/guard-room-sync'
 import { appendLog } from '../lib/log'
 import { applyReplacements } from '../lib/replacement'
 import { enqueueDanmaku, SendPriority } from '../lib/send-queue'
@@ -24,6 +25,14 @@ export function NormalSendTab() {
       const csrfToken = getCsrfToken()
       if (!csrfToken) {
         appendLog('❌ 未找到登录信息，请先登录 Bilibili')
+        void syncGuardRoomRiskEvent({
+          kind: 'login_missing',
+          source: 'manual',
+          level: 'observe',
+          roomId,
+          reason: '未找到登录信息',
+          advice: '先登录 Bilibili，再发送弹幕。',
+        })
         return
       }
 
@@ -39,6 +48,14 @@ export function NormalSendTab() {
 
         appendLog(result, label, displayMsg)
         if (!result.success) {
+          const risk = classifyRiskEvent(result.error)
+          void syncGuardRoomRiskEvent({
+            ...risk,
+            source: 'manual',
+            roomId,
+            errorCode: result.errorCode,
+            reason: result.error,
+          })
           await tryAiEvasion(segment, roomId, csrfToken, '')
         }
 
