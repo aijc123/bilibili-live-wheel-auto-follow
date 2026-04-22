@@ -41,7 +41,7 @@ export const MILK_GREEN_IMESSAGE_CSS = `/* 奶绿 iMessage by Chatterbox */
 }
 
 #laplace-custom-chat .lc-chat-card-event[data-card="gift"] .lc-chat-bubble {
-  background: #ffdcc7;
+  background: linear-gradient(135deg, #ffe0cc, #fff3cd);
   color: #4a2618;
 }
 
@@ -53,5 +53,15 @@ export const MILK_GREEN_IMESSAGE_CSS = `/* 奶绿 iMessage by Chatterbox */
 #laplace-custom-chat .lc-chat-card-event[data-card="guard"] .lc-chat-bubble {
   background: linear-gradient(135deg, #d9f3e5, #bde5d1);
   color: #173b28;
+}
+
+#laplace-custom-chat .lc-chat-card-event[data-guard="2"] .lc-chat-bubble {
+  background: linear-gradient(135deg, #e9ccf0, #d8f1df);
+  color: #43205c;
+}
+
+#laplace-custom-chat .lc-chat-card-event[data-guard="1"] .lc-chat-bubble {
+  background: linear-gradient(135deg, #ffd7c2, #f5e19e);
+  color: #4d2318;
 }
 `

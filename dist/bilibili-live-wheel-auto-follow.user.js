@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.4
+// @version      2.8.5
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、粉丝牌禁言巡检、常规发送、同传、烂梗库和弹幕替换规则。
 // @license      AGPL-3.0
@@ -5194,7 +5194,7 @@ ws;
   min-height: 340px;
   flex: 1 1 auto;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   color: var(--lc-chat-text);
   background: var(--lc-chat-bg);
   border-left: 1px solid var(--lc-chat-border);
@@ -5236,25 +5236,29 @@ ws;
   font-size: 12px;
 }
 #${ROOT_ID} .lc-chat-toolbar {
-  min-height: 30px;
+  position: relative;
+  min-height: 42px;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 5px 7px;
+  gap: 8px;
+  padding: 6px 9px;
   background: var(--lc-chat-panel);
   border-bottom: 1px solid var(--lc-chat-border);
   backdrop-filter: blur(16px);
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 #${ROOT_ID} .lc-chat-title {
-  flex: 1 1 72px;
-  min-width: 62px;
-  font-size: 12px;
-  line-height: 1.05;
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.1;
   font-weight: 700;
   color: var(--lc-chat-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 #${ROOT_ID} .lc-chat-pill {
   min-width: 0;
@@ -5267,6 +5271,49 @@ ws;
   font-size: 11px;
   cursor: pointer;
 }
+#${ROOT_ID} .lc-chat-icon {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--lc-chat-chip);
+  color: var(--lc-chat-own);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+#${ROOT_ID} .lc-chat-menu {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 6px);
+  left: 8px;
+  right: 8px;
+  display: none;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid var(--lc-chat-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--lc-chat-panel) 88%, var(--lc-chat-bg));
+  box-shadow: 0 12px 34px var(--lc-chat-shadow);
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+}
+#${ROOT_ID}.lc-chat-menu-open .lc-chat-menu {
+  display: grid;
+}
+#${ROOT_ID} .lc-chat-menu-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+#${ROOT_ID} .lc-chat-menu-label {
+  color: var(--lc-chat-muted);
+  font-size: 11px;
+}
 #${ROOT_ID} .lc-chat-pill[aria-pressed="true"] {
   color: var(--lc-chat-own-text);
   background: var(--lc-chat-own);
@@ -5274,13 +5321,14 @@ ws;
 }
 #${ROOT_ID} .lc-chat-filterbar {
   display: flex;
+  flex: 1 1 100%;
   gap: 3px;
-  padding: 4px 7px;
+  padding: 0;
   min-width: 0;
   overflow: hidden;
-  background: var(--lc-chat-panel);
-  border-bottom: 1px solid var(--lc-chat-border);
-  backdrop-filter: blur(16px);
+  background: transparent;
+  border-bottom: 0;
+  backdrop-filter: none;
 }
 #${ROOT_ID} .lc-chat-filter {
   flex: 1 1 0;
@@ -5300,7 +5348,7 @@ ws;
   border-color: var(--lc-chat-own);
 }
 #${ROOT_ID} .lc-chat-search {
-  flex: 1 0 100%;
+  flex: 1 1 100%;
   min-width: 0;
   width: 0;
   max-width: 100%;
@@ -5342,7 +5390,7 @@ ws;
   overflow: visible;
 }
 #${ROOT_ID} .lc-chat-message:hover {
-  background: rgba(118, 118, 128, .09);
+  background: transparent;
   border-color: transparent;
 }
 #${ROOT_ID} .lc-chat-message[data-kind="gift"] {
@@ -5376,6 +5424,14 @@ ws;
   font-size: 14px;
   font-weight: 720;
   box-shadow: 0 4px 13px var(--lc-chat-shadow);
+}
+#${ROOT_ID} .lc-chat-card-compact .lc-chat-bubble {
+  min-height: 0;
+  padding: 8px 11px;
+  border-radius: 18px;
+  border-top-left-radius: 7px;
+  font-size: 13px;
+  font-weight: 650;
 }
 #${ROOT_ID} .lc-chat-card-event .lc-chat-bubble::before {
   top: 10px;
@@ -5448,7 +5504,7 @@ ws;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 3px;
   color: var(--lc-chat-muted);
   font-size: 11px;
   line-height: 1.2;
@@ -5457,7 +5513,7 @@ ws;
 }
 #${ROOT_ID} .lc-chat-name {
   min-width: 0;
-  max-width: min(13em, 52%);
+  max-width: min(15em, 64%);
   color: var(--lc-chat-name);
   font-weight: 650;
   overflow: hidden;
@@ -5498,7 +5554,7 @@ ws;
   color: var(--lc-chat-chip-text);
   font-size: 10px;
   line-height: 1.25;
-  max-width: min(8.5em, 42%);
+  max-width: min(7em, 38%);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5506,6 +5562,9 @@ ws;
 #${ROOT_ID} .lc-chat-kind {
   color: var(--lc-chat-own-text);
   background: var(--lc-chat-own);
+}
+#${ROOT_ID} .lc-chat-message[data-kind="danmaku"] .lc-chat-kind {
+  display: none;
 }
 #${ROOT_ID} .lc-chat-kind[data-kind="gift"] {
   background: #ffd166;
@@ -5581,20 +5640,22 @@ ws;
   color: #fff;
 }
 #${ROOT_ID} .lc-chat-actions {
-  position: absolute;
-  top: 4px;
-  right: 2px;
+  grid-column: 2 / 3;
+  justify-self: start;
   display: flex;
-  gap: 2px;
+  gap: 4px;
+  margin: 0 0 0 4px;
   opacity: 0;
+  transform: translateY(-2px);
   transition: opacity .12s;
-  max-width: calc(100% - 42px);
+  max-width: 100%;
   overflow: hidden;
   pointer-events: none;
 }
 #${ROOT_ID} .lc-chat-message:hover .lc-chat-actions,
-#${ROOT_ID} .lc-chat-message.lc-chat-peek .lc-chat-actions {
+#${ROOT_ID} .lc-chat-message.lc-chat-selected .lc-chat-actions {
   opacity: 1;
+  transform: translateY(0);
   pointer-events: auto;
 }
 #${ROOT_ID} .lc-chat-action {
@@ -5694,6 +5755,8 @@ ws;
   color: #ff453a;
 }
 html.lc-custom-chat-hide-native .chat-items,
+html.lc-custom-chat-hide-native .super-chat-card,
+html.lc-custom-chat-hide-native .gift-item,
 html.lc-custom-chat-hide-native .chat-control-panel,
 html.lc-custom-chat-hide-native .chat-input-panel,
 html.lc-custom-chat-hide-native .control-panel-ctnr,
@@ -5708,6 +5771,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
   let unsubscribeEvents = null;
   let unsubscribeWsStatus = null;
   let disposeSettings = null;
+  let nativeEventObserver = null;
   let root = null;
   let listEl = null;
   let pauseBtn = null;
@@ -5725,6 +5789,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
   let sending = false;
   let searchQuery = "";
   const messages = [];
+  const recentEventKeys = new Map();
   function eventToSendableMessage$1(ev) {
     if (!ev.isReply) return ev.text;
     return ev.uname ? `@${ev.uname} ${ev.text}` : ev.text;
@@ -5757,6 +5822,42 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
   }
   function avatarUrl(uid) {
     return uid ? `${BASE_URL.BILIBILI_AVATAR}/${uid}?size=96` : void 0;
+  }
+  function compactText(value) {
+    return value.replace(/\s+/g, " ").trim();
+  }
+  function eventKey(event) {
+    return `${event.kind}:${event.uid ?? ""}:${compactText(event.text).slice(0, 80)}`;
+  }
+  function rememberEvent(event) {
+    const now = Date.now();
+    for (const [key2, ts] of recentEventKeys) {
+      if (now - ts > 9e3) recentEventKeys.delete(key2);
+    }
+    const key = eventKey(event);
+    if (recentEventKeys.has(key)) return false;
+    recentEventKeys.set(key, now);
+    return true;
+  }
+  function usefulBadgeText(raw, uname) {
+    const text = compactText(raw).replace(/^粉丝牌[:：]?/, "").replace(/^荣耀[:：]?/, "").replace(/^用户等级[:：]?/, "UL ");
+    if (!text || text.length > 16) return null;
+    if (/这是\s*TA\s*的|TA 的|TA的|荣耀|粉丝|复制|举报|回复|关闭|头像/.test(text)) return null;
+    if (uname && (text === uname || text.startsWith(`${uname} `) || text.startsWith(`${uname}　`))) return null;
+    return text;
+  }
+  function normalizeBadges(message) {
+    const normalized = [];
+    for (const raw of message.badges) {
+      const text = usefulBadgeText(raw, message.uname);
+      if (!text) continue;
+      if (normalized.includes(text)) continue;
+      const parts = text.split(/\s+/).filter(Boolean);
+      if (parts.length === 1 && normalized.some((item) => item.includes(text))) continue;
+      normalized.push(text);
+      if (normalized.length >= 2) break;
+    }
+    return normalized;
   }
   function guardLevel(message) {
     const value = `${message.text} ${message.badges.join(" ")} ${message.rawCmd ?? ""}`;
@@ -5802,6 +5903,84 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     img.addEventListener("error", () => img.replaceWith(fallback), { once: true });
     return img;
   }
+  function nodeText(node) {
+    return compactText(node.textContent ?? "");
+  }
+  function attrText(node, attr) {
+    const value = node.getAttribute(attr);
+    return value ? compactText(value) : null;
+  }
+  function nativeUid(node) {
+    const direct = attrText(node, "data-uid") ?? node.querySelector("[data-uid]")?.getAttribute("data-uid");
+    if (direct) return direct;
+    const link = node.querySelector('a[href*="space.bilibili.com"], a[href*="uid="]');
+    const href = link?.href ?? "";
+    return href.match(/space\.bilibili\.com\/(\d+)/)?.[1] ?? href.match(/[?&]uid=(\d+)/)?.[1] ?? null;
+  }
+  function nativeUname(node, text) {
+    const selectors = ["[data-uname]", ".user-name", ".username", ".name", '[class*="user-name"]', '[class*="username"]'];
+    for (const selector of selectors) {
+      const el = node.querySelector(selector);
+      const value = el?.getAttribute("data-uname") ?? el?.getAttribute("title") ?? el?.textContent;
+      const clean = compactText(value ?? "");
+      if (clean && clean !== text && clean.length <= 32) return clean;
+    }
+    return "匿名";
+  }
+  function nativeAvatar(node) {
+    for (const img of node.querySelectorAll("img")) {
+      const src = img.currentSrc || img.src || img.getAttribute("data-src") || img.getAttribute("src");
+      if (!src) continue;
+      const label = `${img.className} ${img.alt}`.toLowerCase();
+      if (label.includes("avatar") || label.includes("face") || label.includes("head") || label.includes("头像")) return src;
+    }
+    return void 0;
+  }
+  function nativeKind(node, text) {
+    const signal = `${node.className} ${text}`;
+    if (/super[-_ ]?chat|superchat|醒目留言|醒目|￥|¥|\bSC\b/i.test(signal)) return "superchat";
+    if (/舰长|提督|总督|大航海|guard|privilege|开通|续费/i.test(signal)) return "enter";
+    if (/gift|礼物|赠送|投喂|送出|小花花|辣条|电池|x\s*\d+/i.test(signal)) return "gift";
+    return null;
+  }
+  function nativeBadges(node, text, uname) {
+    const badges = [];
+    for (const el of node.querySelectorAll('[title], [aria-label], [class*="medal"], [class*="guard"], [class*="level"]')) {
+      const raw = el.getAttribute("title") ?? el.getAttribute("aria-label") ?? el.textContent ?? "";
+      const clean = usefulBadgeText(raw, uname);
+      if (!clean || clean === text || badges.includes(clean)) continue;
+      badges.push(clean);
+      if (badges.length >= 3) break;
+    }
+    if (/总督/i.test(text)) badges.unshift("GUARD 1");
+    else if (/提督/i.test(text)) badges.unshift("GUARD 2");
+    else if (/舰长/i.test(text)) badges.unshift("GUARD 3");
+    return [...new Set(badges)];
+  }
+  function parseNativeEvent(node) {
+    if (node.classList.contains("danmaku-item")) return null;
+    if (node.closest(`#${ROOT_ID}`)) return null;
+    const text = nodeText(node);
+    if (text.length < 2) return null;
+    const kind = nativeKind(node, text);
+    if (!kind) return null;
+    const uname = nativeUname(node, text);
+    const uid = nativeUid(node);
+    const badges = nativeBadges(node, text, uname);
+    return {
+      id: `native-${++messageSeq}`,
+      kind,
+      text,
+      sendText: kind === "superchat" ? text : void 0,
+      uname,
+      uid,
+      time: chatEventTime(),
+      isReply: false,
+      source: "dom",
+      badges,
+      avatarUrl: nativeAvatar(node) || avatarUrl(uid)
+    };
+  }
   function tokenMatches(message, token) {
     const normalized = token.trim();
     if (!normalized) return true;
@@ -5838,11 +6017,11 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     return true;
   }
   function wsStatusLabel(status) {
-    if (status === "connecting") return "WS...";
-    if (status === "live") return "WS";
-    if (status === "error") return "WS 异常";
-    if (status === "closed") return "WS 断开";
-    return "WS 关闭";
+    if (status === "connecting") return "实时事件源连接中";
+    if (status === "live") return "实时事件源正常";
+    if (status === "error") return "实时事件源异常，页面兜底中";
+    if (status === "closed") return "实时事件源断开，页面兜底中";
+    return "实时事件源关闭";
   }
   function updateWsStatus(status) {
     if (!wsStatusEl) return;
@@ -5890,30 +6069,21 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     row.dataset.uid = message.uid ?? "";
     row.dataset.kind = message.kind;
     row.dataset.source = message.source;
+    row.tabIndex = 0;
     const guard = guardLevel(message);
     const card = cardType(message);
     if (card) {
       row.classList.add("lc-chat-card-event");
       row.dataset.card = card;
     }
+    if (card === "gift" && !message.amount) row.classList.add("lc-chat-card-compact");
     if (guard) row.dataset.guard = guard;
-    const avatar = message.avatarUrl || avatarUrl(message.uid);
-    let avatarEl;
-    if (avatar) {
-      const img = document.createElement("img");
-      img.className = "lc-chat-avatar";
-      img.src = avatar;
-      img.alt = "头像";
-      img.referrerPolicy = "no-referrer";
-      img.loading = "lazy";
-      avatarEl = img;
-    } else {
-      const fallback = document.createElement("div");
-      fallback.className = "lc-chat-avatar lc-chat-avatar-fallback";
-      fallback.textContent = message.uname.slice(0, 1).toUpperCase() || "?";
-      avatarEl = fallback;
-    }
-    avatarEl = createAvatar(message);
+    row.addEventListener("click", (e2) => {
+      const target = e2.target;
+      if (target instanceof HTMLElement && target.closest("button")) return;
+      row.classList.toggle("lc-chat-selected");
+    });
+    const avatarEl = createAvatar(message);
     const meta = document.createElement("div");
     meta.className = "lc-chat-meta";
     const kind = document.createElement("span");
@@ -5926,14 +6096,15 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     const time = document.createElement("span");
     time.className = "lc-chat-time";
     setText(time, message.time);
-    meta.append(kind, name, time);
+    if (message.kind !== "danmaku") meta.append(kind);
+    meta.append(name, time);
     if (message.isReply) {
       const reply = document.createElement("span");
       reply.className = "lc-chat-reply";
       reply.textContent = "回复";
       meta.append(reply);
     }
-    for (const badgeText of message.badges.slice(0, 4)) {
+    for (const badgeText of normalizeBadges(message)) {
       const badge = document.createElement("span");
       badge.className = "lc-chat-badge lc-chat-medal";
       badge.dataset.badge = badgeText;
@@ -6025,9 +6196,19 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     panel.dataset.theme = customChatTheme.value;
     const toolbar = document.createElement("div");
     toolbar.className = "lc-chat-toolbar";
+    const spacer = document.createElement("span");
+    spacer.className = "lc-chat-icon";
+    spacer.setAttribute("aria-hidden", "true");
+    spacer.style.visibility = "hidden";
     const title = document.createElement("div");
     title.className = "lc-chat-title";
-    title.textContent = "Chatterbox";
+    title.textContent = "直播聊天";
+    const menuBtn = makeButton("lc-chat-icon", "…", "聊天工具", () => {
+      panel.classList.toggle("lc-chat-menu-open");
+    });
+    menuBtn.setAttribute("aria-label", "聊天工具");
+    const menu = document.createElement("div");
+    menu.className = "lc-chat-menu";
     pauseBtn = makeButton("lc-chat-pill", "暂停", "暂停自动滚动", () => {
       paused = !paused;
       if (!paused) {
@@ -6057,7 +6238,6 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
       updateUnread();
     });
     const clearBtn = makeButton("lc-chat-pill", "清屏", "清空自定义评论区", clearMessages);
-    toolbar.append(title, searchInput, matchCountEl, pauseBtn, unreadEl, wsStatusEl, clearBtn);
     const filterbar = document.createElement("div");
     filterbar.className = "lc-chat-filterbar";
     const filters = [
@@ -6076,6 +6256,26 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
       btn.setAttribute("aria-pressed", signal.value ? "true" : "false");
       filterbar.append(btn);
     }
+    const searchRow = document.createElement("div");
+    searchRow.className = "lc-chat-menu-row";
+    searchRow.append(searchInput, matchCountEl);
+    const controlRow = document.createElement("div");
+    controlRow.className = "lc-chat-menu-row";
+    controlRow.append(pauseBtn, unreadEl, clearBtn);
+    const statusRow = document.createElement("div");
+    statusRow.className = "lc-chat-menu-row";
+    const statusLabel = document.createElement("span");
+    statusLabel.className = "lc-chat-menu-label";
+    statusLabel.textContent = "状态";
+    statusRow.append(statusLabel, wsStatusEl);
+    const filterLabel = document.createElement("span");
+    filterLabel.className = "lc-chat-menu-label";
+    filterLabel.textContent = "显示";
+    const filterRow = document.createElement("div");
+    filterRow.className = "lc-chat-menu-row";
+    filterRow.append(filterLabel, filterbar);
+    menu.append(searchRow, controlRow, filterRow, statusRow);
+    toolbar.append(spacer, title, menuBtn, menu);
     listEl = document.createElement("div");
     listEl.className = "lc-chat-list";
     const composer = document.createElement("div");
@@ -6103,7 +6303,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     hint.textContent = "偷 / +1 / 复制，设置可贴 CSS";
     sendRow.append(sendBtn, hint);
     composer.append(inputWrap, sendRow);
-    panel.append(toolbar, filterbar, listEl, composer);
+    panel.append(toolbar, listEl, composer);
     updateUnread();
     return panel;
   }
@@ -6129,7 +6329,30 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     root = createRoot();
     root.dataset.theme = customChatTheme.value;
     host.appendChild(root);
+    observeNativeEvents(container);
     rerenderMessages();
+  }
+  function observeNativeEvents(container) {
+    nativeEventObserver?.disconnect();
+    const scan = (node) => {
+      const event = parseNativeEvent(node);
+      if (event) emitCustomChatEvent(event);
+      for (const child of node.querySelectorAll('.chat-item, [class*="super"], [class*="gift"], [class*="guard"], [class*="privilege"]')) {
+        const childEvent = parseNativeEvent(child);
+        if (childEvent) emitCustomChatEvent(childEvent);
+      }
+    };
+    for (const node of container.querySelectorAll('.chat-item, [class*="super"], [class*="gift"], [class*="guard"], [class*="privilege"]')) {
+      scan(node);
+    }
+    nativeEventObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node instanceof HTMLElement) scan(node);
+        }
+      }
+    });
+    nativeEventObserver.observe(container, { childList: true, subtree: true });
   }
   function addDomMessage(ev) {
     const text = ev.text.trim();
@@ -6152,6 +6375,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
   }
   function addEvent(event) {
     if (messages.some((message) => message.id === event.id && message.source === event.source)) return;
+    if (!rememberEvent(event)) return;
     messages.push(event);
     renderMessage(event);
   }
@@ -6188,6 +6412,8 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
       disposeSettings();
       disposeSettings = null;
     }
+    nativeEventObserver?.disconnect();
+    nativeEventObserver = null;
     document.documentElement.classList.remove("lc-custom-chat-hide-native");
     root?.remove();
     root = null;
@@ -6208,6 +6434,7 @@ html.lc-custom-chat-hide-native .chat-history-panel:has(#${ROOT_ID}) > :not(#${R
     paused = false;
     sending = false;
     searchQuery = "";
+    recentEventKeys.clear();
   }
   const MARKER = "lc-dm-direct";
   const STYLE_ID = "lc-dm-direct-style";
@@ -7829,7 +8056,7 @@ u$2("label", { for: "aiEvasion", children: "AI规避（发送失败时自动检�
 }
 
 #laplace-custom-chat .lc-chat-card-event[data-card="gift"] .lc-chat-bubble {
-  background: #ffdcc7;
+  background: linear-gradient(135deg, #ffe0cc, #fff3cd);
   color: #4a2618;
 }
 
@@ -7841,6 +8068,16 @@ u$2("label", { for: "aiEvasion", children: "AI规避（发送失败时自动检�
 #laplace-custom-chat .lc-chat-card-event[data-card="guard"] .lc-chat-bubble {
   background: linear-gradient(135deg, #d9f3e5, #bde5d1);
   color: #173b28;
+}
+
+#laplace-custom-chat .lc-chat-card-event[data-guard="2"] .lc-chat-bubble {
+  background: linear-gradient(135deg, #e9ccf0, #d8f1df);
+  color: #43205c;
+}
+
+#laplace-custom-chat .lc-chat-card-event[data-guard="1"] .lc-chat-bubble {
+  background: linear-gradient(135deg, #ffd7c2, #f5e19e);
+  color: #4d2318;
 }
 `;
   function EmoteIds() {
