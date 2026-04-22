@@ -1,5 +1,17 @@
 # Greasy Fork Release Notes
 
+## Greasy Fork 脚本简介
+
+B站/哔哩哔哩直播间弹幕助手 userscript，支持独轮车循环发送、自动跟车、Chatterbox Chat 评论区、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
+
+适用于 Tampermonkey、Violentmonkey 等用户脚本管理器。安装后进入 B 站直播间，右下角会出现「弹幕助手」按钮；如果想接管右侧评论区，可以在「设置」里开启 Chatterbox Chat。
+
+## 当前发布说明
+
+- 更新 README、GitHub Pages 发布页和 userscript 安装页描述，把 Chatterbox Chat、粉丝牌禁言巡检、替换/AI 规避、同传、烂梗库等能力补进介绍里。
+- 发布页改成更完整的功能说明：包含安装入口、主要功能卡片、安装步骤和常见搜索词。
+- 同步更新项目元信息，Greasy Fork / Tampermonkey 安装页能看到更准确的脚本简介。
+
 ## 2.8.17
 
 - 加固 Chatterbox 长时间运行性能：消息数组、渲染队列和 DOM 兜底扫描都增加硬上限，避免高并发后越积越多。
