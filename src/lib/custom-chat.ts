@@ -70,6 +70,10 @@ const STYLE = `
 html.lc-custom-chat-mounted #${ROOT_ID} {
   display: grid !important;
 }
+html.lc-custom-chat-root-outside-history #${ROOT_ID} {
+  flex: 1 1 auto;
+  min-height: 0;
+}
 #${ROOT_ID}[data-theme="laplace"],
 #${ROOT_ID}[data-theme="compact"] {
   --lc-chat-bg: #0b0f14;
@@ -597,6 +601,9 @@ html.lc-custom-chat-mounted #${ROOT_ID} {
   color: var(--lc-chat-own-text);
 }
 #${ROOT_ID} .lc-chat-composer {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
   display: grid;
   grid-template-rows: auto auto;
   flex: 0 0 auto;
@@ -747,6 +754,9 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .control-panel-ctnr,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-input-ctnr {
   display: none !important;
 }
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted.lc-custom-chat-root-outside-history .chat-history-panel {
+  display: none !important;
+}
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#${ROOT_ID}) > :not(#${ROOT_ID}) {
   display: none !important;
 }
@@ -759,6 +769,7 @@ let disposeSettings: (() => void) | null = null
 let disposeComposer: (() => void) | null = null
 let nativeEventObserver: MutationObserver | null = null
 let root: HTMLElement | null = null
+let rootOutsideHistory = false
 let listEl: HTMLElement | null = null
 let pauseBtn: HTMLButtonElement | null = null
 let unreadEl: HTMLElement | null = null
@@ -1475,6 +1486,7 @@ function syncComposerFromStore(): void {
 function updateNativeVisibility(): void {
   const mounted = !!root?.isConnected && !!root.querySelector('.lc-chat-composer')
   document.documentElement.classList.toggle('lc-custom-chat-mounted', mounted)
+  document.documentElement.classList.toggle('lc-custom-chat-root-outside-history', mounted && rootOutsideHistory)
   document.documentElement.classList.toggle('lc-custom-chat-hide-native', mounted && customChatHideNative.value)
 }
 
@@ -1697,9 +1709,11 @@ function ensureStyles(): void {
 function mount(container: HTMLElement): void {
   ensureStyles()
   root?.remove()
-  const host = container.closest<HTMLElement>('.chat-history-panel') ?? container.parentElement
+  const historyPanel = container.closest<HTMLElement>('.chat-history-panel')
+  const host = historyPanel?.parentElement ?? container.parentElement
   if (!host) return
   root = createRoot()
+  rootOutsideHistory = !!historyPanel && host !== historyPanel
   root.dataset.theme = customChatTheme.value
   host.appendChild(root)
   updateNativeVisibility()
@@ -1806,8 +1820,10 @@ export function stopCustomChat(): void {
   nativeEventObserver = null
   document.documentElement.classList.remove('lc-custom-chat-hide-native')
   document.documentElement.classList.remove('lc-custom-chat-mounted')
+  document.documentElement.classList.remove('lc-custom-chat-root-outside-history')
   root?.remove()
   root = null
+  rootOutsideHistory = false
   styleEl?.remove()
   styleEl = null
   userStyleEl?.remove()

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.14
+// @version      2.8.15
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、粉丝牌禁言巡检、常规发送、同传、烂梗库和弹幕替换规则。
 // @license      AGPL-3.0
@@ -5314,6 +5314,10 @@ ws;
 html.lc-custom-chat-mounted #${ROOT_ID} {
   display: grid !important;
 }
+html.lc-custom-chat-root-outside-history #${ROOT_ID} {
+  flex: 1 1 auto;
+  min-height: 0;
+}
 #${ROOT_ID}[data-theme="laplace"],
 #${ROOT_ID}[data-theme="compact"] {
   --lc-chat-bg: #0b0f14;
@@ -5841,6 +5845,9 @@ html.lc-custom-chat-mounted #${ROOT_ID} {
   color: var(--lc-chat-own-text);
 }
 #${ROOT_ID} .lc-chat-composer {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
   display: grid;
   grid-template-rows: auto auto;
   flex: 0 0 auto;
@@ -5991,6 +5998,9 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .control-panel-ctnr,
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-input-ctnr {
   display: none !important;
 }
+html.lc-custom-chat-hide-native.lc-custom-chat-mounted.lc-custom-chat-root-outside-history .chat-history-panel {
+  display: none !important;
+}
 html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#${ROOT_ID}) > :not(#${ROOT_ID}) {
   display: none !important;
 }
@@ -6002,6 +6012,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   let disposeComposer = null;
   let nativeEventObserver = null;
   let root = null;
+  let rootOutsideHistory = false;
   let listEl = null;
   let pauseBtn = null;
   let unreadEl = null;
@@ -6640,6 +6651,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   function updateNativeVisibility() {
     const mounted = !!root?.isConnected && !!root.querySelector(".lc-chat-composer");
     document.documentElement.classList.toggle("lc-custom-chat-mounted", mounted);
+    document.documentElement.classList.toggle("lc-custom-chat-root-outside-history", mounted && rootOutsideHistory);
     document.documentElement.classList.toggle("lc-custom-chat-hide-native", mounted && customChatHideNative.value);
   }
   function appendDebugRow(parent, key, value) {
@@ -6833,9 +6845,11 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   function mount$1(container) {
     ensureStyles();
     root?.remove();
-    const host = container.closest(".chat-history-panel") ?? container.parentElement;
+    const historyPanel = container.closest(".chat-history-panel");
+    const host = historyPanel?.parentElement ?? container.parentElement;
     if (!host) return;
     root = createRoot();
+    rootOutsideHistory = !!historyPanel && host !== historyPanel;
     root.dataset.theme = customChatTheme.value;
     host.appendChild(root);
     updateNativeVisibility();
@@ -6935,8 +6949,10 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     nativeEventObserver = null;
     document.documentElement.classList.remove("lc-custom-chat-hide-native");
     document.documentElement.classList.remove("lc-custom-chat-mounted");
+    document.documentElement.classList.remove("lc-custom-chat-root-outside-history");
     root?.remove();
     root = null;
+    rootOutsideHistory = false;
     styleEl$1?.remove();
     styleEl$1 = null;
     userStyleEl?.remove();
