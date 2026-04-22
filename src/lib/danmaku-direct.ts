@@ -1,19 +1,8 @@
 import { effect as signalEffect } from '@preact/signals'
 
-import { showConfirm } from '../components/ui/alert-dialog'
-import { ensureRoomId, getCsrfToken } from './api'
+import { repeatDanmaku, stealDanmaku } from './danmaku-actions'
 import { type DanmakuEvent, subscribeDanmaku } from './danmaku-stream'
-import { appendLog } from './log'
-import { applyReplacements } from './replacement'
-import { enqueueDanmaku, SendPriority } from './send-queue'
-import {
-  activeTab,
-  danmakuDirectAlwaysShow,
-  danmakuDirectConfirm,
-  danmakuDirectMode,
-  dialogOpen,
-  fasongText,
-} from './store'
+import { danmakuDirectAlwaysShow, danmakuDirectConfirm, danmakuDirectMode } from './store'
 
 const MARKER = 'lc-dm-direct'
 const STYLE_ID = 'lc-dm-direct-style'
@@ -69,11 +58,6 @@ html.lc-dm-direct-always .${MARKER} {
 }
 `
 
-/**
- * Builds the actual danmaku string we'd send for a given event.
- * Reply danmakus need an `@uname ` prefix to be meaningful when re-sent.
- * Returns null when the message can't be reliably reconstructed.
- */
 function eventToSendableMessage(ev: DanmakuEvent): string | null {
   if (!ev.isReply) return ev.text
   return ev.uname ? `@${ev.uname} ${ev.text}` : null
@@ -91,7 +75,7 @@ function injectButtons(node: HTMLElement, msg: string): void {
   const stealBtn = document.createElement('button')
   stealBtn.type = 'button'
   stealBtn.textContent = '偷'
-  stealBtn.title = '偷弹幕到发送框'
+  stealBtn.title = '偷弹幕到发送框并复制'
   stealBtn.dataset.action = 'steal'
 
   const repeatBtn = document.createElement('button')
@@ -109,54 +93,6 @@ function injectButtons(node: HTMLElement, msg: string): void {
   }, 2400)
 }
 
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    const textarea = document.createElement('textarea')
-    textarea.value = text
-    textarea.style.position = 'fixed'
-    textarea.style.opacity = '0'
-    document.body.appendChild(textarea)
-    textarea.select()
-    const ok = document.execCommand('copy')
-    textarea.remove()
-    return ok
-  }
-}
-
-async function handleSteal(msg: string): Promise<void> {
-  const copied = await copyText(msg)
-  fasongText.value = msg
-  activeTab.value = 'fasong'
-  dialogOpen.value = true
-  appendLog(copied ? `🥷 偷并复制: ${msg}` : `🥷 偷: ${msg}`)
-}
-
-async function handleRepeat(msg: string, anchor?: { x: number; y: number }): Promise<void> {
-  if (danmakuDirectConfirm.value) {
-    const confirmed = await showConfirm({ title: '确认发送以下弹幕？', body: msg, confirmText: '发送', anchor })
-    if (!confirmed) return
-  }
-
-  try {
-    const roomId = await ensureRoomId()
-    const csrfToken = getCsrfToken()
-    if (!csrfToken) {
-      appendLog('❌ 未找到登录信息，请先登录 Bilibili')
-      return
-    }
-    const processed = applyReplacements(msg)
-    const result = await enqueueDanmaku(processed, roomId, csrfToken, SendPriority.MANUAL)
-    const display = msg !== processed ? `${msg} → ${processed}` : processed
-    appendLog(result, '+1', display)
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    appendLog(`🔴 +1 出错：${message}`)
-  }
-}
-
 function handleDelegatedClick(e: MouseEvent): void {
   const target = e.target
   if (!(target instanceof HTMLElement)) return
@@ -167,9 +103,9 @@ function handleDelegatedClick(e: MouseEvent): void {
   const msg = container?.dataset.msg
   if (!msg) return
   const action = btn.dataset.action
-  if (action === 'steal') void handleSteal(msg)
+  if (action === 'steal') void stealDanmaku(msg)
   else if (action === 'repeat') {
-    void handleRepeat(msg, { x: e.clientX, y: e.clientY })
+    void repeatDanmaku(msg, { confirm: danmakuDirectConfirm.value, anchor: { x: e.clientX, y: e.clientY } })
   }
 }
 
@@ -203,21 +139,19 @@ function tryInjectContextMenuItems(li: HTMLLIElement): void {
   if (!ul || ul.querySelector('[data-lc]')) return
 
   const repeatEl = createContextMenuItem(li, '弹幕 +1')
-
   repeatEl.onclick = (e: MouseEvent) => {
     const text = ul.parentElement?.querySelector('span')?.textContent?.trim() ?? null
     if (text) {
-      void handleRepeat(text, { x: e.clientX, y: e.clientY })
+      void repeatDanmaku(text, { confirm: danmakuDirectConfirm.value, anchor: { x: e.clientX, y: e.clientY } })
     }
     closeNativeContextMenu()
   }
 
   const stealEl = createContextMenuItem(li, '偷弹幕')
-
   stealEl.onclick = () => {
     const text = ul.parentElement?.querySelector('span')?.textContent?.trim() ?? null
     if (text) {
-      void handleSteal(text)
+      void stealDanmaku(text)
     }
     closeNativeContextMenu()
   }

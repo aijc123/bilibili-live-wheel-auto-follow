@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.5.11
+// @version      2.7.0
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、粉丝牌禁言巡检、常规发送、同传、烂梗库和弹幕替换规则。
 // @license      AGPL-3.0
@@ -1117,6 +1117,10 @@
   const danmakuDirectMode = gmSignal("danmakuDirectMode", true);
   const danmakuDirectConfirm = gmSignal("danmakuDirectConfirm", false);
   const danmakuDirectAlwaysShow = gmSignal("danmakuDirectAlwaysShow", false);
+  const customChatEnabled = gmSignal("customChatEnabled", true);
+  const customChatHideNative = gmSignal("customChatHideNative", true);
+  const customChatUseWs = gmSignal("customChatUseWs", true);
+  const customChatCss = gmSignal("customChatCss", "");
   const unlockForbidLive = gmSignal("unlockForbidLive", true);
   const guardRoomEndpoint = gmSignal("guardRoomEndpoint", "https://bilibili-guard-room.vercel.app");
   const guardRoomSyncKey = gmSignal("guardRoomSyncKey", "");
@@ -1180,7 +1184,7 @@
   j(() => {
     const persist = persistSendState.value;
     const roomId = cachedRoomId.value;
-    const sending = sendMsg.value;
+    const sending2 = sendMsg.value;
     if (roomId === null) return;
     const key = String(roomId);
     if (persist[key]) {
@@ -1194,7 +1198,7 @@
         return;
       }
       const stored = _GM_getValue("persistedSendMsg", {});
-      _GM_setValue("persistedSendMsg", { ...stored, [key]: sending });
+      _GM_setValue("persistedSendMsg", { ...stored, [key]: sending2 });
     } else {
       const stored = _GM_getValue("persistedSendMsg", {});
       if (key in stored) {
@@ -1251,6 +1255,7 @@ BILIBILI_ROOM_INFO_BY_UID: "https://api.live.bilibili.com/room/v1/Room/getRoomIn
 BILIBILI_MSG_SEND: "https://api.live.bilibili.com/msg/send",
 BILIBILI_MSG_CONFIG: "https://api.live.bilibili.com/xlive/web-room/v1/dM/AjaxSetConfig",
 BILIBILI_GET_DM_CONFIG: "https://api.live.bilibili.com/xlive/web-room/v1/dM/GetDMConfigByGroup",
+BILIBILI_DANMU_INFO: "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo",
 BILIBILI_GET_EMOTICONS: "https://api.live.bilibili.com/xlive/web-ucenter/v2/emoticon/GetEmoticons",
 BILIBILI_MEDAL_WALL: "https://api.live.bilibili.com/xlive/web-ucenter/user/MedalWall",
 BILIBILI_ROOM_USER_INFO: "https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByUser",
@@ -1258,7 +1263,9 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     LAPLACE_CHAT_AUDIT: "https://edge-workers.laplace.cn/laplace/chat-audit",
     REMOTE_KEYWORDS: "https://workers.vrp.moe/gh-raw/laplace-live/public/master/artifacts/livesrtream-keywords.json",
     LAPLACE_MEMES: "https://workers.vrp.moe/laplace/memes",
-    LAPLACE_MEME_COPY: "https://workers.vrp.moe/laplace/meme-copy"
+    LAPLACE_MEME_COPY: "https://workers.vrp.moe/laplace/meme-copy",
+    BILIBILI_AVATAR: "https://workers.vrp.moe/bilibili/avatar",
+    BILIBILI_SUPERCHAT_ORDER: "https://workers.vrp.moe/bilibili/live-create-order"
   };
   function isRateLimitError(error) {
     if (!error) return false;
@@ -1739,8 +1746,8 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   }
   function findMedalEntries(data) {
     if (typeof data !== "object" || data === null) return [];
-    const root = data;
-    const candidates = [root.list, root.data];
+    const root2 = data;
+    const candidates = [root2.list, root2.data];
     for (const candidate of candidates) {
       if (Array.isArray(candidate)) return candidate;
       if (typeof candidate === "object" && candidate !== null) {
@@ -2809,6 +2816,2880 @@ u$2(
       }
     );
   }
+  async function detectSensitiveWords(text) {
+    try {
+      const resp = await fetch(BASE_URL.LAPLACE_CHAT_AUDIT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          completionMetadata: { input: text }
+        })
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      return data.completion ?? { hasSensitiveContent: false };
+    } catch (err) {
+      console.error("AI detection error:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLog(`⚠️ AI检测服务出错：${msg}`);
+      return { hasSensitiveContent: false };
+    }
+  }
+  function insertInvisibleChars(word) {
+    const graphemes = getGraphemes(word);
+    return graphemes.join("­");
+  }
+  function replaceSensitiveWords(text, sensitiveWords) {
+    let result = text;
+    for (const word of sensitiveWords) {
+      result = result.split(word).join(insertInvisibleChars(word));
+    }
+    return result;
+  }
+  async function tryAiEvasion(message, roomId, csrfToken, logPrefix) {
+    if (!aiEvasion.value) return { success: false };
+    appendLog(`🤖 ${logPrefix}AI规避：正在检测敏感词…`);
+    const detection = await detectSensitiveWords(message);
+    if (detection.hasSensitiveContent && detection.sensitiveWords && detection.sensitiveWords.length > 0) {
+      appendLog(`🤖 ${logPrefix}检测到敏感词：${detection.sensitiveWords.join(", ")}，正在尝试规避…`);
+      const evadedMessage = replaceSensitiveWords(message, detection.sensitiveWords);
+      const retryResult = await enqueueDanmaku(evadedMessage, roomId, csrfToken, SendPriority.MANUAL);
+      if (retryResult.success) {
+        appendLog(`✅ ${logPrefix}AI规避成功: ${evadedMessage}`);
+        return { success: true, evadedMessage };
+      }
+      appendLog(`❌ ${logPrefix}AI规避失败: ${evadedMessage}，原因：${retryResult.error}`);
+      return { success: false, evadedMessage, error: retryResult.error };
+    }
+    appendLog(`⚠️ ${logPrefix}无法检测到敏感词，请手动检查`);
+    return { success: false };
+  }
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      const textarea2 = document.createElement("textarea");
+      textarea2.value = text;
+      textarea2.style.position = "fixed";
+      textarea2.style.opacity = "0";
+      document.body.appendChild(textarea2);
+      textarea2.select();
+      const ok = document.execCommand("copy");
+      textarea2.remove();
+      return ok;
+    }
+  }
+  async function stealDanmaku(msg) {
+    const copied = await copyText(msg);
+    fasongText.value = msg;
+    activeTab.value = "fasong";
+    dialogOpen.value = true;
+    appendLog(copied ? `🥷 偷并复制: ${msg}` : `🥷 偷: ${msg}`);
+  }
+  async function repeatDanmaku(msg, options = {}) {
+    if (options.confirm) {
+      const confirmed = await showConfirm({
+        title: "确认发送以下弹幕？",
+        body: msg,
+        confirmText: "发送",
+        anchor: options.anchor
+      });
+      if (!confirmed) return;
+    }
+    try {
+      const roomId = await ensureRoomId();
+      const csrfToken = getCsrfToken();
+      if (!csrfToken) {
+        appendLog("❌ 未找到登录信息，请先登录 Bilibili");
+        return;
+      }
+      const processed = applyReplacements(msg);
+      const result = await enqueueDanmaku(processed, roomId, csrfToken, SendPriority.MANUAL);
+      const display = msg !== processed ? `${msg} → ${processed}` : processed;
+      appendLog(result, "+1", display);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      appendLog(`🔴 +1 出错：${message}`);
+    }
+  }
+  async function sendManualDanmaku(originalMessage) {
+    const trimmed = originalMessage.trim();
+    if (!trimmed) {
+      appendLog("⚠️ 消息内容不能为空");
+      return false;
+    }
+    const isEmote = isEmoticonUnique(trimmed);
+    const processedMessage = isEmote ? trimmed : applyReplacements(trimmed);
+    const wasReplaced = !isEmote && trimmed !== processedMessage;
+    try {
+      const roomId = await ensureRoomId();
+      const csrfToken = getCsrfToken();
+      if (!csrfToken) {
+        appendLog("❌ 未找到登录信息，请先登录 Bilibili");
+        void syncGuardRoomRiskEvent({
+          kind: "login_missing",
+          source: "manual",
+          level: "observe",
+          roomId,
+          reason: "未找到登录信息",
+          advice: "先登录 Bilibili，再发送弹幕。"
+        });
+        return false;
+      }
+      const segments = isEmote ? [processedMessage] : processMessages(processedMessage, maxLength.value);
+      let allSuccess = true;
+      for (let i2 = 0; i2 < segments.length; i2++) {
+        const segment = segments[i2];
+        const result = await enqueueDanmaku(segment, roomId, csrfToken, SendPriority.MANUAL);
+        const baseLabel = result.isEmoticon ? "手动表情" : "手动";
+        const label = segments.length > 1 ? `${baseLabel} [${i2 + 1}/${segments.length}]` : baseLabel;
+        const displayMsg = wasReplaced && segments.length === 1 ? `${trimmed} → ${segment}` : segment;
+        appendLog(result, label, displayMsg);
+        if (!result.success) {
+          allSuccess = false;
+          const risk = classifyRiskEvent(result.error);
+          void syncGuardRoomRiskEvent({
+            ...risk,
+            source: "manual",
+            roomId,
+            errorCode: result.errorCode,
+            reason: result.error
+          });
+          if (aiEvasion.value) {
+            await tryAiEvasion(segment, roomId, csrfToken, "");
+          }
+        }
+        if (i2 < segments.length - 1) {
+          await new Promise((r2) => setTimeout(r2, msgSendInterval.value * 1e3));
+        }
+      }
+      return allSuccess;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLog(`🔴 发送出错：${msg}`);
+      return false;
+    }
+  }
+  const handlers = new Set();
+  function subscribeCustomChatEvents(handler) {
+    handlers.add(handler);
+    return () => handlers.delete(handler);
+  }
+  function emitCustomChatEvent(event) {
+    for (const handler of handlers) {
+      handler(event);
+    }
+  }
+  function chatEventTime(ts = Date.now()) {
+    return new Date(ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  }
+  var LaplaceRawEvent = class extends Event {
+    data;
+    constructor(type, data) {
+      super(type);
+      this.data = data;
+    }
+  };
+  var LaplaceEventTarget = class extends EventTarget {
+    dispatchEvent(event) {
+      const result = super.dispatchEvent(event);
+      super.dispatchEvent(new LaplaceRawEvent("event", event));
+      return result;
+    }
+  };
+  var KeepLive = class extends LaplaceEventTarget {
+createConnection;
+closed;
+interval;
+timeout;
+connection;
+    constructor(createConnection) {
+      super();
+      this.createConnection = createConnection;
+      this.closed = false;
+      this.interval = 3e3;
+      this.timeout = 45 * 1e3;
+      this.connection = this.createConnection();
+      this.connect(false);
+    }
+connect(reconnect = true) {
+      if (reconnect) {
+        const old = this.connection;
+        this.connection = this.createConnection();
+        old.close();
+      }
+      const connection = this.connection;
+      let timeout = setTimeout(() => {
+        connection.close();
+        connection.dispatchEvent(new Event("timeout"));
+      }, this.timeout);
+      connection.addEventListener("event", (e2) => {
+        if (this.connection !== connection) return;
+        const evt = e2.data;
+        if (evt.type !== "error") if (evt instanceof LaplaceRawEvent) this.dispatchEvent(new LaplaceRawEvent(evt.type, evt.data));
+        else this.dispatchEvent(new Event(evt.type));
+      });
+      connection.addEventListener("error", () => this.dispatchEvent(new Event("e")));
+      connection.addEventListener("close", () => {
+        if (!this.closed && this.connection === connection) setTimeout(() => this.connect(), this.interval);
+      });
+      connection.addEventListener("heartbeat", () => {
+        if (this.connection !== connection) return;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => {
+          connection.close();
+          connection.dispatchEvent(new Event("timeout"));
+        }, this.timeout);
+      });
+      connection.addEventListener("close", () => {
+        clearTimeout(timeout);
+      });
+    }
+get online() {
+      return this.connection.online;
+    }
+get roomid() {
+      return this.connection.roomid;
+    }
+close() {
+      this.closed = true;
+      this.connection.close();
+    }
+heartbeat() {
+      return this.connection.heartbeat();
+    }
+getOnline() {
+      return this.connection.getOnline();
+    }
+send(data) {
+      return this.connection.send(data);
+    }
+  };
+  const textEncoder = new TextEncoder();
+  const textDecoder = new TextDecoder();
+  function concatUint8Arrays(arrs) {
+    let totalLength = 0;
+    for (const arr of arrs) totalLength += arr.length;
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const arr of arrs) {
+      result.set(arr, offset);
+      offset += arr.length;
+    }
+    return result;
+  }
+  const cutBuffer = (buffer) => {
+    const bufferPacks = [];
+    const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+    let size;
+    for (let i2 = 0; i2 < buffer.length; i2 += size) {
+      size = view.getInt32(i2);
+      bufferPacks.push(buffer.slice(i2, i2 + size));
+    }
+    return bufferPacks;
+  };
+  const makeDecoder = ({ inflateAsync: inflateAsync2, brotliDecompressAsync: brotliDecompressAsync2 }) => {
+    const decoder = async (buffer) => {
+      return (await Promise.all(cutBuffer(buffer).map(async (buf) => {
+        const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+        const body = buf.slice(16);
+        const protocol = view.getInt16(6);
+        const operation = view.getInt32(8);
+        let type = "unknow";
+        if (operation === 3) type = "heartbeat";
+        else if (operation === 5) type = "message";
+        else if (operation === 8) type = "welcome";
+        let data;
+        if (protocol === 0) data = JSON.parse(textDecoder.decode(body));
+        if (protocol === 1 && body.length === 4) data = new DataView(body.buffer, body.byteOffset, body.byteLength).getUint32(0);
+        if (protocol === 2) data = await decoder(await inflateAsync2(body));
+        if (protocol === 3) data = await decoder(await brotliDecompressAsync2(body));
+        return {
+          buf,
+          type,
+          protocol,
+          data
+        };
+      }))).flatMap((pack) => {
+        if (pack.protocol === 2 || pack.protocol === 3) return pack.data;
+        return pack;
+      });
+    };
+    return decoder;
+  };
+  const encoder = (type, body = "") => {
+    const encoded = typeof body === "string" ? body : JSON.stringify(body);
+    const head = new Uint8Array(16);
+    const headView = new DataView(head.buffer, head.byteOffset, head.byteLength);
+    const buffer = textEncoder.encode(encoded);
+    headView.setInt32(0, buffer.length + head.length);
+    headView.setInt16(4, 16);
+    headView.setInt16(6, 1);
+    if (type === "heartbeat") headView.setInt32(8, 2);
+    if (type === "join") headView.setInt32(8, 7);
+    headView.setInt32(12, 1);
+    return concatUint8Arrays([head, buffer]);
+  };
+  var Live = class extends LaplaceEventTarget {
+roomid;
+online;
+live;
+closed;
+timeout;
+send;
+close;
+    constructor(inflates2, roomid, { send, close, protover = 3, key, authBody, uid = 0, buvid }) {
+      if (typeof roomid !== "number" || Number.isNaN(roomid)) throw new Error(`roomid ${roomid} must be Number not NaN`);
+      super();
+      this.roomid = roomid;
+      this.online = 0;
+      this.live = false;
+      this.closed = false;
+      this.timeout = setTimeout(() => {
+      }, 0);
+      this.send = send;
+      this.close = () => {
+        if (this.closed) return;
+        this.closed = true;
+        close();
+        this.dispatchEvent(new Event("close"));
+      };
+      const decode = makeDecoder(inflates2);
+      this.addEventListener("message", async (e2) => {
+        const buffer = e2.data;
+        (await decode(buffer)).forEach(({ type, data }) => {
+          if (type === "welcome") {
+            this.live = true;
+            this.dispatchEvent(new Event("live"));
+            this.send(encoder("heartbeat"));
+          }
+          if (type === "heartbeat") {
+            this.online = data;
+            clearTimeout(this.timeout);
+            this.timeout = setTimeout(() => this.heartbeat(), 1e3 * 30);
+            this.dispatchEvent(new LaplaceRawEvent("heartbeat", this.online));
+          }
+          if (type === "message") {
+            this.dispatchEvent(new LaplaceRawEvent("msg", data));
+            const cmd = data.cmd || data.msg?.cmd;
+            if (cmd) this.dispatchEvent(new LaplaceRawEvent(cmd, data));
+          }
+        });
+      });
+      this.addEventListener("open", () => {
+        if (authBody) this.send(authBody instanceof Uint8Array ? authBody : encoder("join", authBody));
+        else {
+          const hi = {
+            uid,
+            roomid,
+            protover,
+            platform: "web",
+            type: 2
+          };
+          if (key) hi.key = key;
+          if (buvid) hi.buvid = buvid;
+          const buf = encoder("join", hi);
+          this.send(buf);
+        }
+      });
+      this.addEventListener("close", () => {
+        clearTimeout(this.timeout);
+      });
+      this.addEventListener("_error", () => {
+        this.close();
+        this.dispatchEvent(new Event("error"));
+      });
+    }
+heartbeat() {
+      this.send(encoder("heartbeat"));
+    }
+getOnline() {
+      this.heartbeat();
+      return new Promise((resolve) => this.addEventListener("heartbeat", (e2) => resolve(e2.data), { once: true }));
+    }
+  };
+  var LiveWSBase = class extends Live {
+ws;
+    constructor(inflates2, roomid, { address = "wss://broadcastlv.chat.bilibili.com/sub", createWebSocket, ...options } = {}) {
+      const ws = createWebSocket ? createWebSocket(address) : new WebSocket(address);
+      const send = (data) => {
+        if (ws.readyState === 1) ws.send(data);
+      };
+      const close = () => this.ws.close();
+      super(inflates2, roomid, {
+        send,
+        close,
+        ...options
+      });
+      ws.binaryType = "arraybuffer";
+      ws.addEventListener("open", (e2) => this.dispatchEvent(new Event(e2.type)));
+      ws.addEventListener("message", (e2) => this.dispatchEvent(new LaplaceRawEvent("message", new Uint8Array(e2.data))));
+      ws.addEventListener("close", (e2) => {
+        if (!this.closed) this.dispatchEvent(new Event(e2.type));
+      });
+      ws.addEventListener("error", () => this.dispatchEvent(new Event("_error")));
+      this.ws = ws;
+    }
+  };
+  let makeBrotliDecode = () => {
+    function InputStream(bytes) {
+      this.data = bytes;
+      this.offset = 0;
+    }
+    let MAX_HUFFMAN_TABLE_SIZE = Int32Array.from([
+      256,
+      402,
+      436,
+      468,
+      500,
+      534,
+      566,
+      598,
+      630,
+      662,
+      694,
+      726,
+      758,
+      790,
+      822,
+      854,
+      886,
+      920,
+      952,
+      984,
+      1016,
+      1048,
+      1080
+    ]);
+    let CODE_LENGTH_CODE_ORDER = Int32Array.from([
+      1,
+      2,
+      3,
+      4,
+      0,
+      5,
+      17,
+      6,
+      16,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ]);
+    let DISTANCE_SHORT_CODE_INDEX_OFFSET = Int32Array.from([
+      0,
+      3,
+      2,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      3,
+      3,
+      3,
+      3,
+      3
+    ]);
+    let DISTANCE_SHORT_CODE_VALUE_OFFSET = Int32Array.from([
+      0,
+      0,
+      0,
+      0,
+      -1,
+      1,
+      -2,
+      2,
+      -3,
+      3,
+      -1,
+      1,
+      -2,
+      2,
+      -3,
+      3
+    ]);
+    let FIXED_TABLE = Int32Array.from([
+      131072,
+      131076,
+      131075,
+      196610,
+      131072,
+      131076,
+      131075,
+      262145,
+      131072,
+      131076,
+      131075,
+      196610,
+      131072,
+      131076,
+      131075,
+      262149
+    ]);
+    let BLOCK_LENGTH_OFFSET = Int32Array.from([
+      1,
+      5,
+      9,
+      13,
+      17,
+      25,
+      33,
+      41,
+      49,
+      65,
+      81,
+      97,
+      113,
+      145,
+      177,
+      209,
+      241,
+      305,
+      369,
+      497,
+      753,
+      1265,
+      2289,
+      4337,
+      8433,
+      16625
+    ]);
+    let BLOCK_LENGTH_N_BITS = Int32Array.from([
+      2,
+      2,
+      2,
+      2,
+      3,
+      3,
+      3,
+      3,
+      4,
+      4,
+      4,
+      4,
+      5,
+      5,
+      5,
+      5,
+      6,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      24
+    ]);
+    let INSERT_LENGTH_N_BITS = Int16Array.from([
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      2,
+      2,
+      3,
+      3,
+      4,
+      4,
+      5,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      12,
+      14,
+      24
+    ]);
+    let COPY_LENGTH_N_BITS = Int16Array.from([
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      2,
+      2,
+      3,
+      3,
+      4,
+      4,
+      5,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      24
+    ]);
+    let CMD_LOOKUP = new Int16Array(2816);
+    unpackCommandLookupTable(CMD_LOOKUP);
+    function log2floor(i2) {
+      let result = -1;
+      let step = 16;
+      while (step > 0) {
+        if (i2 >>> step != 0) {
+          result += step;
+          i2 = i2 >>> step;
+        }
+        step = step >> 1;
+      }
+      return result + i2;
+    }
+    function calculateDistanceAlphabetSize(npostfix, ndirect, maxndistbits) {
+      return 16 + ndirect + 2 * (maxndistbits << npostfix);
+    }
+    function calculateDistanceAlphabetLimit(maxDistance, npostfix, ndirect) {
+      if (maxDistance < ndirect + (2 << npostfix)) throw "maxDistance is too small";
+      let offset = (maxDistance - ndirect >> npostfix) + 4;
+      let ndistbits = log2floor(offset) - 1;
+      return ((ndistbits - 1 << 1 | offset >> ndistbits & 1) - 1 << npostfix) + (1 << npostfix) + ndirect + 16;
+    }
+    function unpackCommandLookupTable(cmdLookup) {
+      let insertLengthOffsets = new Int16Array(24);
+      let copyLengthOffsets = new Int16Array(24);
+      copyLengthOffsets[0] = 2;
+      for (let i2 = 0; i2 < 23; ++i2) {
+        insertLengthOffsets[i2 + 1] = insertLengthOffsets[i2] + (1 << INSERT_LENGTH_N_BITS[i2]);
+        copyLengthOffsets[i2 + 1] = copyLengthOffsets[i2] + (1 << COPY_LENGTH_N_BITS[i2]);
+      }
+      for (let cmdCode = 0; cmdCode < 704; ++cmdCode) {
+        let rangeIdx = cmdCode >>> 6;
+        let distanceContextOffset = -4;
+        if (rangeIdx >= 2) {
+          rangeIdx -= 2;
+          distanceContextOffset = 0;
+        }
+        let insertCode = (170064 >>> rangeIdx * 2 & 3) << 3 | cmdCode >>> 3 & 7;
+        let copyCode = (156228 >>> rangeIdx * 2 & 3) << 3 | cmdCode & 7;
+        let copyLengthOffset = copyLengthOffsets[copyCode];
+        let distanceContext = distanceContextOffset + (copyLengthOffset > 4 ? 3 : copyLengthOffset - 2);
+        let index = cmdCode * 4;
+        cmdLookup[index + 0] = INSERT_LENGTH_N_BITS[insertCode] | COPY_LENGTH_N_BITS[copyCode] << 8;
+        cmdLookup[index + 1] = insertLengthOffsets[insertCode];
+        cmdLookup[index + 2] = copyLengthOffsets[copyCode];
+        cmdLookup[index + 3] = distanceContext;
+      }
+    }
+    function decodeWindowBits(s2) {
+      let largeWindowEnabled = s2.isLargeWindow;
+      s2.isLargeWindow = 0;
+      if (s2.bitOffset >= 16) {
+        s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+        s2.bitOffset -= 16;
+      }
+      if (readFewBits(s2, 1) == 0) return 16;
+      let n2 = readFewBits(s2, 3);
+      if (n2 != 0) return 17 + n2;
+      n2 = readFewBits(s2, 3);
+      if (n2 != 0) if (n2 == 1) {
+        if (largeWindowEnabled == 0) return -1;
+        s2.isLargeWindow = 1;
+        if (readFewBits(s2, 1) == 1) return -1;
+        n2 = readFewBits(s2, 6);
+        if (n2 < 10 || n2 > 30) return -1;
+        return n2;
+      } else return 8 + n2;
+      return 17;
+    }
+    function attachDictionaryChunk(s2, data2) {
+      if (s2.runningState != 1) throw "State MUST be freshly initialized";
+      if (s2.cdNumChunks == 0) {
+        s2.cdChunks = new Array(16);
+        s2.cdChunkOffsets = new Int32Array(16);
+        s2.cdBlockBits = -1;
+      }
+      if (s2.cdNumChunks == 15) throw "Too many dictionary chunks";
+      s2.cdChunks[s2.cdNumChunks] = data2;
+      s2.cdNumChunks++;
+      s2.cdTotalSize += data2.length;
+      s2.cdChunkOffsets[s2.cdNumChunks] = s2.cdTotalSize;
+    }
+    function initState(s2, input) {
+      if (s2.runningState != 0) throw "State MUST be uninitialized";
+      s2.blockTrees = new Int32Array(3091);
+      s2.blockTrees[0] = 7;
+      s2.distRbIdx = 3;
+      let maxDistanceAlphabetLimit = calculateDistanceAlphabetLimit(2147483644, 3, 120);
+      s2.distExtraBits = new Int8Array(maxDistanceAlphabetLimit);
+      s2.distOffset = new Int32Array(maxDistanceAlphabetLimit);
+      s2.input = input;
+      initBitReader(s2);
+      s2.runningState = 1;
+    }
+    function close(s2) {
+      if (s2.runningState == 0) throw "State MUST be initialized";
+      if (s2.runningState == 11) return;
+      s2.runningState = 11;
+      if (s2.input != null) {
+        closeInput(s2.input);
+        s2.input = null;
+      }
+    }
+    function decodeVarLenUnsignedByte(s2) {
+      if (s2.bitOffset >= 16) {
+        s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+        s2.bitOffset -= 16;
+      }
+      if (readFewBits(s2, 1) != 0) {
+        let n2 = readFewBits(s2, 3);
+        if (n2 == 0) return 1;
+        else return readFewBits(s2, n2) + (1 << n2);
+      }
+      return 0;
+    }
+    function decodeMetaBlockLength(s2) {
+      if (s2.bitOffset >= 16) {
+        s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+        s2.bitOffset -= 16;
+      }
+      s2.inputEnd = readFewBits(s2, 1);
+      s2.metaBlockLength = 0;
+      s2.isUncompressed = 0;
+      s2.isMetadata = 0;
+      if (s2.inputEnd != 0 && readFewBits(s2, 1) != 0) return;
+      let sizeNibbles = readFewBits(s2, 2) + 4;
+      if (sizeNibbles == 7) {
+        s2.isMetadata = 1;
+        if (readFewBits(s2, 1) != 0) throw "Corrupted reserved bit";
+        let sizeBytes = readFewBits(s2, 2);
+        if (sizeBytes == 0) return;
+        for (let i2 = 0; i2 < sizeBytes; i2++) {
+          if (s2.bitOffset >= 16) {
+            s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+            s2.bitOffset -= 16;
+          }
+          let bits = readFewBits(s2, 8);
+          if (bits == 0 && i2 + 1 == sizeBytes && sizeBytes > 1) throw "Exuberant nibble";
+          s2.metaBlockLength |= bits << i2 * 8;
+        }
+      } else for (let i2 = 0; i2 < sizeNibbles; i2++) {
+        if (s2.bitOffset >= 16) {
+          s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+          s2.bitOffset -= 16;
+        }
+        let bits = readFewBits(s2, 4);
+        if (bits == 0 && i2 + 1 == sizeNibbles && sizeNibbles > 4) throw "Exuberant nibble";
+        s2.metaBlockLength |= bits << i2 * 4;
+      }
+      s2.metaBlockLength++;
+      if (s2.inputEnd == 0) s2.isUncompressed = readFewBits(s2, 1);
+    }
+    function readSymbol(tableGroup, tableIdx, s2) {
+      let offset = tableGroup[tableIdx];
+      let val = s2.accumulator32 >>> s2.bitOffset;
+      offset += val & 255;
+      let bits = tableGroup[offset] >> 16;
+      let sym = tableGroup[offset] & 65535;
+      if (bits <= 8) {
+        s2.bitOffset += bits;
+        return sym;
+      }
+      offset += sym;
+      let mask = (1 << bits) - 1;
+      offset += (val & mask) >>> 8;
+      s2.bitOffset += (tableGroup[offset] >> 16) + 8;
+      return tableGroup[offset] & 65535;
+    }
+    function readBlockLength(tableGroup, tableIdx, s2) {
+      if (s2.bitOffset >= 16) {
+        s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+        s2.bitOffset -= 16;
+      }
+      let code = readSymbol(tableGroup, tableIdx, s2);
+      let n2 = BLOCK_LENGTH_N_BITS[code];
+      if (s2.bitOffset >= 16) {
+        s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+        s2.bitOffset -= 16;
+      }
+      return BLOCK_LENGTH_OFFSET[code] + (n2 <= 16 ? readFewBits(s2, n2) : readManyBits(s2, n2));
+    }
+    function moveToFront(v2, index) {
+      let value = v2[index];
+      for (; index > 0; index--) v2[index] = v2[index - 1];
+      v2[0] = value;
+    }
+    function inverseMoveToFrontTransform(v2, vLen) {
+      let mtf = new Int32Array(256);
+      for (let i2 = 0; i2 < 256; i2++) mtf[i2] = i2;
+      for (let i2 = 0; i2 < vLen; i2++) {
+        let index = v2[i2] & 255;
+        v2[i2] = mtf[index];
+        if (index != 0) moveToFront(mtf, index);
+      }
+    }
+    function readHuffmanCodeLengths(codeLengthCodeLengths, numSymbols, codeLengths, s2) {
+      let symbol = 0;
+      let prevCodeLen = 8;
+      let repeat = 0;
+      let repeatCodeLen = 0;
+      let space = 32768;
+      let table = new Int32Array(33);
+      buildHuffmanTable(table, table.length - 1, 5, codeLengthCodeLengths, 18);
+      while (symbol < numSymbols && space > 0) {
+        if (s2.halfOffset > 2030) doReadMoreInput(s2);
+        if (s2.bitOffset >= 16) {
+          s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+          s2.bitOffset -= 16;
+        }
+        let p2 = s2.accumulator32 >>> s2.bitOffset & 31;
+        s2.bitOffset += table[p2] >> 16;
+        let codeLen = table[p2] & 65535;
+        if (codeLen < 16) {
+          repeat = 0;
+          codeLengths[symbol++] = codeLen;
+          if (codeLen != 0) {
+            prevCodeLen = codeLen;
+            space -= 32768 >> codeLen;
+          }
+        } else {
+          let extraBits = codeLen - 14;
+          let newLen = 0;
+          if (codeLen == 16) newLen = prevCodeLen;
+          if (repeatCodeLen != newLen) {
+            repeat = 0;
+            repeatCodeLen = newLen;
+          }
+          let oldRepeat = repeat;
+          if (repeat > 0) {
+            repeat -= 2;
+            repeat <<= extraBits;
+          }
+          if (s2.bitOffset >= 16) {
+            s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+            s2.bitOffset -= 16;
+          }
+          repeat += readFewBits(s2, extraBits) + 3;
+          let repeatDelta = repeat - oldRepeat;
+          if (symbol + repeatDelta > numSymbols) throw "symbol + repeatDelta > numSymbols";
+          for (let i2 = 0; i2 < repeatDelta; i2++) codeLengths[symbol++] = repeatCodeLen;
+          if (repeatCodeLen != 0) space -= repeatDelta << 15 - repeatCodeLen;
+        }
+      }
+      if (space != 0) throw "Unused space";
+      codeLengths.fill(0, symbol, numSymbols);
+    }
+    function checkDupes(symbols, length) {
+      for (let i2 = 0; i2 < length - 1; ++i2) for (let j2 = i2 + 1; j2 < length; ++j2) if (symbols[i2] == symbols[j2]) throw "Duplicate simple Huffman code symbol";
+    }
+    function readSimpleHuffmanCode(alphabetSizeMax, alphabetSizeLimit, tableGroup, tableIdx, s2) {
+      let codeLengths = new Int32Array(alphabetSizeLimit);
+      let symbols = new Int32Array(4);
+      let maxBits = 1 + log2floor(alphabetSizeMax - 1);
+      let numSymbols = readFewBits(s2, 2) + 1;
+      for (let i2 = 0; i2 < numSymbols; i2++) {
+        if (s2.bitOffset >= 16) {
+          s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+          s2.bitOffset -= 16;
+        }
+        let symbol = readFewBits(s2, maxBits);
+        if (symbol >= alphabetSizeLimit) throw "Can't readHuffmanCode";
+        symbols[i2] = symbol;
+      }
+      checkDupes(symbols, numSymbols);
+      let histogramId = numSymbols;
+      if (numSymbols == 4) histogramId += readFewBits(s2, 1);
+      switch (histogramId) {
+        case 1:
+          codeLengths[symbols[0]] = 1;
+          break;
+        case 2:
+          codeLengths[symbols[0]] = 1;
+          codeLengths[symbols[1]] = 1;
+          break;
+        case 3:
+          codeLengths[symbols[0]] = 1;
+          codeLengths[symbols[1]] = 2;
+          codeLengths[symbols[2]] = 2;
+          break;
+        case 4:
+          codeLengths[symbols[0]] = 2;
+          codeLengths[symbols[1]] = 2;
+          codeLengths[symbols[2]] = 2;
+          codeLengths[symbols[3]] = 2;
+          break;
+        case 5:
+          codeLengths[symbols[0]] = 1;
+          codeLengths[symbols[1]] = 2;
+          codeLengths[symbols[2]] = 3;
+          codeLengths[symbols[3]] = 3;
+          break;
+      }
+      return buildHuffmanTable(tableGroup, tableIdx, 8, codeLengths, alphabetSizeLimit);
+    }
+    function readComplexHuffmanCode(alphabetSizeLimit, skip, tableGroup, tableIdx, s2) {
+      let codeLengths = new Int32Array(alphabetSizeLimit);
+      let codeLengthCodeLengths = new Int32Array(18);
+      let space = 32;
+      let numCodes = 0;
+      for (let i2 = skip; i2 < 18 && space > 0; i2++) {
+        let codeLenIdx = CODE_LENGTH_CODE_ORDER[i2];
+        if (s2.bitOffset >= 16) {
+          s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+          s2.bitOffset -= 16;
+        }
+        let p2 = s2.accumulator32 >>> s2.bitOffset & 15;
+        s2.bitOffset += FIXED_TABLE[p2] >> 16;
+        let v2 = FIXED_TABLE[p2] & 65535;
+        codeLengthCodeLengths[codeLenIdx] = v2;
+        if (v2 != 0) {
+          space -= 32 >> v2;
+          numCodes++;
+        }
+      }
+      if (space != 0 && numCodes != 1) throw "Corrupted Huffman code histogram";
+      readHuffmanCodeLengths(codeLengthCodeLengths, alphabetSizeLimit, codeLengths, s2);
+      return buildHuffmanTable(tableGroup, tableIdx, 8, codeLengths, alphabetSizeLimit);
+    }
+    function readHuffmanCode(alphabetSizeMax, alphabetSizeLimit, tableGroup, tableIdx, s2) {
+      if (s2.halfOffset > 2030) doReadMoreInput(s2);
+      if (s2.bitOffset >= 16) {
+        s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+        s2.bitOffset -= 16;
+      }
+      let simpleCodeOrSkip = readFewBits(s2, 2);
+      if (simpleCodeOrSkip == 1) return readSimpleHuffmanCode(alphabetSizeMax, alphabetSizeLimit, tableGroup, tableIdx, s2);
+      else return readComplexHuffmanCode(alphabetSizeLimit, simpleCodeOrSkip, tableGroup, tableIdx, s2);
+    }
+    function decodeContextMap(contextMapSize, contextMap, s2) {
+      if (s2.halfOffset > 2030) doReadMoreInput(s2);
+      let numTrees = decodeVarLenUnsignedByte(s2) + 1;
+      if (numTrees == 1) {
+        contextMap.fill(0, 0, contextMapSize);
+        return numTrees;
+      }
+      if (s2.bitOffset >= 16) {
+        s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+        s2.bitOffset -= 16;
+      }
+      let useRleForZeros = readFewBits(s2, 1);
+      let maxRunLengthPrefix = 0;
+      if (useRleForZeros != 0) maxRunLengthPrefix = readFewBits(s2, 4) + 1;
+      let alphabetSize = numTrees + maxRunLengthPrefix;
+      let tableSize = MAX_HUFFMAN_TABLE_SIZE[alphabetSize + 31 >> 5];
+      let table = new Int32Array(tableSize + 1);
+      let tableIdx = table.length - 1;
+      readHuffmanCode(alphabetSize, alphabetSize, table, tableIdx, s2);
+      for (let i2 = 0; i2 < contextMapSize; ) {
+        if (s2.halfOffset > 2030) doReadMoreInput(s2);
+        if (s2.bitOffset >= 16) {
+          s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+          s2.bitOffset -= 16;
+        }
+        let code = readSymbol(table, tableIdx, s2);
+        if (code == 0) {
+          contextMap[i2] = 0;
+          i2++;
+        } else if (code <= maxRunLengthPrefix) {
+          if (s2.bitOffset >= 16) {
+            s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+            s2.bitOffset -= 16;
+          }
+          let reps = (1 << code) + readFewBits(s2, code);
+          while (reps != 0) {
+            if (i2 >= contextMapSize) throw "Corrupted context map";
+            contextMap[i2] = 0;
+            i2++;
+            reps--;
+          }
+        } else {
+          contextMap[i2] = code - maxRunLengthPrefix;
+          i2++;
+        }
+      }
+      if (s2.bitOffset >= 16) {
+        s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+        s2.bitOffset -= 16;
+      }
+      if (readFewBits(s2, 1) == 1) inverseMoveToFrontTransform(contextMap, contextMapSize);
+      return numTrees;
+    }
+    function decodeBlockTypeAndLength(s2, treeType, numBlockTypes) {
+      let ringBuffers = s2.rings;
+      let offset = 4 + treeType * 2;
+      if (s2.bitOffset >= 16) {
+        s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+        s2.bitOffset -= 16;
+      }
+      let blockType = readSymbol(s2.blockTrees, 2 * treeType, s2);
+      let result = readBlockLength(s2.blockTrees, 2 * treeType + 1, s2);
+      if (blockType == 1) blockType = ringBuffers[offset + 1] + 1;
+      else if (blockType == 0) blockType = ringBuffers[offset];
+      else blockType -= 2;
+      if (blockType >= numBlockTypes) blockType -= numBlockTypes;
+      ringBuffers[offset] = ringBuffers[offset + 1];
+      ringBuffers[offset + 1] = blockType;
+      return result;
+    }
+    function decodeLiteralBlockSwitch(s2) {
+      s2.literalBlockLength = decodeBlockTypeAndLength(s2, 0, s2.numLiteralBlockTypes);
+      let literalBlockType = s2.rings[5];
+      s2.contextMapSlice = literalBlockType << 6;
+      s2.literalTreeIdx = s2.contextMap[s2.contextMapSlice] & 255;
+      s2.contextLookupOffset1 = s2.contextModes[literalBlockType] << 9;
+      s2.contextLookupOffset2 = s2.contextLookupOffset1 + 256;
+    }
+    function decodeCommandBlockSwitch(s2) {
+      s2.commandBlockLength = decodeBlockTypeAndLength(s2, 1, s2.numCommandBlockTypes);
+      s2.commandTreeIdx = s2.rings[7];
+    }
+    function decodeDistanceBlockSwitch(s2) {
+      s2.distanceBlockLength = decodeBlockTypeAndLength(s2, 2, s2.numDistanceBlockTypes);
+      s2.distContextMapSlice = s2.rings[9] << 2;
+    }
+    function maybeReallocateRingBuffer(s2) {
+      let newSize = s2.maxRingBufferSize;
+      if (newSize > s2.expectedTotalSize) {
+        let minimalNewSize = s2.expectedTotalSize;
+        while (newSize >> 1 > minimalNewSize) newSize >>= 1;
+        if (s2.inputEnd == 0 && newSize < 16384 && s2.maxRingBufferSize >= 16384) newSize = 16384;
+      }
+      if (newSize <= s2.ringBufferSize) return;
+      let ringBufferSizeWithSlack = newSize + 37;
+      let newBuffer = new Int8Array(ringBufferSizeWithSlack);
+      if (s2.ringBuffer.length != 0) newBuffer.set(s2.ringBuffer.subarray(0, 0 + s2.ringBufferSize), 0);
+      s2.ringBuffer = newBuffer;
+      s2.ringBufferSize = newSize;
+    }
+    function readNextMetablockHeader(s2) {
+      if (s2.inputEnd != 0) {
+        s2.nextRunningState = 10;
+        s2.runningState = 12;
+        return;
+      }
+      s2.literalTreeGroup = new Int32Array(0);
+      s2.commandTreeGroup = new Int32Array(0);
+      s2.distanceTreeGroup = new Int32Array(0);
+      if (s2.halfOffset > 2030) doReadMoreInput(s2);
+      decodeMetaBlockLength(s2);
+      if (s2.metaBlockLength == 0 && s2.isMetadata == 0) return;
+      if (s2.isUncompressed != 0 || s2.isMetadata != 0) {
+        jumpToByteBoundary(s2);
+        s2.runningState = s2.isMetadata != 0 ? 5 : 6;
+      } else s2.runningState = 3;
+      if (s2.isMetadata != 0) return;
+      s2.expectedTotalSize += s2.metaBlockLength;
+      if (s2.expectedTotalSize > 1 << 30) s2.expectedTotalSize = 1 << 30;
+      if (s2.ringBufferSize < s2.maxRingBufferSize) maybeReallocateRingBuffer(s2);
+    }
+    function readMetablockPartition(s2, treeType, numBlockTypes) {
+      let offset = s2.blockTrees[2 * treeType];
+      if (numBlockTypes <= 1) {
+        s2.blockTrees[2 * treeType + 1] = offset;
+        s2.blockTrees[2 * treeType + 2] = offset;
+        return 1 << 28;
+      }
+      let blockTypeAlphabetSize = numBlockTypes + 2;
+      offset += readHuffmanCode(blockTypeAlphabetSize, blockTypeAlphabetSize, s2.blockTrees, 2 * treeType, s2);
+      s2.blockTrees[2 * treeType + 1] = offset;
+      let blockLengthAlphabetSize = 26;
+      offset += readHuffmanCode(blockLengthAlphabetSize, blockLengthAlphabetSize, s2.blockTrees, 2 * treeType + 1, s2);
+      s2.blockTrees[2 * treeType + 2] = offset;
+      return readBlockLength(s2.blockTrees, 2 * treeType + 1, s2);
+    }
+    function calculateDistanceLut(s2, alphabetSizeLimit) {
+      let distExtraBits = s2.distExtraBits;
+      let distOffset = s2.distOffset;
+      let npostfix = s2.distancePostfixBits;
+      let ndirect = s2.numDirectDistanceCodes;
+      let postfix = 1 << npostfix;
+      let bits = 1;
+      let half = 0;
+      let i2 = 16;
+      for (let j2 = 0; j2 < ndirect; ++j2) {
+        distExtraBits[i2] = 0;
+        distOffset[i2] = j2 + 1;
+        ++i2;
+      }
+      while (i2 < alphabetSizeLimit) {
+        let base = ndirect + ((2 + half << bits) - 4 << npostfix) + 1;
+        for (let j2 = 0; j2 < postfix; ++j2) {
+          distExtraBits[i2] = bits;
+          distOffset[i2] = base + j2;
+          ++i2;
+        }
+        bits = bits + half;
+        half = half ^ 1;
+      }
+    }
+    function readMetablockHuffmanCodesAndContextMaps(s2) {
+      s2.numLiteralBlockTypes = decodeVarLenUnsignedByte(s2) + 1;
+      s2.literalBlockLength = readMetablockPartition(s2, 0, s2.numLiteralBlockTypes);
+      s2.numCommandBlockTypes = decodeVarLenUnsignedByte(s2) + 1;
+      s2.commandBlockLength = readMetablockPartition(s2, 1, s2.numCommandBlockTypes);
+      s2.numDistanceBlockTypes = decodeVarLenUnsignedByte(s2) + 1;
+      s2.distanceBlockLength = readMetablockPartition(s2, 2, s2.numDistanceBlockTypes);
+      if (s2.halfOffset > 2030) doReadMoreInput(s2);
+      if (s2.bitOffset >= 16) {
+        s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+        s2.bitOffset -= 16;
+      }
+      s2.distancePostfixBits = readFewBits(s2, 2);
+      s2.numDirectDistanceCodes = readFewBits(s2, 4) << s2.distancePostfixBits;
+      s2.contextModes = new Int8Array(s2.numLiteralBlockTypes);
+      for (let i2 = 0; i2 < s2.numLiteralBlockTypes; ) {
+        let limit = min(i2 + 96, s2.numLiteralBlockTypes);
+        for (; i2 < limit; ++i2) {
+          if (s2.bitOffset >= 16) {
+            s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+            s2.bitOffset -= 16;
+          }
+          s2.contextModes[i2] = readFewBits(s2, 2);
+        }
+        if (s2.halfOffset > 2030) doReadMoreInput(s2);
+      }
+      s2.contextMap = new Int8Array(s2.numLiteralBlockTypes << 6);
+      let numLiteralTrees = decodeContextMap(s2.numLiteralBlockTypes << 6, s2.contextMap, s2);
+      s2.trivialLiteralContext = 1;
+      for (let j2 = 0; j2 < s2.numLiteralBlockTypes << 6; j2++) if (s2.contextMap[j2] != j2 >> 6) {
+        s2.trivialLiteralContext = 0;
+        break;
+      }
+      s2.distContextMap = new Int8Array(s2.numDistanceBlockTypes << 2);
+      let numDistTrees = decodeContextMap(s2.numDistanceBlockTypes << 2, s2.distContextMap, s2);
+      s2.literalTreeGroup = decodeHuffmanTreeGroup(256, 256, numLiteralTrees, s2);
+      s2.commandTreeGroup = decodeHuffmanTreeGroup(704, 704, s2.numCommandBlockTypes, s2);
+      let distanceAlphabetSizeMax = calculateDistanceAlphabetSize(s2.distancePostfixBits, s2.numDirectDistanceCodes, 24);
+      let distanceAlphabetSizeLimit = distanceAlphabetSizeMax;
+      if (s2.isLargeWindow == 1) {
+        distanceAlphabetSizeMax = calculateDistanceAlphabetSize(s2.distancePostfixBits, s2.numDirectDistanceCodes, 62);
+        distanceAlphabetSizeLimit = calculateDistanceAlphabetLimit(2147483644, s2.distancePostfixBits, s2.numDirectDistanceCodes);
+      }
+      s2.distanceTreeGroup = decodeHuffmanTreeGroup(distanceAlphabetSizeMax, distanceAlphabetSizeLimit, numDistTrees, s2);
+      calculateDistanceLut(s2, distanceAlphabetSizeLimit);
+      s2.contextMapSlice = 0;
+      s2.distContextMapSlice = 0;
+      s2.contextLookupOffset1 = s2.contextModes[0] * 512;
+      s2.contextLookupOffset2 = s2.contextLookupOffset1 + 256;
+      s2.literalTreeIdx = 0;
+      s2.commandTreeIdx = 0;
+      s2.rings[4] = 1;
+      s2.rings[5] = 0;
+      s2.rings[6] = 1;
+      s2.rings[7] = 0;
+      s2.rings[8] = 1;
+      s2.rings[9] = 0;
+    }
+    function copyUncompressedData(s2) {
+      let ringBuffer = s2.ringBuffer;
+      if (s2.metaBlockLength <= 0) {
+        reload(s2);
+        s2.runningState = 2;
+        return;
+      }
+      let chunkLength = min(s2.ringBufferSize - s2.pos, s2.metaBlockLength);
+      copyRawBytes(s2, ringBuffer, s2.pos, chunkLength);
+      s2.metaBlockLength -= chunkLength;
+      s2.pos += chunkLength;
+      if (s2.pos == s2.ringBufferSize) {
+        s2.nextRunningState = 6;
+        s2.runningState = 12;
+        return;
+      }
+      reload(s2);
+      s2.runningState = 2;
+    }
+    function writeRingBuffer(s2) {
+      let toWrite = min(s2.outputLength - s2.outputUsed, s2.ringBufferBytesReady - s2.ringBufferBytesWritten);
+      if (toWrite != 0) {
+        s2.output.set(s2.ringBuffer.subarray(s2.ringBufferBytesWritten, s2.ringBufferBytesWritten + toWrite), s2.outputOffset + s2.outputUsed);
+        s2.outputUsed += toWrite;
+        s2.ringBufferBytesWritten += toWrite;
+      }
+      if (s2.outputUsed < s2.outputLength) return 1;
+      else return 0;
+    }
+    function decodeHuffmanTreeGroup(alphabetSizeMax, alphabetSizeLimit, n2, s2) {
+      let maxTableSize = MAX_HUFFMAN_TABLE_SIZE[alphabetSizeLimit + 31 >> 5];
+      let group = new Int32Array(n2 + n2 * maxTableSize);
+      let next = n2;
+      for (let i2 = 0; i2 < n2; ++i2) {
+        group[i2] = next;
+        next += readHuffmanCode(alphabetSizeMax, alphabetSizeLimit, group, i2, s2);
+      }
+      return group;
+    }
+    function calculateFence(s2) {
+      let result = s2.ringBufferSize;
+      if (s2.isEager != 0) result = min(result, s2.ringBufferBytesWritten + s2.outputLength - s2.outputUsed);
+      return result;
+    }
+    function doUseDictionary(s2, fence) {
+      if (s2.distance > 2147483644) throw "Invalid backward reference";
+      let address = s2.distance - s2.maxDistance - 1 - s2.cdTotalSize;
+      if (address < 0) {
+        initializeCompoundDictionaryCopy(s2, -address - 1, s2.copyLength);
+        s2.runningState = 14;
+      } else {
+        let dictionaryData = data;
+        let wordLength = s2.copyLength;
+        if (wordLength > 31) throw "Invalid backward reference";
+        let shift = sizeBits[wordLength];
+        if (shift == 0) throw "Invalid backward reference";
+        let offset = offsets[wordLength];
+        let wordIdx = address & (1 << shift) - 1;
+        let transformIdx = address >>> shift;
+        offset += wordIdx * wordLength;
+        let transforms = RFC_TRANSFORMS;
+        if (transformIdx >= transforms.numTransforms) throw "Invalid backward reference";
+        let len = transformDictionaryWord(s2.ringBuffer, s2.pos, dictionaryData, offset, wordLength, transforms, transformIdx);
+        s2.pos += len;
+        s2.metaBlockLength -= len;
+        if (s2.pos >= fence) {
+          s2.nextRunningState = 4;
+          s2.runningState = 12;
+          return;
+        }
+        s2.runningState = 4;
+      }
+    }
+    function initializeCompoundDictionary(s2) {
+      s2.cdBlockMap = new Int8Array(256);
+      let blockBits = 8;
+      while (s2.cdTotalSize - 1 >>> blockBits != 0) blockBits++;
+      blockBits -= 8;
+      s2.cdBlockBits = blockBits;
+      let cursor = 0;
+      let index = 0;
+      while (cursor < s2.cdTotalSize) {
+        while (s2.cdChunkOffsets[index + 1] < cursor) index++;
+        s2.cdBlockMap[cursor >>> blockBits] = index;
+        cursor += 1 << blockBits;
+      }
+    }
+    function initializeCompoundDictionaryCopy(s2, address, length) {
+      if (s2.cdBlockBits == -1) initializeCompoundDictionary(s2);
+      let index = s2.cdBlockMap[address >>> s2.cdBlockBits];
+      while (address >= s2.cdChunkOffsets[index + 1]) index++;
+      if (s2.cdTotalSize > address + length) throw "Invalid backward reference";
+      s2.distRbIdx = s2.distRbIdx + 1 & 3;
+      s2.rings[s2.distRbIdx] = s2.distance;
+      s2.metaBlockLength -= length;
+      s2.cdBrIndex = index;
+      s2.cdBrOffset = address - s2.cdChunkOffsets[index];
+      s2.cdBrLength = length;
+      s2.cdBrCopied = 0;
+    }
+    function copyFromCompoundDictionary(s2, fence) {
+      let pos = s2.pos;
+      let origPos = pos;
+      while (s2.cdBrLength != s2.cdBrCopied) {
+        let space = fence - pos;
+        let remChunkLength = s2.cdChunkOffsets[s2.cdBrIndex + 1] - s2.cdChunkOffsets[s2.cdBrIndex] - s2.cdBrOffset;
+        let length = s2.cdBrLength - s2.cdBrCopied;
+        if (length > remChunkLength) length = remChunkLength;
+        if (length > space) length = space;
+        copyBytes(s2.ringBuffer, pos, s2.cdChunks[s2.cdBrIndex], s2.cdBrOffset, s2.cdBrOffset + length);
+        pos += length;
+        s2.cdBrOffset += length;
+        s2.cdBrCopied += length;
+        if (length == remChunkLength) {
+          s2.cdBrIndex++;
+          s2.cdBrOffset = 0;
+        }
+        if (pos >= fence) break;
+      }
+      return pos - origPos;
+    }
+    function decompress(s2) {
+      if (s2.runningState == 0) throw "Can't decompress until initialized";
+      if (s2.runningState == 11) throw "Can't decompress after close";
+      if (s2.runningState == 1) {
+        let windowBits = decodeWindowBits(s2);
+        if (windowBits == -1) throw "Invalid 'windowBits' code";
+        s2.maxRingBufferSize = 1 << windowBits;
+        s2.maxBackwardDistance = s2.maxRingBufferSize - 16;
+        s2.runningState = 2;
+      }
+      let fence = calculateFence(s2);
+      let ringBufferMask = s2.ringBufferSize - 1;
+      let ringBuffer = s2.ringBuffer;
+      while (s2.runningState != 10) switch (s2.runningState) {
+        case 2:
+          if (s2.metaBlockLength < 0) throw "Invalid metablock length";
+          readNextMetablockHeader(s2);
+          fence = calculateFence(s2);
+          ringBufferMask = s2.ringBufferSize - 1;
+          ringBuffer = s2.ringBuffer;
+          continue;
+        case 3:
+          readMetablockHuffmanCodesAndContextMaps(s2);
+          s2.runningState = 4;
+        case 4:
+          if (s2.metaBlockLength <= 0) {
+            s2.runningState = 2;
+            continue;
+          }
+          if (s2.halfOffset > 2030) doReadMoreInput(s2);
+          if (s2.commandBlockLength == 0) decodeCommandBlockSwitch(s2);
+          s2.commandBlockLength--;
+          if (s2.bitOffset >= 16) {
+            s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+            s2.bitOffset -= 16;
+          }
+          let cmdCode = readSymbol(s2.commandTreeGroup, s2.commandTreeIdx, s2) << 2;
+          let insertAndCopyExtraBits = CMD_LOOKUP[cmdCode];
+          let insertLengthOffset = CMD_LOOKUP[cmdCode + 1];
+          let copyLengthOffset = CMD_LOOKUP[cmdCode + 2];
+          s2.distanceCode = CMD_LOOKUP[cmdCode + 3];
+          if (s2.bitOffset >= 16) {
+            s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+            s2.bitOffset -= 16;
+          }
+          let insertLengthExtraBits = insertAndCopyExtraBits & 255;
+          s2.insertLength = insertLengthOffset + (insertLengthExtraBits <= 16 ? readFewBits(s2, insertLengthExtraBits) : readManyBits(s2, insertLengthExtraBits));
+          if (s2.bitOffset >= 16) {
+            s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+            s2.bitOffset -= 16;
+          }
+          let copyLengthExtraBits = insertAndCopyExtraBits >> 8;
+          s2.copyLength = copyLengthOffset + (copyLengthExtraBits <= 16 ? readFewBits(s2, copyLengthExtraBits) : readManyBits(s2, copyLengthExtraBits));
+          s2.j = 0;
+          s2.runningState = 7;
+        case 7:
+          if (s2.trivialLiteralContext != 0) while (s2.j < s2.insertLength) {
+            if (s2.halfOffset > 2030) doReadMoreInput(s2);
+            if (s2.literalBlockLength == 0) decodeLiteralBlockSwitch(s2);
+            s2.literalBlockLength--;
+            if (s2.bitOffset >= 16) {
+              s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+              s2.bitOffset -= 16;
+            }
+            ringBuffer[s2.pos] = readSymbol(s2.literalTreeGroup, s2.literalTreeIdx, s2);
+            s2.pos++;
+            s2.j++;
+            if (s2.pos >= fence) {
+              s2.nextRunningState = 7;
+              s2.runningState = 12;
+              break;
+            }
+          }
+          else {
+            let prevByte1 = ringBuffer[s2.pos - 1 & ringBufferMask] & 255;
+            let prevByte2 = ringBuffer[s2.pos - 2 & ringBufferMask] & 255;
+            while (s2.j < s2.insertLength) {
+              if (s2.halfOffset > 2030) doReadMoreInput(s2);
+              if (s2.literalBlockLength == 0) decodeLiteralBlockSwitch(s2);
+              let literalContext = LOOKUP[s2.contextLookupOffset1 + prevByte1] | LOOKUP[s2.contextLookupOffset2 + prevByte2];
+              let literalTreeIdx = s2.contextMap[s2.contextMapSlice + literalContext] & 255;
+              s2.literalBlockLength--;
+              prevByte2 = prevByte1;
+              if (s2.bitOffset >= 16) {
+                s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+                s2.bitOffset -= 16;
+              }
+              prevByte1 = readSymbol(s2.literalTreeGroup, literalTreeIdx, s2);
+              ringBuffer[s2.pos] = prevByte1;
+              s2.pos++;
+              s2.j++;
+              if (s2.pos >= fence) {
+                s2.nextRunningState = 7;
+                s2.runningState = 12;
+                break;
+              }
+            }
+          }
+          if (s2.runningState != 7) continue;
+          s2.metaBlockLength -= s2.insertLength;
+          if (s2.metaBlockLength <= 0) {
+            s2.runningState = 4;
+            continue;
+          }
+          let distanceCode = s2.distanceCode;
+          if (distanceCode < 0) s2.distance = s2.rings[s2.distRbIdx];
+          else {
+            if (s2.halfOffset > 2030) doReadMoreInput(s2);
+            if (s2.distanceBlockLength == 0) decodeDistanceBlockSwitch(s2);
+            s2.distanceBlockLength--;
+            if (s2.bitOffset >= 16) {
+              s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+              s2.bitOffset -= 16;
+            }
+            let distTreeIdx = s2.distContextMap[s2.distContextMapSlice + distanceCode] & 255;
+            distanceCode = readSymbol(s2.distanceTreeGroup, distTreeIdx, s2);
+            if (distanceCode < 16) {
+              let index = s2.distRbIdx + DISTANCE_SHORT_CODE_INDEX_OFFSET[distanceCode] & 3;
+              s2.distance = s2.rings[index] + DISTANCE_SHORT_CODE_VALUE_OFFSET[distanceCode];
+              if (s2.distance < 0) throw "Negative distance";
+            } else {
+              let extraBits = s2.distExtraBits[distanceCode];
+              let bits;
+              if (s2.bitOffset + extraBits <= 32) bits = readFewBits(s2, extraBits);
+              else {
+                if (s2.bitOffset >= 16) {
+                  s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+                  s2.bitOffset -= 16;
+                }
+                bits = extraBits <= 16 ? readFewBits(s2, extraBits) : readManyBits(s2, extraBits);
+              }
+              s2.distance = s2.distOffset[distanceCode] + (bits << s2.distancePostfixBits);
+            }
+          }
+          if (s2.maxDistance != s2.maxBackwardDistance && s2.pos < s2.maxBackwardDistance) s2.maxDistance = s2.pos;
+          else s2.maxDistance = s2.maxBackwardDistance;
+          if (s2.distance > s2.maxDistance) {
+            s2.runningState = 9;
+            continue;
+          }
+          if (distanceCode > 0) {
+            s2.distRbIdx = s2.distRbIdx + 1 & 3;
+            s2.rings[s2.distRbIdx] = s2.distance;
+          }
+          if (s2.copyLength > s2.metaBlockLength) throw "Invalid backward reference";
+          s2.j = 0;
+          s2.runningState = 8;
+        case 8:
+          let src = s2.pos - s2.distance & ringBufferMask;
+          let dst = s2.pos;
+          let copyLength = s2.copyLength - s2.j;
+          let srcEnd = src + copyLength;
+          let dstEnd = dst + copyLength;
+          if (srcEnd < ringBufferMask && dstEnd < ringBufferMask) {
+            if (copyLength < 12 || srcEnd > dst && dstEnd > src) for (let k2 = 0; k2 < copyLength; k2 += 4) {
+              ringBuffer[dst++] = ringBuffer[src++];
+              ringBuffer[dst++] = ringBuffer[src++];
+              ringBuffer[dst++] = ringBuffer[src++];
+              ringBuffer[dst++] = ringBuffer[src++];
+            }
+            else ringBuffer.copyWithin(dst, src, srcEnd);
+            s2.j += copyLength;
+            s2.metaBlockLength -= copyLength;
+            s2.pos += copyLength;
+          } else for (; s2.j < s2.copyLength; ) {
+            ringBuffer[s2.pos] = ringBuffer[s2.pos - s2.distance & ringBufferMask];
+            s2.metaBlockLength--;
+            s2.pos++;
+            s2.j++;
+            if (s2.pos >= fence) {
+              s2.nextRunningState = 8;
+              s2.runningState = 12;
+              break;
+            }
+          }
+          if (s2.runningState == 8) s2.runningState = 4;
+          continue;
+        case 9:
+          doUseDictionary(s2, fence);
+          continue;
+        case 14:
+          s2.pos += copyFromCompoundDictionary(s2, fence);
+          if (s2.pos >= fence) {
+            s2.nextRunningState = 14;
+            s2.runningState = 12;
+            return;
+          }
+          s2.runningState = 4;
+          continue;
+        case 5:
+          while (s2.metaBlockLength > 0) {
+            if (s2.halfOffset > 2030) doReadMoreInput(s2);
+            if (s2.bitOffset >= 16) {
+              s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+              s2.bitOffset -= 16;
+            }
+            readFewBits(s2, 8);
+            s2.metaBlockLength--;
+          }
+          s2.runningState = 2;
+          continue;
+        case 6:
+          copyUncompressedData(s2);
+          continue;
+        case 12:
+          s2.ringBufferBytesReady = min(s2.pos, s2.ringBufferSize);
+          s2.runningState = 13;
+        case 13:
+          if (writeRingBuffer(s2) == 0) return;
+          if (s2.pos >= s2.maxBackwardDistance) s2.maxDistance = s2.maxBackwardDistance;
+          if (s2.pos >= s2.ringBufferSize) {
+            if (s2.pos > s2.ringBufferSize) ringBuffer.copyWithin(0, s2.ringBufferSize, s2.pos);
+            s2.pos &= ringBufferMask;
+            s2.ringBufferBytesWritten = 0;
+          }
+          s2.runningState = s2.nextRunningState;
+          continue;
+        default:
+          throw "Unexpected state " + s2.runningState;
+      }
+      if (s2.runningState == 10) {
+        if (s2.metaBlockLength < 0) throw "Invalid metablock length";
+        jumpToByteBoundary(s2);
+        checkHealth(s2, 1);
+      }
+    }
+    function Transforms(numTransforms, prefixSuffixLen, prefixSuffixCount) {
+      this.numTransforms = 0;
+      this.triplets = new Int32Array(0);
+      this.prefixSuffixStorage = new Int8Array(0);
+      this.prefixSuffixHeads = new Int32Array(0);
+      this.params = new Int16Array(0);
+      this.numTransforms = numTransforms;
+      this.triplets = new Int32Array(numTransforms * 3);
+      this.params = new Int16Array(numTransforms);
+      this.prefixSuffixStorage = new Int8Array(prefixSuffixLen);
+      this.prefixSuffixHeads = new Int32Array(prefixSuffixCount + 1);
+    }
+    let RFC_TRANSFORMS = new Transforms(121, 167, 50);
+    function unpackTransforms(prefixSuffix, prefixSuffixHeads, transforms, prefixSuffixSrc, transformsSrc) {
+      let n2 = prefixSuffixSrc.length;
+      let index = 1;
+      let j2 = 0;
+      for (let i2 = 0; i2 < n2; ++i2) {
+        let c2 = prefixSuffixSrc.charCodeAt(i2);
+        if (c2 == 35) prefixSuffixHeads[index++] = j2;
+        else prefixSuffix[j2++] = c2;
+      }
+      for (let i2 = 0; i2 < 363; ++i2) transforms[i2] = transformsSrc.charCodeAt(i2) - 32;
+    }
+    unpackTransforms(RFC_TRANSFORMS.prefixSuffixStorage, RFC_TRANSFORMS.prefixSuffixHeads, RFC_TRANSFORMS.triplets, `# #s #, #e #.# the #.com/#Â # of # and # in # to #"#">#
+#]# for # a # that #. # with #'# from # by #. The # on # as # is #ing #
+	#:#ed #(# at #ly #="# of the #. This #,# not #er #al #='#ful #ive #less #est #ize #ous #`, `     !! ! ,  *!  &!  " !  ) *   * -  ! # !  #!*!  +  ,$ !  -  %  .  / #   0  1 .  "   2  3!*   4%  ! # /   5  6  7  8 0  1 &   $   9 +   :  ;  < '  !=  >  ?! 4  @ 4  2  &   A *# (   B  C& ) %  ) !*# *-% A +! *.  D! %'  & E *6  F  G% ! *A *%  H! D  I!+!  J!+   K +- *4! A  L!*4  M  N +6  O!*% +.! K *G  P +%(  ! G *D +D  Q +# *K!*G!+D!+# +G +A +4!+% +K!+4!*D!+K!*K`);
+    function transformDictionaryWord(dst, dstOffset, src, srcOffset, len, transforms, transformIndex) {
+      let offset = dstOffset;
+      let triplets = transforms.triplets;
+      let prefixSuffixStorage = transforms.prefixSuffixStorage;
+      let prefixSuffixHeads = transforms.prefixSuffixHeads;
+      let transformOffset = 3 * transformIndex;
+      let prefixIdx = triplets[transformOffset];
+      let transformType = triplets[transformOffset + 1];
+      let suffixIdx = triplets[transformOffset + 2];
+      let prefix = prefixSuffixHeads[prefixIdx];
+      let prefixEnd = prefixSuffixHeads[prefixIdx + 1];
+      let suffix = prefixSuffixHeads[suffixIdx];
+      let suffixEnd = prefixSuffixHeads[suffixIdx + 1];
+      let omitFirst = transformType - 11;
+      let omitLast = transformType - 0;
+      if (omitFirst < 1 || omitFirst > 9) omitFirst = 0;
+      if (omitLast < 1 || omitLast > 9) omitLast = 0;
+      while (prefix != prefixEnd) dst[offset++] = prefixSuffixStorage[prefix++];
+      if (omitFirst > len) omitFirst = len;
+      srcOffset += omitFirst;
+      len -= omitFirst;
+      len -= omitLast;
+      let i2 = len;
+      while (i2 > 0) {
+        dst[offset++] = src[srcOffset++];
+        i2--;
+      }
+      if (transformType == 10 || transformType == 11) {
+        let uppercaseOffset = offset - len;
+        if (transformType == 10) len = 1;
+        while (len > 0) {
+          let c0 = dst[uppercaseOffset] & 255;
+          if (c0 < 192) {
+            if (c0 >= 97 && c0 <= 122) dst[uppercaseOffset] ^= 32;
+            uppercaseOffset += 1;
+            len -= 1;
+          } else if (c0 < 224) {
+            dst[uppercaseOffset + 1] ^= 32;
+            uppercaseOffset += 2;
+            len -= 2;
+          } else {
+            dst[uppercaseOffset + 2] ^= 5;
+            uppercaseOffset += 3;
+            len -= 3;
+          }
+        }
+      } else if (transformType == 21 || transformType == 22) {
+        let shiftOffset = offset - len;
+        let param = transforms.params[transformIndex];
+        let scalar = (param & 32767) + (16777216 - (param & 32768));
+        while (len > 0) {
+          let step = 1;
+          let c0 = dst[shiftOffset] & 255;
+          if (c0 < 128) {
+            scalar += c0;
+            dst[shiftOffset] = scalar & 127;
+          } else if (c0 < 192) ;
+          else if (c0 < 224) if (len >= 2) {
+            let c1 = dst[shiftOffset + 1];
+            scalar += c1 & 63 | (c0 & 31) << 6;
+            dst[shiftOffset] = 192 | scalar >> 6 & 31;
+            dst[shiftOffset + 1] = c1 & 192 | scalar & 63;
+            step = 2;
+          } else step = len;
+          else if (c0 < 240) if (len >= 3) {
+            let c1 = dst[shiftOffset + 1];
+            let c2 = dst[shiftOffset + 2];
+            scalar += c2 & 63 | (c1 & 63) << 6 | (c0 & 15) << 12;
+            dst[shiftOffset] = 224 | scalar >> 12 & 15;
+            dst[shiftOffset + 1] = c1 & 192 | scalar >> 6 & 63;
+            dst[shiftOffset + 2] = c2 & 192 | scalar & 63;
+            step = 3;
+          } else step = len;
+          else if (c0 < 248) if (len >= 4) {
+            let c1 = dst[shiftOffset + 1];
+            let c2 = dst[shiftOffset + 2];
+            let c3 = dst[shiftOffset + 3];
+            scalar += c3 & 63 | (c2 & 63) << 6 | (c1 & 63) << 12 | (c0 & 7) << 18;
+            dst[shiftOffset] = 240 | scalar >> 18 & 7;
+            dst[shiftOffset + 1] = c1 & 192 | scalar >> 12 & 63;
+            dst[shiftOffset + 2] = c2 & 192 | scalar >> 6 & 63;
+            dst[shiftOffset + 3] = c3 & 192 | scalar & 63;
+            step = 4;
+          } else step = len;
+          shiftOffset += step;
+          len -= step;
+          if (transformType == 21) len = 0;
+        }
+      }
+      while (suffix != suffixEnd) dst[offset++] = prefixSuffixStorage[suffix++];
+      return offset - dstOffset;
+    }
+    function getNextKey(key, len) {
+      let step = 1 << len - 1;
+      while ((key & step) != 0) step >>= 1;
+      return (key & step - 1) + step;
+    }
+    function replicateValue(table, offset, step, end, item) {
+      do {
+        end -= step;
+        table[offset + end] = item;
+      } while (end > 0);
+    }
+    function nextTableBitSize(count, len, rootBits) {
+      let left = 1 << len - rootBits;
+      while (len < 15) {
+        left -= count[len];
+        if (left <= 0) break;
+        len++;
+        left <<= 1;
+      }
+      return len - rootBits;
+    }
+    function buildHuffmanTable(tableGroup, tableIdx, rootBits, codeLengths, codeLengthsSize) {
+      let tableOffset = tableGroup[tableIdx];
+      let key;
+      let sorted = new Int32Array(codeLengthsSize);
+      let count = new Int32Array(16);
+      let offset = new Int32Array(16);
+      let symbol;
+      for (symbol = 0; symbol < codeLengthsSize; symbol++) count[codeLengths[symbol]]++;
+      offset[1] = 0;
+      for (let len = 1; len < 15; len++) offset[len + 1] = offset[len] + count[len];
+      for (symbol = 0; symbol < codeLengthsSize; symbol++) if (codeLengths[symbol] != 0) sorted[offset[codeLengths[symbol]]++] = symbol;
+      let tableBits = rootBits;
+      let tableSize = 1 << tableBits;
+      let totalSize = tableSize;
+      if (offset[15] == 1) {
+        for (key = 0; key < totalSize; key++) tableGroup[tableOffset + key] = sorted[0];
+        return totalSize;
+      }
+      key = 0;
+      symbol = 0;
+      for (let len = 1, step = 2; len <= rootBits; len++, step <<= 1) for (; count[len] > 0; count[len]--) {
+        replicateValue(tableGroup, tableOffset + key, step, tableSize, len << 16 | sorted[symbol++]);
+        key = getNextKey(key, len);
+      }
+      let mask = totalSize - 1;
+      let low = -1;
+      let currentOffset = tableOffset;
+      for (let len = rootBits + 1, step = 2; len <= 15; len++, step <<= 1) for (; count[len] > 0; count[len]--) {
+        if ((key & mask) != low) {
+          currentOffset += tableSize;
+          tableBits = nextTableBitSize(count, len, rootBits);
+          tableSize = 1 << tableBits;
+          totalSize += tableSize;
+          low = key & mask;
+          tableGroup[tableOffset + low] = tableBits + rootBits << 16 | currentOffset - tableOffset - low;
+        }
+        replicateValue(tableGroup, currentOffset + (key >> rootBits), step, tableSize, len - rootBits << 16 | sorted[symbol++]);
+        key = getNextKey(key, len);
+      }
+      return totalSize;
+    }
+    function doReadMoreInput(s2) {
+      if (s2.endOfStreamReached != 0) {
+        if (halfAvailable(s2) >= -2) return;
+        throw "No more input";
+      }
+      let readOffset = s2.halfOffset << 1;
+      let bytesInBuffer = 4096 - readOffset;
+      s2.byteBuffer.copyWithin(0, readOffset, 4096);
+      s2.halfOffset = 0;
+      while (bytesInBuffer < 4096) {
+        let spaceLeft = 4096 - bytesInBuffer;
+        let len = readInput(s2.input, s2.byteBuffer, bytesInBuffer, spaceLeft);
+        if (len <= 0) {
+          s2.endOfStreamReached = 1;
+          s2.tailBytes = bytesInBuffer;
+          bytesInBuffer += 1;
+          break;
+        }
+        bytesInBuffer += len;
+      }
+      bytesToNibbles(s2, bytesInBuffer);
+    }
+    function checkHealth(s2, endOfStream) {
+      if (s2.endOfStreamReached == 0) return;
+      let byteOffset = (s2.halfOffset << 1) + (s2.bitOffset + 7 >> 3) - 4;
+      if (byteOffset > s2.tailBytes) throw "Read after end";
+      if (endOfStream != 0 && byteOffset != s2.tailBytes) throw "Unused bytes after end";
+    }
+    function readFewBits(s2, n2) {
+      let val = s2.accumulator32 >>> s2.bitOffset & (1 << n2) - 1;
+      s2.bitOffset += n2;
+      return val;
+    }
+    function readManyBits(s2, n2) {
+      let low = readFewBits(s2, 16);
+      s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+      s2.bitOffset -= 16;
+      return low | readFewBits(s2, n2 - 16) << 16;
+    }
+    function initBitReader(s2) {
+      s2.byteBuffer = new Int8Array(4160);
+      s2.accumulator32 = 0;
+      s2.shortBuffer = new Int16Array(2080);
+      s2.bitOffset = 32;
+      s2.halfOffset = 2048;
+      s2.endOfStreamReached = 0;
+      prepare(s2);
+    }
+    function prepare(s2) {
+      if (s2.halfOffset > 2030) doReadMoreInput(s2);
+      checkHealth(s2, 0);
+      s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+      s2.bitOffset -= 16;
+      s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+      s2.bitOffset -= 16;
+    }
+    function reload(s2) {
+      if (s2.bitOffset == 32) prepare(s2);
+    }
+    function jumpToByteBoundary(s2) {
+      let padding = 32 - s2.bitOffset & 7;
+      if (padding != 0) {
+        if (readFewBits(s2, padding) != 0) throw "Corrupted padding bits";
+      }
+    }
+    function halfAvailable(s2) {
+      let limit = 2048;
+      if (s2.endOfStreamReached != 0) limit = s2.tailBytes + 1 >> 1;
+      return limit - s2.halfOffset;
+    }
+    function copyRawBytes(s2, data2, offset, length) {
+      if ((s2.bitOffset & 7) != 0) throw "Unaligned copyBytes";
+      while (s2.bitOffset != 32 && length != 0) {
+        data2[offset++] = s2.accumulator32 >>> s2.bitOffset;
+        s2.bitOffset += 8;
+        length--;
+      }
+      if (length == 0) return;
+      let copyNibbles = min(halfAvailable(s2), length >> 1);
+      if (copyNibbles > 0) {
+        let readOffset = s2.halfOffset << 1;
+        let delta = copyNibbles << 1;
+        data2.set(s2.byteBuffer.subarray(readOffset, readOffset + delta), offset);
+        offset += delta;
+        length -= delta;
+        s2.halfOffset += copyNibbles;
+      }
+      if (length == 0) return;
+      if (halfAvailable(s2) > 0) {
+        if (s2.bitOffset >= 16) {
+          s2.accumulator32 = s2.shortBuffer[s2.halfOffset++] << 16 | s2.accumulator32 >>> 16;
+          s2.bitOffset -= 16;
+        }
+        while (length != 0) {
+          data2[offset++] = s2.accumulator32 >>> s2.bitOffset;
+          s2.bitOffset += 8;
+          length--;
+        }
+        checkHealth(s2, 0);
+        return;
+      }
+      while (length > 0) {
+        let len = readInput(s2.input, data2, offset, length);
+        if (len == -1) throw "Unexpected end of input";
+        offset += len;
+        length -= len;
+      }
+    }
+    function bytesToNibbles(s2, byteLen) {
+      let byteBuffer = s2.byteBuffer;
+      let halfLen = byteLen >> 1;
+      let shortBuffer = s2.shortBuffer;
+      for (let i2 = 0; i2 < halfLen; ++i2) shortBuffer[i2] = byteBuffer[i2 * 2] & 255 | (byteBuffer[i2 * 2 + 1] & 255) << 8;
+    }
+    let LOOKUP = new Int32Array(2048);
+    function unpackLookupTable(lookup, map, rle) {
+      for (let i2 = 0; i2 < 256; ++i2) {
+        lookup[i2] = i2 & 63;
+        lookup[512 + i2] = i2 >> 2;
+        lookup[1792 + i2] = 2 + (i2 >> 6);
+      }
+      for (let i2 = 0; i2 < 128; ++i2) lookup[1024 + i2] = 4 * (map.charCodeAt(i2) - 32);
+      for (let i2 = 0; i2 < 64; ++i2) {
+        lookup[1152 + i2] = i2 & 1;
+        lookup[1216 + i2] = 2 + (i2 & 1);
+      }
+      let offset = 1280;
+      for (let k2 = 0; k2 < 19; ++k2) {
+        let value = k2 & 3;
+        let rep = rle.charCodeAt(k2) - 32;
+        for (let i2 = 0; i2 < rep; ++i2) lookup[offset++] = value;
+      }
+      for (let i2 = 0; i2 < 16; ++i2) {
+        lookup[1792 + i2] = 1;
+        lookup[2032 + i2] = 6;
+      }
+      lookup[1792] = 0;
+      lookup[2047] = 7;
+      for (let i2 = 0; i2 < 256; ++i2) lookup[1536 + i2] = lookup[1792 + i2] << 3;
+    }
+    unpackLookupTable(LOOKUP, `         !!  !                  "#$##%#$&'##(#)#++++++++++((&*'##,---,---,-----,-----,-----&#'###.///.///./////./////./////&#'# `, "A/*  ':  & : $   @");
+    function State() {
+      this.ringBuffer = new Int8Array(0);
+      this.contextModes = new Int8Array(0);
+      this.contextMap = new Int8Array(0);
+      this.distContextMap = new Int8Array(0);
+      this.distExtraBits = new Int8Array(0);
+      this.output = new Int8Array(0);
+      this.byteBuffer = new Int8Array(0);
+      this.shortBuffer = new Int16Array(0);
+      this.intBuffer = new Int32Array(0);
+      this.rings = new Int32Array(0);
+      this.blockTrees = new Int32Array(0);
+      this.literalTreeGroup = new Int32Array(0);
+      this.commandTreeGroup = new Int32Array(0);
+      this.distanceTreeGroup = new Int32Array(0);
+      this.distOffset = new Int32Array(0);
+      this.runningState = 0;
+      this.nextRunningState = 0;
+      this.accumulator32 = 0;
+      this.bitOffset = 0;
+      this.halfOffset = 0;
+      this.tailBytes = 0;
+      this.endOfStreamReached = 0;
+      this.metaBlockLength = 0;
+      this.inputEnd = 0;
+      this.isUncompressed = 0;
+      this.isMetadata = 0;
+      this.literalBlockLength = 0;
+      this.numLiteralBlockTypes = 0;
+      this.commandBlockLength = 0;
+      this.numCommandBlockTypes = 0;
+      this.distanceBlockLength = 0;
+      this.numDistanceBlockTypes = 0;
+      this.pos = 0;
+      this.maxDistance = 0;
+      this.distRbIdx = 0;
+      this.trivialLiteralContext = 0;
+      this.literalTreeIdx = 0;
+      this.commandTreeIdx = 0;
+      this.j = 0;
+      this.insertLength = 0;
+      this.contextMapSlice = 0;
+      this.distContextMapSlice = 0;
+      this.contextLookupOffset1 = 0;
+      this.contextLookupOffset2 = 0;
+      this.distanceCode = 0;
+      this.numDirectDistanceCodes = 0;
+      this.distancePostfixBits = 0;
+      this.distance = 0;
+      this.copyLength = 0;
+      this.maxBackwardDistance = 0;
+      this.maxRingBufferSize = 0;
+      this.ringBufferSize = 0;
+      this.expectedTotalSize = 0;
+      this.outputOffset = 0;
+      this.outputLength = 0;
+      this.outputUsed = 0;
+      this.ringBufferBytesWritten = 0;
+      this.ringBufferBytesReady = 0;
+      this.isEager = 0;
+      this.isLargeWindow = 0;
+      this.cdNumChunks = 0;
+      this.cdTotalSize = 0;
+      this.cdBrIndex = 0;
+      this.cdBrOffset = 0;
+      this.cdBrLength = 0;
+      this.cdBrCopied = 0;
+      this.cdChunks = new Array(0);
+      this.cdChunkOffsets = new Int32Array(0);
+      this.cdBlockBits = 0;
+      this.cdBlockMap = new Int8Array(0);
+      this.input = null;
+      this.ringBuffer = new Int8Array(0);
+      this.rings = new Int32Array(10);
+      this.rings[0] = 16;
+      this.rings[1] = 15;
+      this.rings[2] = 11;
+      this.rings[3] = 4;
+    }
+    let data = null;
+    let offsets = new Int32Array(32);
+    let sizeBits = new Int32Array(32);
+    function setData(newData, newSizeBits) {
+      if (newSizeBits.length > 31) throw "sizeBits length must be at most 31";
+      for (let i2 = 0; i2 < 4; ++i2) if (newSizeBits[i2] != 0) throw "first 4 must be 0";
+      let dictionaryOffsets = offsets;
+      let dictionarySizeBits = sizeBits;
+      dictionarySizeBits.set(newSizeBits.subarray(0, 0 + newSizeBits.length), 0);
+      let pos = 0;
+      let limit = newData.length;
+      for (let i2 = 0; i2 < newSizeBits.length; ++i2) {
+        dictionaryOffsets[i2] = pos;
+        let bits = dictionarySizeBits[i2];
+        if (bits != 0) {
+          if (bits >= 31) throw "newSizeBits values must be less than 31";
+          pos += i2 << bits;
+          if (pos <= 0 || pos > limit) throw "newSizeBits is inconsistent: overflow";
+        }
+      }
+      for (let i2 = newSizeBits.length; i2 < 32; ++i2) dictionaryOffsets[i2] = pos;
+      if (pos != limit) throw "newSizeBits is inconsistent: underflow";
+      data = newData;
+    }
+    function unpackDictionaryData(dictionary, data0, data1, skipFlip, sizeBits2, sizeBitsData) {
+      let dict = toUsAsciiBytes(data0 + data1);
+      if (dict.length != dictionary.length) throw "Corrupted brotli dictionary";
+      let offset = 0;
+      let n2 = skipFlip.length;
+      for (let i2 = 0; i2 < n2; i2 += 2) {
+        let skip = skipFlip.charCodeAt(i2) - 36;
+        let flip = skipFlip.charCodeAt(i2 + 1) - 36;
+        for (let j2 = 0; j2 < skip; ++j2) {
+          dict[offset] ^= 3;
+          offset++;
+        }
+        for (let j2 = 0; j2 < flip; ++j2) {
+          dict[offset] ^= 236;
+          offset++;
+        }
+      }
+      for (let i2 = 0; i2 < sizeBitsData.length; ++i2) sizeBits2[i2] = sizeBitsData.charCodeAt(i2) - 65;
+      dictionary.set(dict);
+    }
+    {
+      let dictionaryData = new Int8Array(122784);
+      let dictionarySizeBits = new Int32Array(25);
+      unpackDictionaryData(dictionaryData, 'wjnfgltmojefofewab`h`lgfgbwbpkltlmozpjwf`jwzlsfmivpwojhfeqfftlqhwf{wzfbqlufqalgzolufelqnallhsobzojufojmfkfosklnfpjgfnlqftlqgolmdwkfnujftejmgsbdfgbzpevookfbgwfqnfb`kbqfbeqlnwqvfnbqhbaofvslmkjdkgbwfobmgmftpfufmmf{w`bpfalwkslpwvpfgnbgfkbmgkfqftkbwmbnfOjmhaoldpjyfabpfkfognbhfnbjmvpfq$*#(klogfmgptjwkMftpqfbgtfqfpjdmwbhfkbufdbnfpffm`boosbwktfoosovpnfmvejonsbqwiljmwkjpojpwdllgmffgtbzptfpwilapnjmgboploldlqj`kvpfpobpwwfbnbqnzellghjmdtjoofbpwtbqgafpwejqfSbdfhmltbtbz-smdnlufwkbmolbgdjufpfoemlwfnv`keffgnbmzql`hj`lmlm`follhkjgfgjfgKlnfqvofklpwbib{jmel`ovaobtpofppkboeplnfpv`kylmf233&lmfp`bqfWjnfqb`faovfelvqtffheb`fklsfdbufkbqgolpwtkfmsbqhhfswsbpppkjsqllnKWNOsobmWzsfglmfpbufhffseobdojmhplogejufwllhqbwfwltmivnswkvpgbqh`bqgejofefbqpwbzhjoowkbweboobvwlfufq-`lnwbohpklsulwfgffsnlgfqfpwwvqmalqmabmgefooqlpfvqo+phjmqlof`lnfb`wpbdfpnffwdlog-isdjwfnubqzefowwkfmpfmggqlsUjft`lsz2-3!?,b=pwlsfopfojfpwlvqsb`h-djesbpw`pp<dqbznfbm%dw8qjgfpklwobwfpbjgqlbgubq#effoilkmqj`hslqwebpw$VB.gfbg?,a=sllqajoowzsfV-P-tllgnvpw1s{8JmelqbmhtjgftbmwtbooofbgX3^8sbvotbufpvqf\'+$ tbjwnbppbqnpdlfpdbjmobmdsbjg"..#ol`hvmjwqllwtbohejqntjef{no!plmdwfpw13s{hjmgqltpwlloelmwnbjopbefpwbqnbsp`lqfqbjmeoltabazpsbmpbzp7s{85s{8bqwpellwqfbotjhjkfbwpwfswqjslqd,obhftfbhwlogElqn`bpwebmpabmhufqzqvmpivozwbph2s{8dlbodqftpoltfgdfjg>!pfwp6s{8-ip<73s{je#+pllmpfbwmlmfwvafyfqlpfmwqffgeb`wjmwldjewkbqn2;s{`bnfkjooalogyllnuljgfbpzqjmdejoosfbhjmjw`lpw0s{8ib`hwbdpajwpqloofgjwhmftmfbq?"..dqltIPLMgvwzMbnfpbofzlv#olwpsbjmibyy`logfzfpejpkttt-qjphwbapsqfu23s{qjpf16s{Aovfgjmd033/abooelqgfbqmtjogal{-ebjqob`hufqpsbjqivmfwf`kje+"sj`hfujo\'+! tbqnolqgglfpsvoo/333jgfbgqbtkvdfpslwevmgavqmkqfe`foohfzpwj`hklvqolppevfo21s{pvjwgfboQPP!bdfgdqfzDFW!fbpfbjnpdjqobjgp;s{8mbuzdqjgwjsp :::tbqpobgz`bqp*8#~sks<kfoowbootklnyk9	),	#233kboo-		B4s{8svpk`kbw3s{8`qft),?,kbpk46s{eobwqbqf#%%#wfoo`bnslmwlobjgnjppphjswfmwejmfnbofdfwpsolw733/		`lloeffw-sks?aq=fqj`nlpwdvjgafoogfp`kbjqnbwkbwln,jnd% ;1ov`h`fmw3338wjmzdlmfkwnopfoogqvdEQFFmlgfmj`h<jg>olpfmvooubpwtjmgQPP#tfbqqfozaffmpbnfgvhfmbpb`bsftjpkdvoeW109kjwppolwdbwfhj`haovqwkfz26s{$$*8*8!=npjftjmpajqgplqwafwbpffhW2;9lqgpwqffnboo53s{ebqnlupalzpX3^-$*8!SLPWafbqhjgp*8~~nbqzwfmg+VH*rvbgyk9\n.pjy....sqls$*8ojewW2:9uj`fbmgzgfaw=QPPsllomf`haoltW259gllqfuboW249ofwpebjolqbosloomlub`lopdfmf#lxplewqlnfwjooqlpp?k0=slvqebgfsjmh?wq=njmj*"+njmfyk9abqpkfbq33*8njoh#..=jqlmeqfggjphtfmwpljosvwp,ip,klozW119JPAMW139bgbnpffp?k1=iplm$/#$`lmwW129#QPPollsbpjbnllm?,s=plvoOJMFelqw`bqwW279?k2=;3s{"..?:s{8W379njhf975Ymj`fjm`kZlqhqj`fyk9\b$**8svqfnbdfsbqbwlmfalmg904Y\\le\\$^*8333/yk9\vwbmhzbqgaltoavpk965YIbub03s{	~	&@0&907YifeeF[SJ`bpkujpbdloepmltyk9rvfq-`pppj`hnfbwnjm-ajmggfookjqfsj`pqfmw905YKWWS.132elwltloeFMG#{al{967YALGZgj`h8	~	f{jw906Yubqpafbw$~*8gjfw:::8bmmf~~?,Xj^-Obmdhn.^tjqfwlzpbggppfbobof{8	\n~f`klmjmf-lqd336*wlmziftppbmgofdpqlle333*#133tjmfdfbqgldpallwdbqz`vwpwzofwfnswjlm-{no`l`hdbmd\'+$-63s{Sk-Gnjp`bobmolbmgfphnjofqzbmvmj{gjp`*8~	gvpw`ojs*-		43s{.133GUGp4^=?wbsfgfnlj((*tbdffvqlskjolswpklofEBRpbpjm.15WobapsfwpVQO#avoh`llh8~	KFBGX3^*baaqivbm+2:;ofpkwtjm?,j=plmzdvzpev`hsjsf.	"331*mgltX2^8X^8	Old#pbow	\n\nabmdwqjnabwk*x	33s{	~*8hl9\0effpbg=p9,,#X^8wloosovd+*x	x	#-ip$133sgvboalbw-ISD*8	~rvlw*8		$*8		~1327132613251324132;132:13131312131113101317131613151314131;131:130313021301130013071306130513041320132113221323133:133;133413351336133713301331133213332:::2::;2::42::52::62::72::02::12::22::32:;:2:;;2:;42:;52:;62:;72:;02:;12:;22:;32:4:2:4;2:442:452:462:472:402:412:422:432:5:2:5;2:542:552:562:572:502:512:522:532:6:2:6;2:642:652:662:672:602:612:622:632333231720:73333::::`lnln/Mpfpwffpwbsfqlwlglkb`f`bgbb/]lajfmg/Abbp/Aujgb`bpllwqlelqlplollwqb`vbogjilpjgldqbmwjslwfnbgfafbodlrv/Efpwlmbgbwqfpsl`l`bpbabilwlgbpjmlbdvbsvfpvmlpbmwfgj`fovjpfoobnbzlylmbbnlqsjpllaqb`oj`foolgjlpklqb`bpj<[<\\<Q<\\<R<P=l<\\=l=o=n<\\<Q<Y<S<R<R=n<T<[<Q<R<X<R=n<R<Z<Y<R<Q<T=i<q<\\<Y<Y<]=g<P=g<~=g=m<R<^=g<^<R<q<R<R<]<s<R<W<T<Q<T<L<H<q<Y<p=g=n=g<r<Q<T<P<X<\\<{<\\<x<\\<q=o<r<]=n<Y<t<[<Y<U<Q=o<P<P<N=g=o<Z5m5f4O5j5i4K5i4U5o5h4O5d4]4C5f4K5m5e5k5d5h5i5h5o4K5d5h5k4D4_4K5h4I5j5k5f4O5f5n4C5k5h4G5i4D5k5h5d5h5f4D5h4K5f4D5o4X5f4K5i4O5i5j4F4D5f5h5j4A4D5k5i5i4X5d4Xejqpwujgflojdkwtlqognfgjbtkjwf`olpfaob`hqjdkwpnbooallhpsob`fnvpj`ejfoglqgfqsljmwubovfofufowbaofalbqgklvpfdqlvstlqhpzfbqppwbwfwlgbztbwfqpwbqwpwzofgfbwksltfqsklmfmjdkwfqqlqjmsvwbalvwwfqnpwjwofwllopfufmwol`bowjnfpobqdftlqgpdbnfppklqwpsb`fel`vp`ofbqnlgfoaol`hdvjgfqbgjlpkbqftlnfmbdbjmnlmfzjnbdfmbnfpzlvmdojmfpobwfq`lolqdqffmeqlmw%bns8tbw`kelq`fsqj`fqvofpafdjmbewfqujpjwjppvfbqfbpafoltjmgf{wlwboklvqpobafosqjmwsqfppavjowojmhppsffgpwvgzwqbgfelvmgpfmpfvmgfqpkltmelqnpqbmdfbggfgpwjoonlufgwbhfmbalufeobpkej{fglewfmlwkfqujftp`kf`hofdboqjufqjwfnprvj`hpkbsfkvnbmf{jpwdljmdnlujfwkjqgabpj`sfb`fpwbdftjgwkoldjmjgfbptqlwfsbdfpvpfqpgqjufpwlqfaqfbhplvwkulj`fpjwfpnlmwktkfqfavjogtkj`kfbqwkelqvnwkqffpslqwsbqwz@oj`holtfqojufp`obppobzfqfmwqzpwlqzvpbdfplvmg`lvqwzlvq#ajqwkslsvswzsfpbssozJnbdfafjmdvssfqmlwfpfufqzpkltpnfbmpf{wqbnbw`kwqb`hhmltmfbqozafdbmpvsfqsbsfqmlqwkofbqmdjufmmbnfgfmgfgWfqnpsbqwpDqlvsaqbmgvpjmdtlnbmebopfqfbgzbvgjlwbhfptkjof-`ln,ojufg`bpfpgbjoz`kjogdqfbwivgdfwklpfvmjwpmfufqaqlbg`lbpw`lufqbssofejofp`z`ofp`fmfsobmp`oj`htqjwfrvffmsjf`ffnbjoeqbnflogfqsklwlojnjw`b`kf`jujop`boffmwfqwkfnfwkfqfwlv`kalvmgqlzbobphfgtklofpjm`fpwl`h#mbnfebjwkkfbqwfnswzleefqp`lsfltmfgnjdkwboavnwkjmhaollgbqqbznbilqwqvpw`bmlmvmjlm`lvmwubojgpwlmfPwzofOldjmkbsszl``vqofew9eqfpkrvjwfejonpdqbgfmffgpvqabmejdkwabpjpklufqbvwl8qlvwf-kwnonj{fgejmboZlvq#pojgfwlsj`aqltmbolmfgqbtmpsojwqfb`kQjdkwgbwfpnbq`krvlwfdllgpOjmhpglvawbpzm`wkvnaboolt`kjfezlvwkmlufo23s{8pfqufvmwjokbmgp@kf`hPsb`frvfqzibnfpfrvbowtj`f3/333Pwbqwsbmfoplmdpqlvmgfjdkwpkjewtlqwkslpwpofbgptffhpbuljgwkfpfnjofpsobmfpnbqwboskbsobmwnbqhpqbwfpsobzp`objnpbofpwf{wppwbqptqlmd?,k0=wkjmd-lqd,nvowjkfbqgSltfqpwbmgwlhfmplojg+wkjpaqjmdpkjsppwbeewqjfg`boopevoozeb`wpbdfmwWkjp#,,..=bgnjmfdzswFufmw26s{8Fnbjowqvf!`qlpppsfmwaoldpal{!=mlwfgofbuf`kjmbpjyfpdvfpw?,k7=qlalwkfbuzwqvf/pfufmdqbmg`qjnfpjdmpbtbqfgbm`fskbpf=?"..fm\\VP% 0:8133s{\\mbnfobwjmfmilzbib{-bwjlmpnjwkV-P-#klogpsfwfqjmgjbmbu!=`kbjmp`lqf`lnfpgljmdsqjlqPkbqf2::3pqlnbmojpwpibsbmeboopwqjboltmfqbdqff?,k1=bavpfbofqwlsfqb!.,,T`bqgpkjoopwfbnpSklwlwqvwk`ofbm-sks<pbjmwnfwboolvjpnfbmwsqlleaqjfeqlt!=dfmqfwqv`hollhpUbovfEqbnf-mfw,..=	?wqz#x	ubq#nbhfp`lpwpsobjmbgvowrvfpwwqbjmobalqkfosp`bvpfnbdj`nlwlqwkfjq163s{ofbpwpwfsp@lvmw`lvogdobpppjgfpevmgpklwfobtbqgnlvwknlufpsbqjpdjufpgvw`kwf{bpeqvjwmvoo/X^8wls!=	?"..SLPW!l`fbm?aq,=eollqpsfbhgfswk#pjyfabmhp`bw`k`kbqw13s{8bojdmgfboptlvog63s{8vqo>!sbqhpnlvpfNlpw#---?,bnlmdaqbjmalgz#mlmf8abpfg`bqqzgqbewqfefqsbdf\\klnf-nfwfqgfobzgqfbnsqlufiljmw?,wq=gqvdp?"..#bsqjojgfboboofmf{b`welqwk`lgfpoldj`Ujft#pffnpaobmhslqwp#+133pbufg\\ojmhdlbopdqbmwdqffhklnfpqjmdpqbwfg03s{8tklpfsbqpf+*8!#Aol`hojmv{ilmfpsj{fo$*8!=*8je+.ofewgbujgklqpfEl`vpqbjpfal{fpWqb`hfnfmw?,fn=abq!=-pq`>wltfqbow>!`baofkfmqz17s{8pfwvsjwbozpkbqsnjmlqwbpwftbmwpwkjp-qfpfwtkffodjqop,`pp,233&8`ovappwveeajaofulwfp#2333hlqfb~*8	abmgprvfvf>#x~8;3s{8`hjmdx	\n\nbkfbg`ol`hjqjpkojhf#qbwjlpwbwpElqn!zbkll*X3^8Balvwejmgp?,k2=gfavdwbphpVQO#>`foop~*+*821s{8sqjnfwfoopwvqmp3{533-isd!psbjmafb`kwb{fpnj`qlbmdfo..=?,djewppwfuf.ojmhalgz-~*8	\nnlvmw#+2::EBR?,qldfqeqbmh@obpp1;s{8effgp?k2=?p`lwwwfpwp11s{8gqjmh*##oftjppkboo 30:8#elq#olufgtbpwf33s{8ib9npjnlm?elmwqfsoznffwpvmwfq`kfbswjdkwAqbmg*#">#gqfpp`ojspqllnplmhfznlajonbjm-Mbnf#sobwfevmmzwqffp`ln,!2-isdtnlgfsbqbnPWBQWofew#jggfm/#132*8	~	elqn-ujqvp`kbjqwqbmptlqpwSbdfpjwjlmsbw`k?"..	l.`b`ejqnpwlvqp/333#bpjbmj((*xbglaf$*X3^jg>23alwk8nfmv#-1-nj-smd!hfujm`lb`k@kjogaqv`f1-isdVQO*(-isdpvjwfpoj`fkbqqz213!#ptffwwq=	mbnf>gjfdlsbdf#ptjpp..=		 eee8!=Old-`ln!wqfbwpkffw*#%%#27s{8poffsmwfmwejofgib9ojg>!`Mbnf!tlqpfpklwp.al{.gfowb	%ow8afbqp97;Y?gbwb.qvqbo?,b=#psfmgabhfqpklsp>#!!8sks!=`wjlm20s{8aqjbmkfoolpjyf>l>&1E#iljmnbzaf?jnd#jnd!=/#eipjnd!#!*X3^NWlsAWzsf!mftozGbmph`yf`kwqbjohmltp?,k6=ebr!=yk.`m23*8	.2!*8wzsf>aovfpwqvozgbujp-ip$8=	?"pwffo#zlv#k1=	elqn#ifpvp233&#nfmv-	\n	tbofpqjphpvnfmwggjmda.ojhwfb`kdje!#ufdbpgbmphffpwjpkrjspvlnjplaqfgfpgffmwqfwlglpsvfgfb/]lpfpw/Mwjfmfkbpwblwqlpsbqwfglmgfmvfulkb`fqelqnbnjpnlnfilqnvmglbrv/Ag/Abpp/_olbzvgbef`kbwlgbpwbmwlnfmlpgbwlplwqbppjwjlnv`klbklqbovdbqnbzlqfpwlpklqbpwfmfqbmwfpelwlpfpwbpsb/Apmvfubpbovgelqlpnfgjlrvjfmnfpfpslgfq`kjofpfq/Muf`fpgf`jqilp/Efpwbqufmwbdqvslkf`klfoolpwfmdlbnjdl`lpbpmjufodfmwfnjpnbbjqfpivojlwfnbpkb`jbebulqivmjlojaqfsvmwlavfmlbvwlqbaqjoavfmbwf{wlnbqylpbafqojpwbovfdl`/_nlfmfqlivfdlsfq/Vkbafqfpwlzmvm`bnvifqubolqevfqbojaqldvpwbjdvboulwlp`bplpdv/Absvfglplnlpbujplvpwfggfafmml`kfavp`bebowbfvqlppfqjfgj`kl`vqpl`obuf`bpbpof/_msobylobqdllaqbpujpwbbslzlivmwlwqbwbujpwl`qfbq`bnslkfnlp`jm`l`bqdlsjplplqgfmkb`fm/Mqfbgjp`lsfgql`fq`bsvfgbsbsfonfmlq/Vwjo`obqlilqdf`boofslmfqwbqgfmbgjfnbq`bpjdvffoobppjdol`l`kfnlwlpnbgqf`obpfqfpwlmj/]lrvfgbsbpbqabm`lkjilpujbifsbaol/Epwfujfmfqfjmlgfibqelmgl`bmbomlqwfofwqb`bvpbwlnbqnbmlpovmfpbvwlpujoobufmglsfpbqwjslpwfmdbnbq`loofubsbgqfvmjglubnlpylmbpbnalpabmgbnbqjbbavplnv`kbpvajqqjlibujujqdqbgl`kj`bboo/Ailufmgj`kbfpwbmwbofppbojqpvfolsfplpejmfpoobnbavp`l/Epwboofdbmfdqlsobybkvnlqsbdbqivmwbglaofjpobpalopbab/]lkbaobov`kb/mqfbgj`fmivdbqmlwbpuboofboo/M`bqdbglolqbabilfpw/Edvpwlnfmwfnbqjlejqnb`lpwlej`kbsobwbkldbqbqwfpofzfpbrvfonvpflabpfpsl`lpnjwbg`jfol`kj`lnjfgldbmbqpbmwlfwbsbgfafpsobzbqfgfppjfwf`lqwf`lqfbgvgbpgfpflujfilgfpfbbdvbp%rvlw8glnbjm`lnnlmpwbwvpfufmwpnbpwfqpzpwfnb`wjlmabmmfqqfnlufp`qloovsgbwfdolabonfgjvnejowfqmvnafq`kbmdfqfpvowsvaoj`p`qffm`kllpfmlqnbowqbufojppvfpplvq`fwbqdfwpsqjmdnlgvofnlajofptjw`ksklwlpalqgfqqfdjlmjwpfoepl`jbob`wjuf`lovnmqf`lqgelooltwjwof=fjwkfqofmdwkebnjozeqjfmgobzlvwbvwklq`qfbwfqfujftpvnnfqpfqufqsobzfgsobzfqf{sbmgsloj`zelqnbwglvaofsljmwppfqjfpsfqplmojujmdgfpjdmnlmwkpelq`fpvmjrvftfjdkwsflsoffmfqdzmbwvqfpfbq`kejdvqfkbujmd`vpwlnleepfwofwwfqtjmgltpvanjwqfmgfqdqlvspvsolbgkfbowknfwklgujgflpp`klloevwvqfpkbgltgfabwfubovfpLaif`wlwkfqpqjdkwpofbdvf`kqlnfpjnsofmlwj`fpkbqfgfmgjmdpfbplmqfslqwlmojmfprvbqfavwwlmjnbdfpfmbaofnlujmdobwfpwtjmwfqEqbm`fsfqjlgpwqlmdqfsfbwOlmglmgfwbjoelqnfggfnbmgpf`vqfsbppfgwlddofsob`fpgfuj`fpwbwj``jwjfppwqfbnzfooltbwwb`hpwqffweojdkwkjggfmjmel!=lsfmfgvpfevouboofz`bvpfpofbgfqpf`qfwpf`lmggbnbdfpslqwpf{`fswqbwjmdpjdmfgwkjmdpfeef`wejfogppwbwfpleej`fujpvbofgjwlqulovnfQfslqwnvpfvnnlujfpsbqfmwb``fppnlpwoznlwkfq!#jg>!nbqhfwdqlvmg`kbm`fpvqufzafelqfpznalonlnfmwpsff`knlwjlmjmpjgfnbwwfq@fmwfqlaif`wf{jpwpnjggofFvqlsfdqltwkofdb`znbmmfqfmlvdk`bqffqbmptfqlqjdjmslqwbo`ojfmwpfof`wqbmgln`olpfgwlsj`p`lnjmdebwkfqlswjlmpjnsozqbjpfgfp`bsf`klpfm`kvq`kgfejmfqfbplm`lqmfqlvwsvwnfnlqzjeqbnfsloj`fnlgfopMvnafqgvqjmdleefqppwzofphjoofgojpwfg`boofgpjoufqnbqdjmgfofwfafwwfqaqltpfojnjwpDolabopjmdoftjgdfw`fmwfqavgdfwmltqbs`qfgjw`objnpfmdjmfpbefwz`klj`fpsjqjw.pwzofpsqfbgnbhjmdmffgfgqvppjbsofbpff{wfmwP`qjswaqlhfmbooltp`kbqdfgjujgfeb`wlqnfnafq.abpfgwkflqz`lmejdbqlvmgtlqhfgkfosfg@kvq`kjnsb`wpklvogbotbzpoldl!#alwwlnojpw!=*xubq#sqfej{lqbmdfKfbgfq-svpk+`lvsofdbqgfmaqjgdfobvm`kQfujftwbhjmdujpjlmojwwofgbwjmdAvwwlmafbvwzwkfnfpelqdlwPfbq`kbm`klqbonlpwolbgfg@kbmdfqfwvqmpwqjmdqfolbgNlajofjm`lnfpvssozPlvq`flqgfqpujftfg%maps8`lvqpfBalvw#jpobmg?kwno#`llhjfmbnf>!bnbylmnlgfqmbguj`fjm?,b=9#Wkf#gjboldklvpfpAFDJM#Nf{j`lpwbqwp`fmwqfkfjdkwbggjmdJpobmgbppfwpFnsjqfP`kllofeelqwgjqf`wmfbqoznbmvboPfof`w-		Lmfiljmfgnfmv!=SkjojsbtbqgpkbmgofjnslqwLeej`fqfdbqgphjoopmbwjlmPslqwpgfdqfftffhoz#+f-d-afkjmggl`wlqolddfgvmjwfg?,a=?,afdjmpsobmwpbppjpwbqwjpwjppvfg033s{`bmbgbbdfm`zp`kfnfqfnbjmAqbyjopbnsofoldl!=afzlmg.p`bofb``fswpfqufgnbqjmfEllwfq`bnfqb?,k2=	\\elqn!ofbufppwqfpp!#,=	-dje!#lmolbgolbgfqL{elqgpjpwfqpvqujuojpwfmefnbofGfpjdmpjyf>!bssfbowf{w!=ofufopwkbmhpkjdkfqelq`fgbmjnbobmzlmfBeqj`bbdqffgqf`fmwSflsof?aq#,=tlmgfqsqj`fpwvqmfg#x~8nbjm!=jmojmfpvmgbztqbs!=ebjofg`fmpvpnjmvwfafb`lmrvlwfp263s{fpwbwfqfnlwffnbjo!ojmhfgqjdkw8pjdmboelqnbo2-kwnopjdmvssqjm`feolbw9-smd!#elqvn-B``fppsbsfqpplvmgpf{wfmgKfjdkwpojgfqVWE.;!%bns8#Afelqf-#TjwkpwvgjlltmfqpnbmbdfsqlejwiRvfqzbmmvbosbqbnpalvdkwebnlvpdlldofolmdfqj((*#xjpqbfopbzjmdgf`jgfklnf!=kfbgfqfmpvqfaqbm`ksjf`fpaol`h8pwbwfgwls!=?qb`jmdqfpjyf..%dw8sb`jwzpf{vboavqfbv-isd!#23/333lawbjmwjwofpbnlvmw/#Jm`-`lnfgznfmv!#ozqj`pwlgbz-jmgffg`lvmwz\\oldl-EbnjozollhfgNbqhfwopf#jeSobzfqwvqhfz*8ubq#elqfpwdjujmdfqqlqpGlnbjm~fopfxjmpfqwAold?,ellwfqoldjm-ebpwfqbdfmwp?algz#23s{#3sqbdnbeqjgbzivmjlqgloobqsob`fg`lufqpsovdjm6/333#sbdf!=alpwlm-wfpw+bubwbqwfpwfg\\`lvmwelqvnpp`kfnbjmgf{/ejoofgpkbqfpqfbgfqbofqw+bssfbqPvanjwojmf!=algz!=	)#WkfWklvdkpffjmdifqpfzMftp?,ufqjezf{sfqwjmivqztjgwk>@llhjfPWBQW#b`qlpp\\jnbdfwkqfbgmbwjufsl`hfwal{!=	Pzpwfn#Gbujg`bm`fqwbaofpsqlufgBsqjo#qfboozgqjufqjwfn!=nlqf!=albqgp`lolqp`bnsvpejqpw##X^8nfgjb-dvjwbqejmjpktjgwk9pkltfgLwkfq#-sks!#bppvnfobzfqptjoplmpwlqfpqfojfeptfgfm@vpwlnfbpjoz#zlvq#Pwqjmd		Tkjowbzolq`ofbq9qfplqweqfm`kwklvdk!*#(#!?algz=avzjmdaqbmgpNfnafqmbnf!=lssjmdpf`wlq6s{8!=upsb`fslpwfqnbilq#`leeffnbqwjmnbwvqfkbssfm?,mbu=hbmpbpojmh!=Jnbdfp>ebopftkjof#kpsb`f3%bns8#		Jm##sltfqSlophj.`lolqilqgbmAlwwlnPwbqw#.`lvmw1-kwnomftp!=32-isdLmojmf.qjdkwnjoofqpfmjlqJPAM#33/333#dvjgfpubovf*f`wjlmqfsbjq-{no!##qjdkwp-kwno.aol`hqfdF{s9klufqtjwkjmujqdjmsklmfp?,wq=vpjmd#	\nubq#=$*8	\n?,wg=	?,wq=	abkbpbaqbpjodbofdlnbdzbqslophjpqsphj4]4C5d\bTA\nzk\vBl\bQ\vUmGx\bSM\nmC\bTA	wQ\nd}\bW@\bTl\bTF	i@	cT\vBM\v|jBV	qw	cC\bWI\npa	fM\n{Z{X\bTF\bVV\bVK	mkF	[]\bPm\bTv\nsI\vpg	[I\bQpmx\v_W\n^M\npe\vQ}\vGu\nel\npeChBV\bTA	So\nzk\vGL\vxD\nd[JzMY\bQpli\nfl\npC{BNt\vwT	i_\bTgQQ\n|p\vXN\bQS\vxDQC\bWZ	pD\vVS\bTWNtYh\nzuKjN}	wr	Ha\n_D	j`\vQ}\vWp\nxZ{c	ji	BU\nbDa|	Tn	pV\nZd\nmC\vEV{X	c}	To\bWl\bUd	IQ	cg\vxs\nXW	wR\vek	c}	]y	Jn\nrp\neg\npV\nz\\{W\npl\nz\\\nzU	Pc	`{\bV@\nc|\bRw	i_\bVb\nwX	HvSu\bTF\v_W\vWs\vsIm\nTT\ndc	US	}f	iZ\bWz	c}MD	Be	iD\v@@\bTl\bPv	}tSwM`\vnU	kW\ved\nqo\vxY	A|\bTz\vy`BRBM	iaXU\nyun^	fL	iI\nXW	fD\bWz\bW@	yj	m	av	BN\vb\\	pD\bTf\nY[	Jn\bQy	[^\vWc\vyuDlCJ\vWj\vHR	`V\vuW	Qy\np@\vGuplJm\bW[\nLP\nxC\n`m	wQuiR\nbI	wQ	BZ	WVBR\npg	cgtiCW\n_y	Rg\bQa\vQB\vWc\nYble\ngESu\nL[	Q	ea	dj\v]W\nb~M`	wL\bTV\bVH\nt\npl	|bs_\bU|\bTaoQlvSkM`\bTv\vK}\nfl	cCoQBR	Hk	|d\bQp	HK	BZ\vHR\bPv\vLx\vEZ\bT\bTv	iDoDMU\vwBSuk`St\ntC	Pl	Kg\noi	jY\vxYh}\nzk\bWZ	m\ve`	TB	fE\nzk	`zYh\nV|	HK	AJ	AJ\bUL	p\\	ql\nYcKd\nfyYh	[I\vDgJm\n]n\nlb\bUd\n{Z	lu	fsoQ\bTWJm\vwB	eaYhBC	sb	Tn\nzU\n_y\vxY	Q]\ngwmt	O\\\ntb\bWW\bQy	mI	V[\ny\\\naB\vRb	wQ\n]QQJ\bWg\vWa\bQj\ntC\bVH\nYm\vxs\bVK\nel\bWI\vxYCq\ntR\vHV\bTl\bVw	ay\bQa\bVV	}t	dj\nr|	p\\	wR\n{i\nTT	[I	i[	AJ\vxs\v_W	d{\vQ}	cg	Tz	A|	Cj\vLmN}m\nbK	dZ	p\\	`V	sV\np@	iD	wQ\vQ}\bTfkaJm\v@@\bV`	zp\n@NSw	iI	cg\noiSu\bVwloCy	c}\vb\\	sUBA\bWI\bTf\nxS	Vp\nd|\bTV\vbC	NoJu\nTC	|`\n{Z	D]\bU|	c}lm\bTl	Bv	Pl	c}\bQp	m\nLk	kj\n@NSbKO	j_	p\\\nzU\bTl\bTg\bWI	cfXO\bWW\ndzli	BN\nd[\bWOMD\vKC	dj	I_\bVV\ny\\\vLmxl	xB	kV\vb\\\vJW\vVS	Vx\vxD	d{MD\bTa	|`\vPzR}\vWsBM\nsICN\bTaJm\npe	i_\npV\nrh	Rd	Hv\n~A\nxR\vWh\vWk\nxS\vAz\vwX\nbIoQ	fw\nqI\nV|\nunz\vpg	d\\\voA{D	i_xB\bT	`Vqr	TTg]CA\vuR	VJ	T`\npw\vRb	I_\nCxRo\vsICjKh	Bv	WVBBoD{D\nhcKm\v^R	QE\n{I\np@\nc|Gt	c}Dl\nzUqN	sVk}	Hh\v|j\nqou|	Q]\vekZM`St\npe	dj\bVG\veE	m\vWc|I\n[W	fL\bT	BZSu\vKaCqNtY[\nqI\bTv	fM	i@	}fB\\	Qy\vBl\bWgXDkc\vx[\bVV	Q]	a	Py\vxD\nfI	}foD	dj	SGls	~DCN\n{Z	\\v\n_D\nhc\vx_C[	AJ\nLM	VxCI	bj	c^	cF\ntCSx	wrXA\bU\\	|a\vK\\\bTV\bVj\nd|	fsCX\ntb\bRw	Vx	AE	A|\bTNt\vDg	Vc\bTld@\npo	M	cF\npe	iZ	Bo\bSq\nfHl`\bTx\bWf	HE\vF{	cO	fD\nlm\vfZ\nlm\veU	dGBH\bTV	SiMW\nwX\nz\\	\\cCX\nd}	l}\bQp\bTV	F~\bQ	`i\ng@nO\bUd\bTl\nL[	wQ	ji\ntC	|J\nLU\naB\vxYKj	AJuN	i[\npeSk\vDg\vx]\bVb\bVV\nea	kV\nqI\bTaSk\nAO	pD\ntb\nts\nyi\bVg	i_\v_W\nLkNt	yj	fMR	iI\bTl\vwX	sV\vMl\nyu	AJ\bVjKO	WV\vA}\vW\nrp	iD\v|olv\vsIBM	d~	CU\bVbeV\npC\vwT	j`	c}\vxs\vps\vvh	WV\vGg\vAe\vVK\v]W	rg\vWcF`	Br\vb\\	dZ\bQp\nqIkF\nLk\vAR\bWI\bTg	bs	dw\n{L\n_y	iZ\bTA	lg\bVV\bTl	dk\n`k	a{	i_{Awj	wN\v@@\bTe	i_\n_D	wL\nAH\viK\vek\n[]	p_	yj\bTv	US	[r\n{I\npsGt\vVK\nplS}\vWP	|dMD\vHV\bTR}M`\bTV\bVHlvCh\bW[Ke	R{\v^R	ab	BZ	VA	B`\nd|\nhsKe	BeOi	R{	d\\nB\bWZ	dZ	VJOs	muQ\vhZQ@QQ\nfI\bW[B\\li\nzU\nMdM`\nxS\bVV\n\\}\vxD	m\bTpIS\nc|	kVi~	V{\vhZ	|b\bWt\n@R\voA\vnU\bWI	ea	B`	iD	c}	TzBR\vQBNj	CP	[I\bTv	`WuN\vpg\vpg\vWc	iT	bs	wL	U_	c\\	|h\vKa	Nr	fL\nq|\nzu\nz\\	Nr\bUg	|bm`\bTv\nyd\nrp\bWf	UXBV\nzk\nd}	wQ	}fCe\ved\bTW\bSB\nxU	cn\bTb\ne	a\\	SG\bU|\npV\nN\\Kn\vnU	At	pD\v^R\vIrb[	R{	dE\vxD\vWK\vWA\bQL\bW@Su\bUd\nDM	PcCADloQ	Hswiub\na\bQpOb\nLP\bTlY[\vK}	AJ\bQn^\vsA\bSM\nqM\bWZ\n^W\vz{S|	fD\bVK\bTv\bPvBB	CPdF	id\vxsmx\vws	cC\ntC	ycM`\vW\nrh\bQp\vxD\\o\nsI_k\nzukF	fDXsXO	jp\bTvBS{B	Br\nzQ\nbI	c{BDBVnO\bTF	caJd	fL	PV	I_\nlK`o	wX\npa	gu\bP}{^\bWf\n{I	BN\npaKl\vpg	cn	fL\vvhCq\bTl\vnU\bSqCm	wR\bUJ\npe\nyd\nYgCy\vKW	fD\neaoQ	j_	BvnM\vID\bTa\nzApl\n]n\bTa	R{	fr\n_y\bUg{Xkk\vxD|Ixl\nfyCe\vwB\nLk\vd]\noi\n}h	Q]\npe\bVwHkOQ\nzk	AJ\npV\bPv\ny\\	A{Oi\bSBXA\veE	jp\nq}	iDqN\v^R	m	iZ	Br\bVg\noi\n\\X	U_\nc|\vHV\bTf	Tn\\N\\N\nuBlv\nyu	Td\bTf\bPL\v]W	dG\nA`\nw^\ngI\npe	dw\nz\\ia\bWZ	cFJm\n{Z\bWO_kDfRR	d\\\bVV\vxsBNtilm	Td	]y\vHV	So\v|jXX	A|\vZ^\vGu\bTWM`kF\vhZ\vVK	dG\vBl	ay\nxUqEnO\bVw\nqICX\ne	Pl\bWO\vLm	dLuHCm	dTfn\vwBka\vnU\n@M\nyT	Hv	\\}Kh	d~Yhk}\neR	d\\\bWI	|b	HK	iD\bTWMY\npl\bQ_	wr\vAx	HE\bTg\bSqvp\vb\\\bWO\nOl\nsI\nfy\vID	\\c\n{Z\n^~\npe\nAO	TT\vxvk_\bWO\v|j\vwB	Qy	i@	Pl	Ha	dZk}ra	UT\vJc\ved\np@	QN\nd|	kj	HkM`\noi	wr	d\\\nlq\no_\nlb\nL[	acBBBHCm\npl	IQ\bVK\vxs\n`e\viK\npaOi	US\bTp	fD\nPGkkXA\nz\\\neg\vWh	wRqN\nqS	cnlo\nxS\n^W	BU\nt	HE	p\\	fF	fw\bVV\bW@	ak\vVKls	VJ\bVV\veE\\o\nyX\nYmM`lL\nd|\nzk	A{sE	wQXT\nt	Pl	]y\vwT{pMD\vb\\	Q]Kj	Jn\nAH\vRb	BU	HK	\\c\nfIm\nqM\n@R	So\noiBT	Hv\n_yKh	BZ	]i\bUJ	V{Sr\nbI\vGg	a_\bTR\nfI\nfl	[K	IIS|\vuW	iI\bWI\nqI\v|jBV\bVg\bWZkF\vx]\bTA	ab	fr	i@	Jd	Jd\vps\nAO\bTaxu	iD\nzk	|d	|`\bW[	lP	dG\bVV\vw}\vqO	i[\bQ\bTz\vVF	wNts	dw\bTv\neS\ngi	NryS\npe\bVV\bSq\n`m	yj	BZ\vWX\bSB	c\\\nUR	[J	c_nM\bWQ\vAx\nMd	Brui\vxY\bSM\vWc\v|j\vxs	}Q	BO\bPL\bWW	fM\nAO	Pc\veUe^\bTg\nqI	ac\bPv	cFoQ	Q\vhZka\nz\\	iK	BU\n`k	CPS|M`\n{I	S{_O	BZZiSk	ps	p\\\nYu\n]s\nxC\bWt\nbD	kV\vGuyS\nqA	[r\neKM`	dZlL\bUg\bTl\nbD	US\vb\\	pV\nccS\\	ct	`z\bPL\vWs\nA`\neg\bSquECR\vDg	`W\vz{\vWcSkSk	bW\bUg	ea\nxZ	iI	UX	VJ\nqn	S{\vRb\bTQ\nplGt\vuWuj\npF\nqI	fL	[I	iaXO\nyu\vDg\ved	q{VG\bQka	Vj	kV	xB\nd|\np@	QN	Pc	ps]j	kV	oU\bTp\nzUnB\vB]	a{\bV@\n]nm`	cz	R{m`\bQa\vwT\bSMMYqN	dj~s\vQ}MY\vMB	Bv	wR\bRg\vQ}	ql\vKC\nrmxuCC\vwB\vvh	BqXq\npV	i_ObuE\nbd\nqo\v{i\nC~	BL\veEuH\bVjEyGz\vzR\v{i	cf\n{Z\n]nXA\vGu\vnU	hS\vGI\nCc	HE\bTA	HBBHCj\nCc\bTF	HE\nXI	A{\bQ	c\\\vmO\vWX\nfH\np@MY\bTF\nlK	Bt\nzU	TTKm\vwT\npV\ndt\vyI	Vx	Q	Rg	Td\nzU\bRS\nLM	wAnM	Tn\ndS	]g\nLc\vwB	}t	[I	CPkX\vFm\vhZm	i[\np@\vQ}\vW	|d\nMO\nMd	f_	fD	cJ	Hz\vRb	io	PyY[\nxU	ct\v@@	ww\bPvBMFF\ntbv|\vKm	Bq	BqKh`o\nZdXU	i]	|`	StB\\\bQ\v_W	TJ\nqI	|a	A{\vuPMD	Pl\nxR	fL\vws	c{	d\\\bV`\neg	HKkc\nd|\bVV\ny\\kc	i]\bVG	`V	ss	I_	AE	bs	du\nel	pD\vW\nqslv\bSMZi\vVKia\vQB	Q\n{Z\bPt\vKl\nlK\nhs\ndS\bVKmf\nd^	kV	cO\nc|\bVH	\\]\bTv\bSq	mI\vDg	VJ	cn\ny\\\bVg\bTv\nyX\bTF	]]\bTp\noi\nhs\veU\nBf	djMr\n|p	\\g	]r\bVb{D\nd[XN	fM	O\\s_	cf	iZXN\vWc	qv\n`m	U^oD\nd|\vGg	dE\vwflou}\nd|oQ	`iOi\vxD\ndZ\nCxYw\nzk\ntb\ngw	yj	B`\nyX\vps\ntC\vpP\vqw\bPu\bPX	Dm\npwNj	ss	aG\vxs\bPt\noLGz	Ok	i@	i]eC	IQ	ii	dj\v@J	|duh\bWZ\veU\vnU\bTa	cCg]\nzkYh\bVK\nLU\np@\ntb\ntR	Cj\vNP	i@\bP{\n\\}\n{c\nwX	fL\bVG	c{	|`	AJ	|C	fDln	|d	bs\nqI{B\vAx\np@\nzk\vRbOs\vWSe^\vD_	Bv\vWd\bVb\vxs\veE\bRw\n]n\n|p\vg|	fwkc\bTIka\n\\TSp	ju\vps\npeu|\vGr\bVe	CU]MXU\vxD\bTa	IQ\vWq	CU	am	dj\bSoSw\vnUCh	Q]s_\bPt	fS\bTa	\\}\n@OYc	UZ\bTx\npe\vnU\nzU	|}	iD\nz\\\bSM\vxDBR\nzQ	QN]MYh\nLP\vFm\vLXvc\vqlka	HK\bVb\ntC\nCy\bTv\nuVoQ	`z	[I	B`\vRb	yj	sb\vWs\bTl	kV\ved\nelL\vxN	m\nJn	jY\vxD\bVb\bSq\vyu	wL\vXL\bTA	pg	At	nDXX	wR\npl\nhwyS\nps	cO\bW[\v|jXN	sV	p\\	Be\nb~\nAJ\n]ek`qN	dw	WV	HE\vEVJz	id	B`	zhE]	fD\bTgqN\bTa	jaCv\bSM\nhc\bUet_	ieg]	wQ\nPn\bVB	jw\bVg\vbE	BZ\vRH\bP{	jp\n\\}	a_	cC	|a\vD]	BZ	i[	fD\vxW\no_	d\\\n_D\ntb	\\c	AJ\nlKoQlo\vLx\vM@\bWZKn\vpg\nTi\nIv\n|r\v@}JzLmWhk}ln\vxD\n]sgc\vps	Br\bTW\vBMtZ\nBYDW	jf\vSWC}\nqo	dE	mv	IQ\bPP\bUblvBC\nzQ	[I\vgl\nig\bUsBT\vbC\bSq	sU	iW\nJn	SY	HK	rg\npV\vID\v|jKO	`S	|a`vbmglfmujbqnbgqjgavp`bqjmj`jlwjfnslslqrvf`vfmwbfpwbglsvfgfmivfdlp`lmwqbfpw/Mmmlnaqfwjfmfmsfqejonbmfqbbnjdlp`jvgbg`fmwqlbvmrvfsvfgfpgfmwqlsqjnfqsqf`jlpfd/Vmavfmlpuloufqsvmwlppfnbmbkba/Abbdlpwlmvfulpvmjglp`bqolpfrvjslmj/]lpnv`klpbodvmb`lqqfljnbdfmsbqwjqbqqjabnbq/Abklnaqffnsoflufqgbg`bnajlnv`kbpevfqlmsbpbglo/Amfbsbqf`fmvfubp`vqplpfpwbabrvjfqlojaqlp`vbmwlb``fplnjdvfoubqjlp`vbwqlwjfmfpdqvslppfq/Mmfvqlsbnfgjlpeqfmwfb`fq`bgfn/Mplefqwb`l`kfpnlgfoljwbojbofwqbpbod/Vm`lnsqb`vbofpf{jpwf`vfqslpjfmglsqfmpboofdbqujbifpgjmfqlnvq`jbslgq/Msvfpwlgjbqjlsvfaolrvjfqfnbmvfosqlsjl`qjpjp`jfqwlpfdvqlnvfqwfevfmwf`fqqbqdqbmgffef`wlsbqwfpnfgjgbsqlsjbleqf`fwjfqqbf.nbjoubqjbpelqnbpevwvqllaifwlpfdvjqqjfpdlmlqnbpnjpnlp/Vmj`l`bnjmlpjwjlpqby/_mgfajglsqvfabwlofglwfm/Abifp/Vpfpsfql`l`jmblqjdfmwjfmgb`jfmwl`/Mgjykbaobqpfq/Abobwjmbevfqybfpwjoldvfqqbfmwqbq/E{jwlo/_sfybdfmgbu/Agflfujwbqsbdjmbnfwqlpibujfqsbgqfpe/M`jo`bafyb/Mqfbppbojgbfmu/Alibs/_mbavplpajfmfpwf{wlpoofubqsvfgbmevfqwf`ln/Vm`obpfpkvnbmlwfmjglajoablvmjgbgfpw/Mpfgjwbq`qfbgl<X<W=c=k=n<R<V<\\<V<T<W<T=a=n<R<^=m<Y<Y<_<R<S=l<T=n<\\<V<Y=e<Y=o<Z<Y<v<\\<V<]<Y<[<]=g<W<R<Q<T<~=m<Y<S<R<X<A=n<R=n<R<P=k<Y<P<Q<Y=n<W<Y=n=l<\\<[<R<Q<\\<_<X<Y<P<Q<Y<x<W=c<s=l<T<Q<\\=m<Q<T=i=n<Y<P<V=n<R<_<R<X<^<R=n=n<\\<P<M<D<|<P<\\=c<K=n<R<^<\\=m<^<\\<P<Y<P=o<N<\\<V<X<^<\\<Q<\\<P=a=n<T=a=n=o<~<\\<P=n<Y=i<S=l<R=n=o=n<Q<\\<X<X<Q=c<~<R=n=n=l<T<Q<Y<U<~<\\=m<Q<T<P=m<\\<P=n<R=n=l=o<]<r<Q<T<P<T=l<Q<Y<Y<r<r<r<W<T=j=a=n<\\<r<Q<\\<Q<Y<P<X<R<P<P<R<U<X<^<Y<R<Q<R=m=o<X\fHy\fIk\fHU\fId\fHy\fIl\fHT\fIk\fHy\fHR\fHy\fIg\fHx\fH\\\fHF\fH\\\fHD\fIk\fHc\fHy\fHy\fHS\fHA\fIl\fHk\fHT\fHy\fH\\\fHH\fIg\fHU\fIg\fHj\fHF\fHU\fIl\fHC\fHU\fHC\fHR\fHH\fHy\fHI\fHRibdqbm\fHj\fHp\fHp\fIg\fHi\fH@\fHJ\fIg\fH{\fHd\fHp\fHR\fH{\fHc\fHU\fHB\fHk\fHD\fHY\fHU\fHC\fIk\fHI\fIk\fHI\fIl\fHt\fH\\\fHp\fH@\fHJ\fIl\fHy\fHd\fHp\fIl\fHY\fIk\fHD\fHd\fHD\fHc\fHU\fH\\\fHe\fHT\fHB\fIk\fHy\fHB\fHY\fIg\fH^\fIk\fHT\fH@\fHB\fHd\fHJ\fIk\fH\fH\\\fHj\fHB\fH@\fHT\fHA\fH\\\fH@\fHD\fHv\fH^\fHB\fHD\fHj\fH{\fHT\fIl\fH^\fIl4U5h5e4I5h5e5k4\\4K4N4B4]4U4C4C4K5h5e5k4\\5k4Y5d4]4V5f4]5o4K5j5d5h4K4D5f5j4U4]4Z4\\5h5o5k5j4K5f5d5i5n4K5h4U5h5f4K5j4K5h5o5j4A4F5e5n4D5h5d4A4E4K4B4]5m5n4[4U4D4C4]5o5j4I4\\4K5o5i4K4K4A4C4I5h4K5m5f5k4D4U4Z5o5f5m4D4A4G5d5i5j5d5k5d4O5j4K4@4C4K5h5k4K4_5h5i4U5j4C5h5f4_4U4D4]4Y5h5e5i5j4\\4D5k4K4O5j5k5i4G5h5o5j4F4K5h4K4A5f4G5i4Y4]4X4]4A4A5d5h5d5m5f4K4\\4K5h5o5h5i4]4E4K5j4F4K5h5m4O4D5d4B4K4Y4O5j4F4K5j5k4K5h5f4U4Z5d5d5n4C4K4D5j4B5f4]4D5j4F5h5o5i4X4K4M5d5k5f4K4D5d5n4Y4Y5d5i4K4]5n5i4O4A4C5j4A5j4U4C5i4]4O5f4K4A4E5o4F4D4C5d5j5f4@4D5i5j5k4F4A4F4@5k4E4_5j4E5f4F5i5o4]4E4V4^4E5j5m4_4D5f4F5h5h5k5h5j4K4F5h5o5n5h4D5h5i4K4U5j5k4O5d5h4X5f4M5j5d4]4O5i4K5m5f5o4D5o5h4\\4K4F4]4F4D4D4O5j5k5i4_4K5j5o4D5f4U5m5n4C4A4_5j5h5k5i4X4U4]4O5k5h4X5k4]5n4[4]4[5h4Dsqlejofpfquj`fgfebvowkjnpfoegfwbjop`lmwfmwpvsslqwpwbqwfgnfppbdfpv``fppebpkjlm?wjwof=`lvmwqzb``lvmw`qfbwfgpwlqjfpqfpvowpqvmmjmdsql`fpptqjwjmdlaif`wpujpjaoftfo`lnfbqwj`ofvmhmltmmfwtlqh`lnsbmzgzmbnj`aqltpfqsqjub`zsqlaofnPfquj`fqfpsf`wgjpsobzqfrvfpwqfpfquftfapjwfkjpwlqzeqjfmgplswjlmptlqhjmdufqpjlmnjoojlm`kbmmfotjmglt-bggqfppujpjwfgtfbwkfq`lqqf`wsqlgv`wfgjqf`welqtbqgzlv#`bmqfnlufgpvaif`w`lmwqlobq`kjuf`vqqfmwqfbgjmdojaqbqzojnjwfgnbmbdfqevqwkfqpvnnbqznb`kjmfnjmvwfpsqjubwf`lmwf{wsqldqbnpl`jfwzmvnafqptqjwwfmfmbaofgwqjddfqplvq`fpolbgjmdfofnfmwsbqwmfqejmboozsfqef`wnfbmjmdpzpwfnphffsjmd`vowvqf%rvlw8/ilvqmbosqlif`wpvqeb`fp%rvlw8f{sjqfpqfujftpabobm`fFmdojpk@lmwfmwwkqlvdkSofbpf#lsjmjlm`lmwb`wbufqbdfsqjnbqzujoobdfPsbmjpkdboofqzgf`ojmfnffwjmdnjppjlmslsvobqrvbojwznfbpvqfdfmfqbopsf`jfppfppjlmpf`wjlmtqjwfqp`lvmwfqjmjwjboqfslqwpejdvqfpnfnafqpklogjmdgjpsvwffbqojfqf{sqfppgjdjwbosj`wvqfBmlwkfqnbqqjfgwqbeej`ofbgjmd`kbmdfg`fmwqbouj`wlqzjnbdfp,qfbplmppwvgjfpefbwvqfojpwjmdnvpw#afp`kllopUfqpjlmvpvboozfsjplgfsobzjmddqltjmdlaujlvplufqobzsqfpfmwb`wjlmp?,vo=	tqbssfqboqfbgz`fqwbjmqfbojwzpwlqbdfbmlwkfqgfphwlsleefqfgsbwwfqmvmvpvboGjdjwbo`bsjwboTfapjwfebjovqf`lmmf`wqfgv`fgBmgqljggf`bgfpqfdvobq#%bns8#bmjnbopqfofbpfBvwlnbwdfwwjmdnfwklgpmlwkjmdSlsvobq`bswjlmofwwfqp`bswvqfp`jfm`foj`fmpf`kbmdfpFmdobmg>2%bns8Kjpwlqz#>#mft#@fmwqbovsgbwfgPsf`jboMfwtlqhqfrvjqf`lnnfmwtbqmjmd@loofdfwlloabqqfnbjmpaf`bvpffof`wfgGfvwp`kejmbm`ftlqhfqprvj`hozafwtffmf{b`wozpfwwjmdgjpfbpfPl`jfwztfbslmpf{kjajw%ow8"..@lmwqlo`obppfp`lufqfglvwojmfbwwb`hpgfuj`fp+tjmgltsvqslpfwjwof>!Nlajof#hjoojmdpkltjmdJwbojbmgqlssfgkfbujozfeef`wp.2$^*8	`lmejqn@vqqfmwbgubm`fpkbqjmdlsfmjmdgqbtjmdajoojlmlqgfqfgDfqnbmzqfobwfg?,elqn=jm`ovgftkfwkfqgfejmfgP`jfm`f`bwboldBqwj`ofavwwlmpobqdfpwvmjelqnilvqmfzpjgfabq@kj`bdlklojgbzDfmfqbosbppbdf/%rvlw8bmjnbwfeffojmdbqqjufgsbppjmdmbwvqboqlvdkoz-		Wkf#avw#mlwgfmpjwzAqjwbjm@kjmfpfob`h#lewqjavwfJqfobmg!#gbwb.eb`wlqpqf`fjufwkbw#jpOjaqbqzkvpabmgjm#eb`wbeebjqp@kbqofpqbgj`boaqlvdkwejmgjmdobmgjmd9obmd>!qfwvqm#ofbgfqpsobmmfgsqfnjvnsb`hbdfBnfqj`bFgjwjlm^%rvlw8Nfppbdfmffg#wlubovf>!`lnsof{ollhjmdpwbwjlmafojfufpnboofq.nlajofqf`lqgptbmw#wlhjmg#leEjqfel{zlv#bqfpjnjobqpwvgjfgnb{jnvnkfbgjmdqbsjgoz`ojnbwfhjmdglnfnfqdfgbnlvmwpelvmgfgsjlmffqelqnvobgzmbpwzklt#wl#Pvsslqwqfufmvff`lmlnzQfpvowpaqlwkfqplogjfqobqdfoz`boojmd-%rvlw8B``lvmwFgtbqg#pfdnfmwQlafqw#feelqwpSb`jej`ofbqmfgvs#tjwkkfjdkw9tf#kbufBmdfofpmbwjlmp\\pfbq`kbssojfgb`rvjqfnbppjufdqbmwfg9#ebopfwqfbwfgajddfpwafmfejwgqjujmdPwvgjfpnjmjnvnsfqkbspnlqmjmdpfoojmdjp#vpfgqfufqpfubqjbmw#qlof>!njppjmdb`kjfufsqlnlwfpwvgfmwplnflmff{wqfnfqfpwlqfalwwln9fuloufgboo#wkfpjwfnbsfmdojpktbz#wl##Bvdvpwpznalop@lnsbmznbwwfqpnvpj`bobdbjmpwpfqujmd~*+*8	sbznfmwwqlvaof`lm`fsw`lnsbqfsbqfmwpsobzfqpqfdjlmpnlmjwlq#$$Wkf#tjmmjmdf{solqfbgbswfgDboofqzsqlgv`fbajojwzfmkbm`f`bqffqp*-#Wkf#`loof`wPfbq`k#bm`jfmwf{jpwfgellwfq#kbmgofqsqjmwfg`lmplofFbpwfqmf{slqwptjmgltp@kbmmfojoofdbomfvwqbopvddfpw\\kfbgfqpjdmjmd-kwno!=pfwwofgtfpwfqm`bvpjmd.tfahjw`objnfgIvpwj`f`kbswfquj`wjnpWklnbp#nlyjoobsqlnjpfsbqwjfpfgjwjlmlvwpjgf9ebopf/kvmgqfgLoznsj`\\avwwlmbvwklqpqfb`kfg`kqlmj`gfnbmgppf`lmgpsqlwf`wbglswfgsqfsbqfmfjwkfqdqfbwozdqfbwfqlufqboojnsqluf`lnnbmgpsf`jbopfbq`k-tlqpkjsevmgjmdwklvdkwkjdkfpwjmpwfbgvwjojwzrvbqwfq@vowvqfwfpwjmd`ofbqozf{slpfgAqltpfqojafqbo~#`bw`kSqlif`wf{bnsofkjgf+*8EolqjgbbmptfqpbooltfgFnsfqlqgfefmpfpfqjlvpeqffglnPfufqbo.avwwlmEvqwkfqlvw#le#">#mvoowqbjmfgGfmnbqhuljg+3*,boo-ipsqfufmwQfrvfpwPwfskfm		Tkfm#lapfquf?,k1=	Nlgfqm#sqlujgf!#bow>!alqgfqp-		Elq#		Nbmz#bqwjpwpsltfqfgsfqelqnej`wjlmwzsf#lenfgj`bowj`hfwplsslpfg@lvm`jotjwmfppivpwj`fDflqdf#Afodjvn---?,b=wtjwwfqmlwbaoztbjwjmdtbqebqf#Lwkfq#qbmhjmdskqbpfpnfmwjlmpvqujufp`klobq?,s=	#@lvmwqzjdmlqfgolpp#leivpw#bpDflqdjbpwqbmdf?kfbg=?pwlssfg2$^*8	jpobmgpmlwbaofalqgfq9ojpw#le`bqqjfg233/333?,k0=	#pfufqboaf`lnfppfof`w#tfggjmd33-kwnonlmbq`klee#wkfwfb`kfqkjdkoz#ajloldzojef#lelq#fufmqjpf#le%qbrvl8sovplmfkvmwjmd+wklvdkGlvdobpiljmjmd`jq`ofpElq#wkfBm`jfmwUjfwmbnufkj`ofpv`k#bp`qzpwboubovf#>Tjmgltpfmilzfgb#pnboobppvnfg?b#jg>!elqfjdm#Boo#qjklt#wkfGjpsobzqfwjqfgkltfufqkjggfm8abwwofppffhjmd`bajmfwtbp#mlwollh#bw`lmgv`wdfw#wkfIbmvbqzkbssfmpwvqmjmdb9klufqLmojmf#Eqfm`k#ob`hjmdwzsj`bof{wqb`wfmfnjfpfufm#jedfmfqbwgf`jgfgbqf#mlw,pfbq`kafojfep.jnbdf9ol`bwfgpwbwj`-oldjm!=`lmufqwujlofmwfmwfqfgejqpw!=`jq`vjwEjmobmg`kfnjpwpkf#tbp23s{8!=bp#pv`kgjujgfg?,psbm=tjoo#afojmf#leb#dqfbwnzpwfqz,jmgf{-eboojmdgvf#wl#qbjotbz`loofdfnlmpwfqgfp`fmwjw#tjwkmv`ofbqIftjpk#sqlwfpwAqjwjpkeoltfqpsqfgj`wqfelqnpavwwlm#tkl#tbpof`wvqfjmpwbmwpvj`jgfdfmfqj`sfqjlgpnbqhfwpPl`jbo#ejpkjmd`lnajmfdqbskj`tjmmfqp?aq#,=?az#wkf#MbwvqboSqjub`z`llhjfplvw`lnfqfploufPtfgjpkaqjfeozSfqpjbmpl#nv`k@fmwvqzgfsj`wp`lovnmpklvpjmdp`qjswpmf{w#wlafbqjmdnbssjmdqfujpfgiRvfqz+.tjgwk9wjwof!=wllowjsPf`wjlmgfpjdmpWvqhjpkzlvmdfq-nbw`k+~*+*8		avqmjmdlsfqbwfgfdqffpplvq`f>Qj`kbqg`olpfozsobpwj`fmwqjfp?,wq=	`lolq9 vo#jg>!slppfppqloojmdskzpj`pebjojmdf{f`vwf`lmwfpwojmh#wlGfebvow?aq#,=	9#wqvf/`kbqwfqwlvqjpn`obppj`sql`ffgf{sobjm?,k2=	lmojmf-<{no#ufkfosjmdgjbnlmgvpf#wkfbjqojmffmg#..=*-bwwq+qfbgfqpklpwjmd eeeeeeqfbojyfUjm`fmwpjdmbop#pq`>!,Sqlgv`wgfpsjwfgjufqpfwfoojmdSvaoj`#kfog#jmIlpfsk#wkfbwqfbeef`wp?pwzof=b#obqdfglfpm$wobwfq/#Fofnfmwebuj`lm`qfbwlqKvmdbqzBjqslqwpff#wkfpl#wkbwNj`kbfoPzpwfnpSqldqbnp/#bmg##tjgwk>f%rvlw8wqbgjmdofew!=	sfqplmpDlogfm#Beebjqpdqbnnbqelqnjmdgfpwqlzjgfb#le`bpf#lelogfpw#wkjp#jp-pq`#>#`bqwllmqfdjpwq@lnnlmpNvpojnpTkbw#jpjm#nbmznbqhjmdqfufbopJmgffg/frvbooz,pklt\\blvwgllqfp`bsf+Bvpwqjbdfmfwj`pzpwfn/Jm#wkf#pjwwjmdKf#boplJpobmgpB`bgfnz	\n\n?"..Gbmjfo#ajmgjmdaol`h!=jnslpfgvwjojyfBaqbkbn+f{`fswxtjgwk9svwwjmd*-kwno+#X^8	GBWBX#)hjw`kfmnlvmwfgb`wvbo#gjbof`wnbjmoz#\\aobmh$jmpwboof{sfqwpje+wzsfJw#bopl%`lsz8#!=Wfqnpalqm#jmLswjlmpfbpwfqmwbohjmd`lm`fqmdbjmfg#lmdljmdivpwjez`qjwj`peb`wlqzjwp#ltmbppbvowjmujwfgobpwjmdkjp#ltmkqfe>!,!#qfo>!gfufols`lm`fqwgjbdqbngloobqp`ovpwfqsks<jg>bo`lklo*8~*+*8vpjmd#b=?psbm=ufppfopqfujuboBggqfppbnbwfvqbmgqljgboofdfgjoomfpptbohjmd`fmwfqprvbojeznbw`kfpvmjejfgf{wjm`wGfefmpfgjfg#jm	\n?"..#`vpwlnpojmhjmdOjwwof#Allh#lefufmjmdnjm-ip<bqf#wkfhlmwbhwwlgbz$p-kwno!#wbqdfw>tfbqjmdBoo#Qjd8	~*+*8qbjpjmd#Bopl/#`qv`jbobalvw!=gf`obqf..=	?p`ejqfel{bp#nv`kbssojfpjmgf{/#p/#avw#wzsf#>#		?"..wltbqgpQf`lqgpSqjubwfElqfjdmSqfnjfq`klj`fpUjqwvboqfwvqmp@lnnfmwSltfqfgjmojmf8slufqwz`kbnafqOjujmd#ulovnfpBmwklmzoldjm!#QfobwfgF`lmlnzqfb`kfp`vwwjmddqbujwzojef#jm@kbswfq.pkbgltMlwbaof?,wg=	#qfwvqmpwbgjvntjgdfwpubqzjmdwqbufopkfog#aztkl#bqftlqh#jmeb`vowzbmdvobqtkl#kbgbjqslqwwltm#le		Plnf#$`oj`h$`kbqdfphfztlqgjw#tjoo`jwz#le+wkjp*8Bmgqft#vmjrvf#`kf`hfglq#nlqf033s{8#qfwvqm8qpjlm>!sovdjmptjwkjm#kfqpfoePwbwjlmEfgfqboufmwvqfsvaojpkpfmw#wlwfmpjlmb`wqfpp`lnf#wlejmdfqpGvhf#lesflsof/f{soljwtkbw#jpkbqnlmzb#nbilq!9!kwwsjm#kjp#nfmv!=	nlmwkozleej`fq`lvm`jodbjmjmdfufm#jmPvnnbqzgbwf#leolzbowzejwmfppbmg#tbpfnsfqlqpvsqfnfPf`lmg#kfbqjmdQvppjbmolmdfpwBoafqwbobwfqbopfw#le#pnboo!=-bssfmggl#tjwkefgfqboabmh#leafmfbwkGfpsjwf@bsjwbodqlvmgp*/#bmg#sfq`fmwjw#eqln`olpjmd`lmwbjmJmpwfbgejewffmbp#tfoo-zbkll-qfpslmgejdkwfqlap`vqfqfeof`wlqdbmj`>#Nbwk-fgjwjmdlmojmf#sbggjmdb#tkloflmfqqlqzfbq#lefmg#le#abqqjfqtkfm#jwkfbgfq#klnf#leqfpvnfgqfmbnfgpwqlmd=kfbwjmdqfwbjmp`olvgeqtbz#le#Nbq`k#2hmltjmdjm#sbqwAfwtffmofpplmp`olpfpwujqwvboojmhp!=`qlppfgFMG#..=ebnlvp#btbqgfgOj`fmpfKfbowk#ebjqoz#tfbowkznjmjnboBeqj`bm`lnsfwfobafo!=pjmdjmdebqnfqpAqbpjo*gjp`vppqfsob`fDqfdlqzelmw#`lsvqpvfgbssfbqpnbhf#vsqlvmgfgalwk#leaol`hfgpbt#wkfleej`fp`lolvqpje+gl`vtkfm#kffmelq`fsvpk+evBvdvpw#VWE.;!=Ebmwbpzjm#nlpwjmivqfgVpvboozebqnjmd`olpvqflaif`w#gfefm`fvpf#le#Nfgj`bo?algz=	fujgfmwaf#vpfghfz@lgfpj{wffmJpobnj` 333333fmwjqf#tjgfoz#b`wjuf#+wzsflelmf#`bm`lolq#>psfbhfqf{wfmgpSkzpj`pwfqqbjm?walgz=evmfqboujftjmdnjggof#`qj`hfwsqlskfwpkjewfggl`wlqpQvppfoo#wbqdfw`lnsb`wbodfaqbpl`jbo.avoh#lenbm#bmg?,wg=	#kf#ofew*-ubo+*ebopf*8oldj`boabmhjmdklnf#wlmbnjmd#Bqjylmb`qfgjwp*8	~*8	elvmgfqjm#wvqm@loojmpafelqf#Avw#wkf`kbqdfgWjwof!=@bswbjmpsfoofgdlggfppWbd#..=Bggjmd9avw#tbpQf`fmw#sbwjfmwab`h#jm>ebopf%Ojm`lomtf#hmlt@lvmwfqIvgbjpnp`qjsw#bowfqfg$^*8	##kbp#wkfvm`ofbqFufmw$/alwk#jmmlw#boo		?"..#sob`jmdkbqg#wl#`fmwfqplqw#le`ojfmwppwqffwpAfqmbqgbppfqwpwfmg#wlebmwbpzgltm#jmkbqalvqEqffglniftfoqz,balvw--pfbq`kofdfmgpjp#nbgfnlgfqm#lmoz#lmlmoz#wljnbdf!#ojmfbq#sbjmwfqbmg#mlwqbqfoz#b`qlmzngfojufqpklqwfq33%bns8bp#nbmztjgwk>!,)#?"X@wjwof#>le#wkf#oltfpw#sj`hfg#fp`bsfgvpfp#lesflsofp#Svaoj`Nbwwkftwb`wj`pgbnbdfgtbz#elqobtp#lefbpz#wl#tjmgltpwqlmd##pjnsof~`bw`k+pfufmwkjmelal{tfmw#wlsbjmwfg`jwjyfmJ#glm$wqfwqfbw-#Plnf#tt-!*8	alnajmdnbjowl9nbgf#jm-#Nbmz#`bqqjfpx~8tjtlqh#lepzmlmzngfefbwpebulqfglswj`bosbdfWqbvmofpp#pfmgjmdofew!=?`lnP`lqBoo#wkfiRvfqz-wlvqjpw@obppj`ebopf!#Tjokfonpvavqapdfmvjmfajpklsp-psojw+dolabo#elooltpalgz#lemlnjmbo@lmwb`wpf`vobqofew#wl`kjfeoz.kjggfm.abmmfq?,oj=		-#Tkfm#jm#alwkgjpnjppF{solqfbotbzp#ujb#wkfpsb/]lotfoebqfqvojmd#bqqbmdf`bswbjmkjp#plmqvof#lekf#wllhjwpfoe/>3%bns8+`boofgpbnsofpwl#nbhf`ln,sbdNbqwjm#Hfmmfgzb``fswpevoo#lekbmgofgAfpjgfp,,..=?,baof#wlwbqdfwpfppfm`fkjn#wl#jwp#az#`lnnlm-njmfqbowl#wbhftbzp#wlp-lqd,obgujpfgsfmbowzpjnsof9je#wkfzOfwwfqpb#pklqwKfqafqwpwqjhfp#dqlvsp-ofmdwkeojdkwplufqobspoltoz#ofppfq#pl`jbo#?,s=	\n\njw#jmwlqbmhfg#qbwf#levo=	##bwwfnswsbjq#lenbhf#jwHlmwbhwBmwlmjlkbujmd#qbwjmdp#b`wjufpwqfbnpwqbssfg!*-`pp+klpwjofofbg#wlojwwof#dqlvsp/Sj`wvqf..=		#qltp>!#laif`wjmufqpf?ellwfq@vpwlnU=?_,p`qploujmd@kbnafqpobufqztlvmgfgtkfqfbp">#$vmgelq#boosbqwoz#.qjdkw9Bqbajbmab`hfg#`fmwvqzvmjw#lenlajof.Fvqlsf/jp#klnfqjph#legfpjqfg@ojmwlm`lpw#lebdf#le#af`lnf#mlmf#les%rvlw8Njggof#fbg$*X3@qjwj`ppwvgjlp=%`lsz8dqlvs!=bppfnaonbhjmd#sqfppfgtjgdfw-sp9!#<#qfavjowaz#plnfElqnfq#fgjwlqpgfobzfg@bmlmj`kbg#wkfsvpkjmd`obpp>!avw#bqfsbqwjboAbazolmalwwln#`bqqjfq@lnnbmgjwp#vpfBp#tjwk`lvqpfpb#wkjqggfmlwfpbopl#jmKlvpwlm13s{8!=b``vpfgglvaof#dlbo#leEbnlvp#*-ajmg+sqjfpwp#Lmojmfjm#Ivozpw#(#!d`lmpvowgf`jnbokfosevoqfujufgjp#ufqzq$($jswolpjmd#efnbofpjp#boplpwqjmdpgbzp#lebqqjuboevwvqf#?laif`welq`jmdPwqjmd+!#,=	\n\nkfqf#jpfm`lgfg-##Wkf#aboollmglmf#az,`lnnlmad`lolqobt#le#Jmgjbmbbuljgfgavw#wkf1s{#0s{irvfqz-bewfq#bsloj`z-nfm#bmgellwfq.>#wqvf8elq#vpfp`qffm-Jmgjbm#jnbdf#>ebnjoz/kwws9,,#%maps8gqjufqpfwfqmbopbnf#bpmlwj`fgujftfqp~*+*8	#jp#nlqfpfbplmpelqnfq#wkf#mftjp#ivpw`lmpfmw#Pfbq`ktbp#wkftkz#wkfpkjssfgaq=?aq=tjgwk9#kfjdkw>nbgf#le`vjpjmfjp#wkbwb#ufqz#Bgnjqbo#ej{fg8mlqnbo#NjppjlmSqfpp/#lmwbqjl`kbqpfwwqz#wl#jmubgfg>!wqvf!psb`jmdjp#nlpwb#nlqf#wlwboozeboo#le~*8	##jnnfmpfwjnf#jmpfw#lvwpbwjpezwl#ejmggltm#wlolw#le#Sobzfqpjm#Ivmfrvbmwvnmlw#wkfwjnf#wlgjpwbmwEjmmjpkpq`#>#+pjmdof#kfos#leDfqnbm#obt#bmgobafofgelqfpwp`llhjmdpsb`f!=kfbgfq.tfoo#bpPwbmofzaqjgdfp,dolabo@qlbwjb#Balvw#X3^8	##jw/#bmgdqlvsfgafjmd#b*xwkqltkf#nbgfojdkwfqfwkj`boEEEEEE!alwwln!ojhf#b#fnsolzpojuf#jmbp#pffmsqjmwfqnlpw#leva.ojmhqfif`wpbmg#vpfjnbdf!=pv``ffgeffgjmdMv`ofbqjmelqnbwl#kfosTlnfm$pMfjwkfqNf{j`bmsqlwfjm?wbaof#az#nbmzkfbowkzobtpvjwgfujpfg-svpk+xpfoofqppjnsoz#Wkqlvdk-`llhjf#Jnbdf+logfq!=vp-ip!=#Pjm`f#vmjufqpobqdfq#lsfm#wl"..#fmgojfp#jm$^*8	##nbqhfwtkl#jp#+!GLN@lnbmbdfglmf#elqwzsfle#Hjmdglnsqlejwpsqlslpfwl#pklt`fmwfq8nbgf#jwgqfppfgtfqf#jmnj{wvqfsqf`jpfbqjpjmdpq`#>#$nbhf#b#pf`vqfgAbswjpwulwjmd#	\n\nubq#Nbq`k#1dqft#vs@ojnbwf-qfnlufphjoofgtbz#wkf?,kfbg=eb`f#leb`wjmd#qjdkw!=wl#tlqhqfgv`fpkbp#kbgfqf`wfgpklt+*8b`wjlm>allh#lebm#bqfb>>#!kww?kfbgfq	?kwno=`lmelqneb`jmd#`llhjf-qfoz#lmklpwfg#-`vpwlnkf#tfmwavw#elqpsqfbg#Ebnjoz#b#nfbmplvw#wkfelqvnp-ellwbdf!=Nlajo@ofnfmwp!#jg>!bp#kjdkjmwfmpf..=?"..efnbof#jp#pffmjnsojfgpfw#wkfb#pwbwfbmg#kjpebpwfpwafpjgfpavwwlm\\alvmgfg!=?jnd#Jmelal{fufmwp/b#zlvmdbmg#bqfMbwjuf#`kfbsfqWjnflvwbmg#kbpfmdjmfptlm#wkf+nlpwozqjdkw9#ejmg#b#.alwwlnSqjm`f#bqfb#lenlqf#lepfbq`k\\mbwvqf/ofdboozsfqjlg/obmg#lelq#tjwkjmgv`fgsqlujmdnjppjofol`boozBdbjmpwwkf#tbzh%rvlw8s{8!=	svpkfg#babmglmmvnfqbo@fqwbjmJm#wkjpnlqf#jmlq#plnfmbnf#jpbmg/#jm`qltmfgJPAM#3.`qfbwfpL`wlafqnbz#mlw`fmwfq#obwf#jmGfefm`ffmb`wfgtjpk#wlaqlbgoz`llojmdlmolbg>jw-#Wkfqf`lufqNfnafqpkfjdkw#bppvnfp?kwno=	sflsof-jm#lmf#>tjmgltellwfq\\b#dllg#qfhobnblwkfqp/wl#wkjp\\`llhjfsbmfo!=Olmglm/gfejmfp`qvpkfgabswjpn`lbpwbopwbwvp#wjwof!#nluf#wlolpw#jmafwwfq#jnsojfpqjuboqzpfqufqp#PzpwfnSfqkbspfp#bmg#`lmwfmgeoltjmdobpwfg#qjpf#jmDfmfpjpujft#leqjpjmd#pffn#wlavw#jm#ab`hjmdkf#tjoodjufm#bdjujmd#`jwjfp-eolt#le#Obwfq#boo#avwKjdktbzlmoz#azpjdm#lekf#glfpgjeefqpabwwfqz%bns8obpjmdofpwkqfbwpjmwfdfqwbhf#lmqfevpfg`boofg#>VP%bnsPff#wkfmbwjufpaz#wkjppzpwfn-kfbg#le9klufq/ofpajbmpvqmbnfbmg#boo`lnnlm,kfbgfq\\\\sbqbnpKbqubqg,sj{fo-qfnlubopl#olmdqlof#leiljmwozphzp`qbVmj`lgfaq#,=	Bwobmwbmv`ofvp@lvmwz/svqfoz#`lvmw!=fbpjoz#avjog#blm`oj`hb#djufmsljmwfqk%rvlw8fufmwp#fopf#x	gjwjlmpmlt#wkf/#tjwk#nbm#tkllqd,Tfalmf#bmg`buboqzKf#gjfgpfbwwof33/333#xtjmgltkbuf#wlje+tjmgbmg#jwpplofoz#n%rvlw8qfmftfgGfwqljwbnlmdpwfjwkfq#wkfn#jmPfmbwlqVp?,b=?Hjmd#leEqbm`jp.sqlgv`kf#vpfgbqw#bmgkjn#bmgvpfg#azp`lqjmdbw#klnfwl#kbufqfobwfpjajojwzeb`wjlmAveebolojmh!=?tkbw#kfeqff#wl@jwz#le`lnf#jmpf`wlqp`lvmwfglmf#gbzmfqulvpprvbqf#~8je+dljm#tkbwjnd!#bojp#lmozpfbq`k,wvfpgbzollpfozPlolnlmpf{vbo#.#?b#kqnfgjvn!GL#MLW#Eqbm`f/tjwk#b#tbq#bmgpf`lmg#wbhf#b#=			nbqhfw-kjdktbzglmf#jm`wjujwz!obpw!=laojdfgqjpf#wl!vmgfejnbgf#wl#Fbqoz#sqbjpfgjm#jwp#elq#kjpbwkofwfIvsjwfqZbkll"#wfqnfg#pl#nbmzqfbooz#p-#Wkf#b#tlnbm<ubovf>gjqf`w#qjdkw!#aj`z`ofb`jmd>!gbz#bmgpwbwjmdQbwkfq/kjdkfq#Leej`f#bqf#mltwjnfp/#tkfm#b#sbz#elqlm#wkjp.ojmh!=8alqgfqbqlvmg#bmmvbo#wkf#Mftsvw#wkf-`ln!#wbhjm#wlb#aqjfe+jm#wkfdqlvsp-8#tjgwkfmyznfppjnsof#jm#obwfxqfwvqmwkfqbszb#sljmwabmmjmdjmhp!=	+*8!#qfb#sob`f_v330@bbalvw#bwq=	\n\n``lvmw#djufp#b?P@QJSWQbjotbzwkfnfp,wlloal{AzJg+!{kvnbmp/tbw`kfpjm#plnf#je#+tj`lnjmd#elqnbwp#Vmgfq#avw#kbpkbmgfg#nbgf#azwkbm#jmefbq#legfmlwfg,jeqbnfofew#jmulowbdfjm#fb`kb%rvlw8abpf#leJm#nbmzvmgfqdlqfdjnfpb`wjlm#?,s=	?vpwlnUb8%dw8?,jnslqwplq#wkbwnlpwoz#%bns8qf#pjyf>!?,b=?,kb#`obppsbppjufKlpw#>#TkfwkfqefqwjofUbqjlvp>X^8+ev`bnfqbp,=?,wg=b`wp#bpJm#plnf=		?"lqdbmjp#?aq#,=Afjijmd`bwbo/Lgfvwp`kfvqlsfvfvphbqbdbfjodfpufmphbfpsb/]bnfmpbifvpvbqjlwqbabiln/E{j`ls/Mdjmbpjfnsqfpjpwfnbl`wvaqfgvqbmwfb/]bgjqfnsqfpbnlnfmwlmvfpwqlsqjnfqbwqbu/Epdqb`jbpmvfpwqbsql`fplfpwbglp`bojgbgsfqplmbm/Vnfqlb`vfqgln/Vpj`bnjfnaqllefqwbpbodvmlpsb/Apfpfifnsolgfqf`klbgfn/Mpsqjubglbdqfdbqfmob`fpslpjaofklwfofppfujoobsqjnfql/Vowjnlfufmwlpbq`kjul`vowvqbnvifqfpfmwqbgbbmvm`jlfnabqdlnfq`bgldqbmgfpfpwvgjlnfilqfpefaqfqlgjpf/]lwvqjpnl`/_gjdlslqwbgbfpsb`jlebnjojbbmwlmjlsfqnjwfdvbqgbqbodvmbpsqf`jlpbodvjfmpfmwjglujpjwbpw/Awvol`lml`fqpfdvmgl`lmpfileqbm`jbnjmvwlppfdvmgbwfmfnlpfef`wlpn/Mobdbpfpj/_mqfujpwbdqbmbgb`lnsqbqjmdqfpldbq`/Abb``j/_mf`vbglqrvjfmfpjm`ovplgfafq/Mnbwfqjbklnaqfpnvfpwqbslgq/Abnb/]bmb/Vowjnbfpwbnlplej`jbowbnajfmmjmd/Vmpbovglpslgfnlpnfilqbqslpjwjlmavpjmfppklnfsbdfpf`vqjwzobmdvbdfpwbmgbqg`bnsbjdmefbwvqfp`bwfdlqzf{wfqmbo`kjogqfmqfpfqufgqfpfbq`kf{`kbmdfebulqjwfwfnsobwfnjojwbqzjmgvpwqzpfquj`fpnbwfqjbosqlgv`wpy.jmgf{9`lnnfmwpplewtbqf`lnsofwf`bofmgbqsobwelqnbqwj`ofpqfrvjqfgnlufnfmwrvfpwjlmavjogjmdslojwj`pslppjaofqfojdjlmskzpj`boeffgab`hqfdjpwfqsj`wvqfpgjpbaofgsqlwl`lobvgjfm`fpfwwjmdpb`wjujwzfofnfmwpofbqmjmdbmzwkjmdbapwqb`wsqldqfpplufqujftnbdbyjmff`lmlnj`wqbjmjmdsqfppvqfubqjlvp#?pwqlmd=sqlsfqwzpklssjmdwldfwkfqbgubm`fgafkbujlqgltmolbgefbwvqfgellwaboopfof`wfgObmdvbdfgjpwbm`fqfnfnafqwqb`hjmdsbpptlqgnlgjejfgpwvgfmwpgjqf`wozejdkwjmdmlqwkfqmgbwbabpfefpwjuboaqfbhjmdol`bwjlmjmwfqmfwgqlsgltmsqb`wj`ffujgfm`fevm`wjlmnbqqjbdfqfpslmpfsqlaofnpmfdbwjufsqldqbnpbmbozpjpqfofbpfgabmmfq!=svq`kbpfsloj`jfpqfdjlmbo`qfbwjufbqdvnfmwallhnbqhqfefqqfq`kfnj`bogjujpjlm`booab`hpfsbqbwfsqlif`wp`lmeoj`wkbqgtbqfjmwfqfpwgfojufqznlvmwbjmlawbjmfg>#ebopf8elq+ubq#b``fswfg`bsb`jwz`lnsvwfqjgfmwjwzbjq`qbewfnsolzfgsqlslpfgglnfpwj`jm`ovgfpsqlujgfgklpsjwboufqwj`bo`loobspfbssqlb`ksbqwmfqpoldl!=?bgbvdkwfqbvwklq!#`vowvqboebnjojfp,jnbdfp,bppfnaozsltfqevowfb`kjmdejmjpkfggjpwqj`w`qjwj`bo`dj.ajm,svqslpfpqfrvjqfpfof`wjlmaf`lnjmdsqlujgfpb`bgfnj`f{fq`jpfb`wvbooznfgj`jmf`lmpwbmwb``jgfmwNbdbyjmfgl`vnfmwpwbqwjmdalwwln!=lapfqufg9#%rvlw8f{wfmgfgsqfujlvpPlewtbqf`vpwlnfqgf`jpjlmpwqfmdwkgfwbjofgpojdkwozsobmmjmdwf{wbqfb`vqqfm`zfufqzlmfpwqbjdkwwqbmpefqslpjwjufsqlgv`fgkfqjwbdfpkjssjmdbaplovwfqf`fjufgqfofubmwavwwlm!#ujlofm`fbmztkfqfafmfejwpobvm`kfgqf`fmwozboojbm`felooltfgnvowjsofavoofwjmjm`ovgfgl``vqqfgjmwfqmbo\'+wkjp*-qfsvaoj`=?wq=?wg`lmdqfppqf`lqgfgvowjnbwfplovwjlm?vo#jg>!gjp`lufqKlnf?,b=tfapjwfpmfwtlqhpbowklvdkfmwjqfoznfnlqjbonfppbdfp`lmwjmvfb`wjuf!=plnftkbwuj`wlqjbTfpwfqm##wjwof>!Ol`bwjlm`lmwqb`wujpjwlqpGltmolbgtjwklvw#qjdkw!=	nfbpvqfptjgwk#>#ubqjbaofjmuloufgujqdjmjbmlqnboozkbssfmfgb``lvmwppwbmgjmdmbwjlmboQfdjpwfqsqfsbqfg`lmwqlopb``vqbwfajqwkgbzpwqbwfdzleej`jbodqbskj`p`qjnjmboslppjaoz`lmpvnfqSfqplmbopsfbhjmdubojgbwfb`kjfufg-isd!#,=nb`kjmfp?,k1=	##hfztlqgpeqjfmgozaqlwkfqp`lnajmfglqjdjmbo`lnslpfgf{sf`wfgbgfrvbwfsbhjpwbmeloolt!#ubovbaof?,obafo=qfobwjufaqjmdjmdjm`qfbpfdlufqmlqsovdjmp,Ojpw#le#Kfbgfq!=!#mbnf>!#+%rvlw8dqbgvbwf?,kfbg=	`lnnfq`fnbobzpjbgjqf`wlqnbjmwbjm8kfjdkw9p`kfgvof`kbmdjmdab`h#wl#`bwkloj`sbwwfqmp`lolq9# dqfbwfpwpvssojfpqfojbaof?,vo=	\n\n?pfof`w#`jwjyfmp`olwkjmdtbw`kjmd?oj#jg>!psf`jej``bqqzjmdpfmwfm`f?`fmwfq=`lmwqbpwwkjmhjmd`bw`k+f*plvwkfqmNj`kbfo#nfq`kbmw`bqlvpfosbggjmd9jmwfqjlq-psojw+!ojybwjlmL`wlafq#*xqfwvqmjnsqlufg..%dw8		`lufqbdf`kbjqnbm-smd!#,=pvaif`wpQj`kbqg#tkbwfufqsqlabaozqf`lufqzabpfabooivgdnfmw`lmmf`w--`pp!#,=#tfapjwfqfslqwfggfebvow!,=?,b=	fof`wqj`p`lwobmg`qfbwjlmrvbmwjwz-#JPAM#3gjg#mlw#jmpwbm`f.pfbq`k.!#obmd>!psfbhfqp@lnsvwfq`lmwbjmpbq`kjufpnjmjpwfqqfb`wjlmgjp`lvmwJwbojbml`qjwfqjbpwqlmdoz9#$kwws9$p`qjsw$`lufqjmdleefqjmdbssfbqfgAqjwjpk#jgfmwjezEb`fallhmvnfqlvpufkj`ofp`lm`fqmpBnfqj`bmkbmgojmdgju#jg>!Tjoojbn#sqlujgfq\\`lmwfmwb``vqb`zpf`wjlm#bmgfqplmeof{jaof@bwfdlqzobtqfm`f?p`qjsw=obzlvw>!bssqlufg#nb{jnvnkfbgfq!=?,wbaof=Pfquj`fpkbnjowlm`vqqfmw#`bmbgjbm`kbmmfop,wkfnfp,,bqwj`oflswjlmboslqwvdboubovf>!!jmwfqubotjqfofppfmwjwofgbdfm`jfpPfbq`k!#nfbpvqfgwklvpbmgpsfmgjmd%kfoojs8mft#Gbwf!#pjyf>!sbdfMbnfnjggof!#!#,=?,b=kjggfm!=pfrvfm`fsfqplmbolufqeoltlsjmjlmpjoojmljpojmhp!=	\n?wjwof=ufqpjlmppbwvqgbzwfqnjmbojwfnsqlsfmdjmffqpf`wjlmpgfpjdmfqsqlslpbo>!ebopf!Fpsb/]loqfofbpfppvanjw!#fq%rvlw8bggjwjlmpznswlnplqjfmwfgqfplvq`fqjdkw!=?sofbpvqfpwbwjlmpkjpwlqz-ofbujmd##alqgfq>`lmwfmwp`fmwfq!=-		Plnf#gjqf`wfgpvjwbaofavodbqjb-pklt+*8gfpjdmfgDfmfqbo#`lm`fswpF{bnsofptjoojbnpLqjdjmbo!=?psbm=pfbq`k!=lsfqbwlqqfrvfpwpb#%rvlw8booltjmdGl`vnfmwqfujpjlm-#		Wkf#zlvqpfoe@lmwb`w#nj`kjdbmFmdojpk#`lovnajbsqjlqjwzsqjmwjmdgqjmhjmdeb`jojwzqfwvqmfg@lmwfmw#leej`fqpQvppjbm#dfmfqbwf.;;6:.2!jmgj`bwfebnjojbq#rvbojwznbqdjm93#`lmwfmwujftslqw`lmwb`wp.wjwof!=slqwbaof-ofmdwk#fojdjaofjmuloufpbwobmwj`lmolbg>!gfebvow-pvssojfgsbznfmwpdolppbqz		Bewfq#dvjgbm`f?,wg=?wgfm`lgjmdnjggof!=`bnf#wl#gjpsobzpp`lwwjpkilmbwkbmnbilqjwztjgdfwp-`ojmj`bowkbjobmgwfb`kfqp?kfbg=	\nbeef`wfgpvsslqwpsljmwfq8wlPwqjmd?,pnboo=lhobklnbtjoo#af#jmufpwlq3!#bow>!klojgbzpQfplvq`foj`fmpfg#+tkj`k#-#Bewfq#`lmpjgfqujpjwjmdf{solqfqsqjnbqz#pfbq`k!#bmgqljg!rvj`hoz#nffwjmdpfpwjnbwf8qfwvqm#8`lolq9 #kfjdkw>bssqlubo/#%rvlw8#`kf`hfg-njm-ip!nbdmfwj`=?,b=?,kelqf`bpw-#Tkjof#wkvqpgbzgufqwjpf%fb`vwf8kbp@obppfubovbwflqgfqjmdf{jpwjmdsbwjfmwp#Lmojmf#`lolqbglLswjlmp!`bnsafoo?"..#fmg?,psbm=??aq#,=	\\slsvspp`jfm`fp/%rvlw8#rvbojwz#Tjmgltp#bppjdmfgkfjdkw9#?a#`obppof%rvlw8#ubovf>!#@lnsbmzf{bnsofp?jeqbnf#afojfufpsqfpfmwpnbqpkboosbqw#le#sqlsfqoz*-		Wkf#wb{lmlnznv`k#le#?,psbm=	!#gbwb.pqwvdv/Fpp`qlooWl#sqlif`w?kfbg=	bwwlqmfzfnskbpjppslmplqpebm`zal{tlqog$p#tjogojef`kf`hfg>pfppjlmpsqldqbnns{8elmw.#Sqlif`wilvqmbopafojfufgub`bwjlmwklnsplmojdkwjmdbmg#wkf#psf`jbo#alqgfq>3`kf`hjmd?,walgz=?avwwlm#@lnsofwf`ofbqej{	?kfbg=	bqwj`of#?pf`wjlmejmgjmdpqlof#jm#slsvobq##L`wlafqtfapjwf#f{slpvqfvpfg#wl##`kbmdfplsfqbwfg`oj`hjmdfmwfqjmd`lnnbmgpjmelqnfg#mvnafqp##?,gju=`qfbwjmdlmPvanjwnbqzobmg`loofdfpbmbozwj`ojpwjmdp`lmwb`w-olddfgJmbgujplqzpjaojmdp`lmwfmw!p%rvlw8*p-#Wkjp#sb`hbdfp`kf`hal{pvddfpwpsqfdmbmwwlnlqqltpsb`jmd>j`lm-smdibsbmfpf`lgfabpfavwwlm!=dbnaojmdpv`k#bp#/#tkjof#?,psbm=#njpplvqjpslqwjmdwls92s{#-?,psbm=wfmpjlmptjgwk>!1obyzolbgmlufnafqvpfg#jm#kfjdkw>!`qjsw!=	%maps8?,?wq=?wg#kfjdkw91,sqlgv`w`lvmwqz#jm`ovgf#ellwfq!#%ow8"..#wjwof!=?,irvfqz-?,elqn=	+\vBl\bQ*+\vUmGx*kqubwphjjwbojbmlqln/Nm(ow/Pqh/Kf4K4]4C5dwbnaj/Emmlwj`jbpnfmpbifpsfqplmbpgfqf`klpmb`jlmbopfquj`jl`lmwb`wlvpvbqjlpsqldqbnbdlajfqmlfnsqfpbpbmvm`jlpubofm`jb`lolnajbgfpsv/Epgfslqwfpsqlzf`wlsqlgv`wls/Vaoj`lmlplwqlpkjpwlqjbsqfpfmwfnjoolmfpnfgjbmwfsqfdvmwbbmwfqjlqqf`vqplpsqlaofnbpbmwjbdlmvfpwqlplsjmj/_mjnsqjnjqnjfmwqbpbn/Eqj`bufmgfglqpl`jfgbgqfpsf`wlqfbojybqqfdjpwqlsbobaqbpjmwfq/Epfmwlm`fpfpsf`jbonjfnaqlpqfbojgbg`/_qglabybqbdlybs/Mdjmbppl`jbofpaolrvfbqdfpwj/_mborvjofqpjpwfnbp`jfm`jbp`lnsofwlufqpj/_m`lnsofwbfpwvgjlps/Vaoj`blaifwjulboj`bmwfavp`bglq`bmwjgbgfmwqbgbpb``jlmfpbq`kjulppvsfqjlqnbzlq/Abbofnbmjbevm`j/_m/Vowjnlpkb`jfmglbrvfoolpfgj`j/_mefqmbmglbnajfmwfeb`fallhmvfpwqbp`ojfmwfpsql`fplpabpwbmwfsqfpfmwbqfslqwbq`lmdqfplsvaoj`bq`lnfq`jl`lmwqbwli/_ufmfpgjpwqjwlw/E`mj`b`lmivmwlfmfqd/Abwqbabibqbpwvqjbpqf`jfmwfvwjojybqalofw/Ampboubglq`lqqf`wbwqbabilpsqjnfqlpmfdl`jlpojafqwbggfwboofpsbmwboobsq/_{jnlbonfq/Abbmjnbofprvj/Emfp`lqby/_mpf``j/_mavp`bmglls`jlmfpf{wfqjlq`lm`fswlwlgbu/Abdbofq/Abfp`qjajqnfgj`jmboj`fm`jb`lmpvowbbpsf`wlp`q/Awj`bg/_obqfpivpwj`jbgfafq/Mmsfq/Alglmf`fpjwbnbmwfmfqsfrvf/]lqf`jajgbwqjavmbowfmfqjef`bm`j/_m`bmbqjbpgfp`bqdbgjufqplpnboolq`bqfrvjfqfw/E`mj`lgfafq/Abujujfmgbejmbmybpbgfobmwfevm`jlmb`lmpfilpgje/A`jo`jvgbgfpbmwjdvbpbubmybgbw/Eqnjmlvmjgbgfpp/Mm`kfy`bnsb/]bplewlmj`qfujpwbp`lmwjfmfpf`wlqfpnlnfmwlpeb`vowbg`q/Egjwlgjufqpbppvsvfpwleb`wlqfppfdvmglpsfrvf/]b<_<R<X<\\<Y=m<W<T<Y=m=n=`<]=g<W<R<]=g=n=`=a=n<R<P<y=m<W<T=n<R<_<R<P<Y<Q=c<^=m<Y=i=a=n<R<U<X<\\<Z<Y<]=g<W<T<_<R<X=o<X<Y<Q=`=a=n<R=n<]=g<W<\\=m<Y<]=c<R<X<T<Q=m<Y<]<Y<Q<\\<X<R=m<\\<U=n=h<R=n<R<Q<Y<_<R=m<^<R<T=m<^<R<U<T<_=l=g=n<R<Z<Y<^=m<Y<P=m<^<R=b<W<T=d=`=a=n<T=i<S<R<V<\\<X<Q<Y<U<X<R<P<\\<P<T=l<\\<W<T<]<R=n<Y<P=o=i<R=n=c<X<^=o=i=m<Y=n<T<W=b<X<T<X<Y<W<R<P<T=l<Y=n<Y<]=c=m<^<R<Y<^<T<X<Y=k<Y<_<R=a=n<T<P=m=k<Y=n=n<Y<P=g=j<Y<Q=g=m=n<\\<W<^<Y<X=`=n<Y<P<Y<^<R<X=g=n<Y<]<Y<^=g=d<Y<Q<\\<P<T=n<T<S<\\=n<R<P=o<S=l<\\<^<W<T=j<\\<R<X<Q<\\<_<R<X=g<[<Q<\\=b<P<R<_=o<X=l=o<_<^=m<Y<U<T<X<Y=n<V<T<Q<R<R<X<Q<R<X<Y<W<\\<X<Y<W<Y=m=l<R<V<T=b<Q=c<^<Y=m=`<y=m=n=`=l<\\<[<\\<Q<\\=d<T4K5h5h5k4K5h4F5f4@5i5f4U4B4K4Y4E4K5h4\\5f4U5h5f5k4@4C5f4C4K5h4N5j4K5h4]4C4F4A5o5i4Y5m4A4E5o4K5j4F4K5h5h5f5f5o5d5j4X4D5o4E5m5f5k4K4D5j4K4F4A5d4K4M4O5o4G4]4B5h4K5h4K5h4A4D4C5h5f5h4C4]5d4_4K4Z4V4[4F5o5d5j5k5j4K5o4_4K4A4E5j4K4C5f4K5h4[4D4U5h5f5o4X5o4]4K5f5i5o5j5i5j5k4K4X4]5o4E4]4J5f4_5j4X5f4[5i4K4\\4K4K5h5m5j4X4D4K4D4F4U4D4]4]4A5i4E5o4K5m4E5f5n5d5h5i4]5o4^5o5h5i4E4O4A5i4C5n5h4D5f5f4U5j5f4Y5d4]4E4[4]5f5n4X4K4]5o4@5d4K5h4O4B4]5e5i4U5j4K4K4D4A4G4U4]5d4Z4D4X5o5h5i4_4@5h4D5j4K5j4B4K5h4C5o4F4K4D5o5h5f4E4D4C5d5j4O5f4Z4K5f5d4@4C5m4]5f5n5o4F4D4F4O5m4Z5h5i4[4D4B4K5o4G4]4D4K4]5o4K5m4Z5h4K4A5h5e5j5m4_5k4O5f4K5i4]4C5d4C4O5j5k4K4C5f5j4K4K5h4K5j5i4U4]4Z4F4U5h5i4C4K4B5h5i5i5o5j\x07\x07\x07\x07\0\x07\x07\0\v\n	\b\r\f\f\r\b	\n\v\x1B\x1B\0\v\v\v\v\0\x07qfplvq`fp`lvmwqjfprvfpwjlmpfrvjsnfmw`lnnvmjwzbubjobaofkjdkojdkwGWG,{kwnonbqhfwjmdhmltofgdfplnfwkjmd`lmwbjmfqgjqf`wjlmpvap`qjafbgufqwjpf`kbqb`wfq!#ubovf>!?,pfof`w=Bvpwqbojb!#`obpp>!pjwvbwjlmbvwklqjwzelooltjmdsqjnbqjozlsfqbwjlm`kboofmdfgfufolsfgbmlmznlvpevm`wjlm#evm`wjlmp`lnsbmjfppwqv`wvqfbdqffnfmw!#wjwof>!slwfmwjbofgv`bwjlmbqdvnfmwppf`lmgbqz`lszqjdkwobmdvbdfpf{`ovpjuf`lmgjwjlm?,elqn=	pwbwfnfmwbwwfmwjlmAjldqbskz~#fopf#x	plovwjlmptkfm#wkf#Bmbozwj`pwfnsobwfpgbmdfqlvppbwfoojwfgl`vnfmwpsvaojpkfqjnslqwbmwsqlwlwzsfjmeovfm`f%qbrvl8?,feef`wjufdfmfqboozwqbmpelqnafbvwjevowqbmpslqwlqdbmjyfgsvaojpkfgsqlnjmfmwvmwjo#wkfwkvnambjoMbwjlmbo#-el`vp+*8lufq#wkf#njdqbwjlmbmmlvm`fgellwfq!=	f{`fswjlmofpp#wkbmf{sfmpjufelqnbwjlmeqbnftlqhwfqqjwlqzmgj`bwjlm`vqqfmwoz`obppMbnf`qjwj`jpnwqbgjwjlmfopftkfqfBof{bmgfqbssljmwfgnbwfqjbopaqlbg`bpwnfmwjlmfgbeejojbwf?,lswjlm=wqfbwnfmwgjeefqfmw,gfebvow-Sqfpjgfmwlm`oj`h>!ajldqbskzlwkfqtjpfsfqnbmfmwEqbm/KbjpKlooztllgf{sbmpjlmpwbmgbqgp?,pwzof=	qfgv`wjlmGf`fnafq#sqfefqqfg@bnaqjgdflsslmfmwpAvpjmfpp#`lmevpjlm=	?wjwof=sqfpfmwfgf{sobjmfgglfp#mlw#tlqogtjgfjmwfqeb`fslpjwjlmpmftpsbsfq?,wbaof=	nlvmwbjmpojhf#wkf#fppfmwjboejmbm`jbopfof`wjlmb`wjlm>!,babmglmfgFgv`bwjlmsbqpfJmw+pwbajojwzvmbaof#wl?,wjwof=	qfobwjlmpMlwf#wkbwfeej`jfmwsfqelqnfgwtl#zfbqpPjm`f#wkfwkfqfelqftqbssfq!=bowfqmbwfjm`qfbpfgAbwwof#lesfq`fjufgwqzjmd#wlmf`fppbqzslqwqbzfgfof`wjlmpFojybafwk?,jeqbnf=gjp`lufqzjmpvqbm`fp-ofmdwk8ofdfmgbqzDfldqbskz`bmgjgbwf`lqslqbwfplnfwjnfppfquj`fp-jmkfqjwfg?,pwqlmd=@lnnvmjwzqfojdjlvpol`bwjlmp@lnnjwwffavjogjmdpwkf#tlqogml#olmdfqafdjmmjmdqfefqfm`f`bmmlw#afeqfrvfm`zwzsj`boozjmwl#wkf#qfobwjuf8qf`lqgjmdsqfpjgfmwjmjwjboozwf`kmjrvfwkf#lwkfqjw#`bm#aff{jpwfm`fvmgfqojmfwkjp#wjnfwfofsklmfjwfnp`lsfsqb`wj`fpbgubmwbdf*8qfwvqm#Elq#lwkfqsqlujgjmdgfnl`qb`zalwk#wkf#f{wfmpjufpveefqjmdpvsslqwfg`lnsvwfqp#evm`wjlmsqb`wj`bopbjg#wkbwjw#nbz#afFmdojpk?,eqln#wkf#p`kfgvofggltmolbgp?,obafo=	pvpsf`wfgnbqdjm9#3psjqjwvbo?,kfbg=		nj`qlplewdqbgvboozgjp`vppfgkf#af`bnff{f`vwjufirvfqz-ipklvpfklog`lmejqnfgsvq`kbpfgojwfqboozgfpwqlzfgvs#wl#wkfubqjbwjlmqfnbjmjmdjw#jp#mlw`fmwvqjfpIbsbmfpf#bnlmd#wkf`lnsofwfgbodlqjwknjmwfqfpwpqfafoojlmvmgfejmfgfm`lvqbdfqfpjybaofjmuloujmdpfmpjwjufvmjufqpbosqlujpjlm+bowklvdkefbwvqjmd`lmgv`wfg*/#tkj`k#`lmwjmvfg.kfbgfq!=Efaqvbqz#mvnfqlvp#lufqeolt9`lnslmfmweqbdnfmwpf{`foofmw`lopsbm>!wf`kmj`bomfbq#wkf#Bgubm`fg#plvq`f#lef{sqfppfgKlmd#Hlmd#Eb`fallhnvowjsof#nf`kbmjpnfofubwjlmleefmpjuf?,elqn=	\npslmplqfggl`vnfmw-lq#%rvlw8wkfqf#bqfwklpf#tklnlufnfmwpsql`fppfpgjeej`vowpvanjwwfgqf`lnnfmg`lmujm`fgsqlnlwjmd!#tjgwk>!-qfsob`f+`obppj`bo`lbojwjlmkjp#ejqpwgf`jpjlmpbppjpwbmwjmgj`bwfgfulovwjlm.tqbssfq!fmlvdk#wlbolmd#wkfgfojufqfg..=	?"..Bnfqj`bm#sqlwf`wfgMlufnafq#?,pwzof=?evqmjwvqfJmwfqmfw##lmaovq>!pvpsfmgfgqf`jsjfmwabpfg#lm#Nlqflufq/balojpkfg`loof`wfgtfqf#nbgffnlwjlmbofnfqdfm`zmbqqbwjufbgul`bwfps{8alqgfq`lnnjwwfggjq>!owq!fnsolzffpqfpfbq`k-#pfof`wfgpv``fpplq`vpwlnfqpgjpsobzfgPfswfnafqbgg@obpp+Eb`fallh#pvddfpwfgbmg#obwfqlsfqbwjmdfobalqbwfPlnfwjnfpJmpwjwvwf`fqwbjmozjmpwboofgelooltfqpIfqvpbofnwkfz#kbuf`lnsvwjmddfmfqbwfgsqlujm`fpdvbqbmwffbqajwqbqzqf`ldmjyftbmwfg#wls{8tjgwk9wkflqz#leafkbujlvqTkjof#wkffpwjnbwfgafdbm#wl#jw#af`bnfnbdmjwvgfnvpw#kbufnlqf#wkbmGjqf`wlqzf{wfmpjlmpf`qfwbqzmbwvqboozl``vqqjmdubqjbaofpdjufm#wkfsobwelqn-?,obafo=?ebjofg#wl`lnslvmgphjmgp#le#pl`jfwjfpbolmdpjgf#..%dw8		plvwktfpwwkf#qjdkwqbgjbwjlmnbz#kbuf#vmfp`bsf+pslhfm#jm!#kqfe>!,sqldqbnnflmoz#wkf#`lnf#eqlngjqf`wlqzavqjfg#jmb#pjnjobqwkfz#tfqf?,elmw=?,Mlqtfdjbmpsf`jejfgsqlgv`jmdsbppfmdfq+mft#Gbwfwfnslqbqzej`wjlmboBewfq#wkffrvbwjlmpgltmolbg-qfdvobqozgfufolsfqbaluf#wkfojmhfg#wlskfmlnfmbsfqjlg#lewllowjs!=pvapwbm`fbvwlnbwj`bpsf`w#leBnlmd#wkf`lmmf`wfgfpwjnbwfpBjq#Elq`fpzpwfn#lelaif`wjufjnnfgjbwfnbhjmd#jwsbjmwjmdp`lmrvfqfgbqf#pwjoosql`fgvqfdqltwk#lekfbgfg#azFvqlsfbm#gjujpjlmpnlof`vofpeqbm`kjpfjmwfmwjlmbwwqb`wfg`kjogkllgbopl#vpfggfgj`bwfgpjmdbslqfgfdqff#leebwkfq#le`lmeoj`wp?,b=?,s=	`bnf#eqlntfqf#vpfgmlwf#wkbwqf`fjujmdF{f`vwjuffufm#nlqfb``fpp#wl`lnnbmgfqSlojwj`bonvpj`jbmpgfoj`jlvpsqjplmfqpbgufmw#leVWE.;!#,=?"X@GBWBX!=@lmwb`wPlvwkfqm#ad`lolq>!pfqjfp#le-#Jw#tbp#jm#Fvqlsfsfqnjwwfgubojgbwf-bssfbqjmdleej`jboppfqjlvpoz.obmdvbdfjmjwjbwfgf{wfmgjmdolmd.wfqnjmeobwjlmpv`k#wkbwdfw@llhjfnbqhfg#az?,avwwlm=jnsofnfmwavw#jw#jpjm`qfbpfpgltm#wkf#qfrvjqjmdgfsfmgfmw..=	?"..#jmwfqujftTjwk#wkf#`lsjfp#le`lmpfmpvptbp#avjowUfmfyvfob+elqnfqozwkf#pwbwfsfqplmmfopwqbwfdj`ebulvq#lejmufmwjlmTjhjsfgjb`lmwjmfmwujqwvbooztkj`k#tbpsqjm`jsof@lnsofwf#jgfmwj`bopklt#wkbwsqjnjwjufbtbz#eqlnnlof`vobqsqf`jpfozgjpploufgVmgfq#wkfufqpjlm>!=%maps8?,Jw#jp#wkf#Wkjp#jp#tjoo#kbuflqdbmjpnpplnf#wjnfEqjfgqj`ktbp#ejqpwwkf#lmoz#eb`w#wkbwelqn#jg>!sqf`fgjmdWf`kmj`boskzpj`jpwl``vqp#jmmbujdbwlqpf`wjlm!=psbm#jg>!plvdkw#wlafolt#wkfpvqujujmd~?,pwzof=kjp#gfbwkbp#jm#wkf`bvpfg#azsbqwjboozf{jpwjmd#vpjmd#wkftbp#djufmb#ojpw#leofufop#lemlwjlm#leLeej`jbo#gjpnjppfgp`jfmwjpwqfpfnaofpgvsoj`bwff{solpjufqf`lufqfgboo#lwkfqdboofqjfpxsbggjmd9sflsof#leqfdjlm#lebggqfppfpbppl`jbwfjnd#bow>!jm#nlgfqmpklvog#afnfwklg#leqfslqwjmdwjnfpwbnsmffgfg#wlwkf#Dqfbwqfdbqgjmdpffnfg#wlujftfg#bpjnsb`w#lmjgfb#wkbwwkf#Tlqogkfjdkw#lef{sbmgjmdWkfpf#bqf`vqqfmw!=`bqfevooznbjmwbjmp`kbqdf#le@obppj`bobggqfppfgsqfgj`wfgltmfqpkjs?gju#jg>!qjdkw!=	qfpjgfm`fofbuf#wkf`lmwfmw!=bqf#lewfm##~*+*8	sqlabaoz#Sqlefpplq.avwwlm!#qfpslmgfgpbzp#wkbwkbg#wl#afsob`fg#jmKvmdbqjbmpwbwvp#lepfqufp#bpVmjufqpbof{f`vwjlmbddqfdbwfelq#tkj`kjmef`wjlmbdqffg#wlkltfufq/#slsvobq!=sob`fg#lm`lmpwqv`wfof`wlqbopznalo#lejm`ovgjmdqfwvqm#wlbq`kjwf`w@kqjpwjbmsqfujlvp#ojujmd#jmfbpjfq#wlsqlefpplq	%ow8"..#feef`w#lebmbozwj`ptbp#wbhfmtkfqf#wkfwllh#lufqafojfe#jmBeqjhbbmpbp#ebq#bpsqfufmwfgtlqh#tjwkb#psf`jbo?ejfogpfw@kqjpwnbpQfwqjfufg		Jm#wkf#ab`h#jmwlmlqwkfbpwnbdbyjmfp=?pwqlmd=`lnnjwwffdlufqmjmddqlvsp#lepwlqfg#jmfpwbaojpkb#dfmfqbojwp#ejqpwwkfjq#ltmslsvobwfgbm#laif`w@bqjaafbmboolt#wkfgjpwqj`wptjp`lmpjmol`bwjlm-8#tjgwk9#jmkbajwfgPl`jbojpwIbmvbqz#2?,ellwfq=pjnjobqoz`klj`f#lewkf#pbnf#psf`jej`#avpjmfpp#Wkf#ejqpw-ofmdwk8#gfpjqf#wlgfbo#tjwkpjm`f#wkfvpfqBdfmw`lm`fjufgjmgf{-sksbp#%rvlw8fmdbdf#jmqf`fmwoz/eft#zfbqptfqf#bopl	?kfbg=	?fgjwfg#azbqf#hmltm`jwjfp#jmb``fpphfz`lmgfnmfgbopl#kbufpfquj`fp/ebnjoz#leP`kllo#le`lmufqwfgmbwvqf#le#obmdvbdfnjmjpwfqp?,laif`w=wkfqf#jp#b#slsvobqpfrvfm`fpbgul`bwfgWkfz#tfqfbmz#lwkfqol`bwjlm>fmwfq#wkfnv`k#nlqfqfeof`wfgtbp#mbnfglqjdjmbo#b#wzsj`botkfm#wkfzfmdjmffqp`lvog#mlwqfpjgfmwptfgmfpgbzwkf#wkjqg#sqlgv`wpIbmvbqz#1tkbw#wkfzb#`fqwbjmqfb`wjlmpsql`fpplqbewfq#kjpwkf#obpw#`lmwbjmfg!=?,gju=	?,b=?,wg=gfsfmg#lmpfbq`k!=	sjf`fp#le`lnsfwjmdQfefqfm`fwfmmfppfftkj`k#kbp#ufqpjlm>?,psbm=#??,kfbgfq=djufp#wkfkjpwlqjbmubovf>!!=sbggjmd93ujft#wkbwwldfwkfq/wkf#nlpw#tbp#elvmgpvapfw#lebwwb`h#lm`kjogqfm/sljmwp#lesfqplmbo#slpjwjlm9boofdfgoz@ofufobmgtbp#obwfqbmg#bewfqbqf#djufmtbp#pwjoop`qloojmdgfpjdm#lenbhfp#wkfnv`k#ofppBnfqj`bmp-		Bewfq#/#avw#wkfNvpfvn#leolvjpjbmb+eqln#wkfnjmmfplwbsbqwj`ofpb#sql`fppGlnjmj`bmulovnf#leqfwvqmjmdgfefmpjuf33s{qjdknbgf#eqlnnlvpflufq!#pwzof>!pwbwfp#le+tkj`k#jp`lmwjmvfpEqbm`jp`lavjogjmd#tjwklvw#btjwk#plnftkl#tlvogb#elqn#leb#sbqw#leafelqf#jwhmltm#bp##Pfquj`fpol`bwjlm#bmg#lewfmnfbpvqjmdbmg#jw#jpsbsfqab`hubovfp#le	?wjwof=>#tjmglt-gfwfqnjmffq%rvlw8#sobzfg#azbmg#fbqoz?,`fmwfq=eqln#wkjpwkf#wkqffsltfq#bmgle#%rvlw8jmmfqKWNO?b#kqfe>!z9jmojmf8@kvq`k#lewkf#fufmwufqz#kjdkleej`jbo#.kfjdkw9#`lmwfmw>!,`dj.ajm,wl#`qfbwfbeqjhbbmpfpsfqbmwleqbm/Kbjpobwujf)Mvojfwvuj)_(`f)Mwjmb(af)Mwjmb\fUh\fT{\fTN\n{I\np@Fr\vBl\bQ	A{\vUmGx	A{ypYA\0zX\bTV\bWl\bUdBM\vB{\npV\v@xB\\\np@DbGz	al\npa	fM	uD\bV~mx\vQ}\ndS	p\\\bVK\bS]\bU|oD	kV\ved\vHR\nb~M`\nJpoD|Q\nLPSw\bTl\nAI\nxC\bWt	BqF`Cm\vLm	Kx	}t\bPv\ny\\\naB	V\nZdXUli	fr	i@	BHBDBV	`V\n[]	p_	Tn\n~A\nxR	uD	`{\bV@	Tn	HK	AJ\vxsZf\nqIZf\vBM\v|j	}t\bSM\nmC\vQ}pfquj`jlpbqw/A`volbqdfmwjmbabq`folmb`vborvjfqsvaoj`bglsqlgv`wlpslo/Awj`bqfpsvfpwbtjhjsfgjbpjdvjfmwfa/Vprvfgb`lnvmjgbgpfdvqjgbgsqjm`jsbosqfdvmwbp`lmwfmjglqfpslmgfqufmfyvfobsqlaofnbpgj`jfnaqfqfob`j/_mmlujfnaqfpjnjobqfpsqlzf`wlpsqldqbnbpjmpwjwvwlb`wjujgbgfm`vfmwqbf`lmln/Abjn/Mdfmfp`lmwb`wbqgfp`bqdbqmf`fpbqjlbwfm`j/_mwfo/Eelml`lnjpj/_m`bm`jlmfp`bsb`jgbgfm`lmwqbqbm/Mojpjpebulqjwlpw/Eqnjmlpsqlujm`jbfwjrvfwbpfofnfmwlpevm`jlmfpqfpvowbgl`bq/M`wfqsqlsjfgbgsqjm`jsjlmf`fpjgbgnvmj`jsbo`qfb`j/_mgfp`bqdbpsqfpfm`jb`lnfq`jbolsjmjlmfpfifq`j`jlfgjwlqjbopbobnbm`bdlmy/Mofygl`vnfmwlsfo/A`vobqf`jfmwfpdfmfqbofpwbqqbdlmbsq/M`wj`bmlufgbgfpsqlsvfpwbsb`jfmwfpw/E`mj`bplaifwjulp`lmwb`wlp\fHB\fIk\fHn\fH^\fHS\fHc\fHU\fId\fHn\fH{\fHC\fHR\fHT\fHR\fHI\fHc\fHY\fHn\fH\\\fHU\fIk\fHy\fIg\fHd\fHy\fIm\fHw\fH\\\fHU\fHR\fH@\fHR\fHJ\fHy\fHU\fHR\fHT\fHA\fIl\fHU\fIm\fHc\fH\\\fHU\fIl\fHB\fId\fHn\fHJ\fHS\fHD\fH@\fHR\fHHgjsolgl`p\fHT\fHB\fHC\fH\\\fIn\fHF\fHD\fHR\fHB\fHF\fHH\fHR\fHG\fHS\fH\\\fHx\fHT\fHH\fHH\fH\\\fHU\fH^\fIg\fH{\fHU\fIm\fHj\fH@\fHR\fH\\\fHJ\fIk\fHZ\fHU\fIm\fHd\fHz\fIk\fH^\fHC\fHJ\fHS\fHy\fHR\fHB\fHY\fIk\fH@\fHH\fIl\fHD\fH@\fIl\fHv\fHB\fI`\fHH\fHT\fHR\fH^\fH^\fIk\fHz\fHp\fIe\fH@\fHB\fHJ\fHJ\fHH\fHI\fHR\fHD\fHU\fIl\fHZ\fHU\fH\\\fHi\fH^\fH{\fHy\fHA\fIl\fHD\fH{\fH\\\fHF\fHR\fHT\fH\\\fHR\fHH\fHy\fHS\fHc\fHe\fHT\fIk\fH{\fHC\fIl\fHU\fIn\fHm\fHj\fH{\fIk\fHs\fIl\fHB\fHz\fIg\fHp\fHy\fHR\fH\\\fHi\fHA\fIl\fH{\fHC\fIk\fHH\fIm\fHB\fHY\fIg\fHs\fHJ\fIk\fHn\fHi\fH{\fH\\\fH|\fHT\fIk\fHB\fIk\fH^\fH^\fH{\fHR\fHU\fHR\fH^\fHf\fHF\fH\\\fHv\fHR\fH\\\fH|\fHT\fHR\fHJ\fIk\fH\\\fHp\fHS\fHT\fHJ\fHS\fH^\fH@\fHn\fHJ\fH@\fHD\fHR\fHU\fIn\fHn\fH^\fHR\fHz\fHp\fIl\fHH\fH@\fHs\fHD\fHB\fHS\fH^\fHk\fHT\fIk\fHj\fHD\fIk\fHD\fHC\fHR\fHy\fIm\fH^\fH^\fIe\fH{\fHA\fHR\fH{\fH\\\fIk\fH^\fHp\fH{\fHU\fH\\\fHR\fHB\fH^\fH{\fIk\fHF\fIk\fHp\fHU\fHR\fHI\fHk\fHT\fIl\fHT\fHU\fIl\fHy\fH^\fHR\fHL\fIl\fHy\fHU\fHR\fHm\fHJ\fIn\fH\\\fHH\fHU\fHH\fHT\fHR\fHH\fHC\fHR\fHJ\fHj\fHC\fHR\fHF\fHR\fHy\fHy\fI`\fHD\fHZ\fHR\fHB\fHJ\fIk\fHz\fHC\fHU\fIl\fH\\\fHR\fHC\fHz\fIm\fHJ\fH^\fH{\fIl`bwfdlqjfpf{sfqjfm`f?,wjwof=	@lszqjdkw#ibubp`qjsw`lmgjwjlmpfufqzwkjmd?s#`obpp>!wf`kmloldzab`hdqlvmg?b#`obpp>!nbmbdfnfmw%`lsz8#132ibubP`qjsw`kbqb`wfqpaqfbg`qvnawkfnpfoufpklqjylmwbodlufqmnfmw@bojelqmjbb`wjujwjfpgjp`lufqfgMbujdbwjlmwqbmpjwjlm`lmmf`wjlmmbujdbwjlmbssfbqbm`f?,wjwof=?n`kf`hal{!#wf`kmjrvfpsqlwf`wjlmbssbqfmwozbp#tfoo#bpvmw$/#$VB.qfplovwjlmlsfqbwjlmpwfofujpjlmwqbmpobwfgTbpkjmdwlmmbujdbwlq-#>#tjmglt-jnsqfppjlm%ow8aq%dw8ojwfqbwvqfslsvobwjlmad`lolq>! fpsf`jbooz#`lmwfmw>!sqlgv`wjlmmftpofwwfqsqlsfqwjfpgfejmjwjlmofbgfqpkjsWf`kmloldzSbqojbnfmw`lnsbqjplmvo#`obpp>!-jmgf{Le+!`lm`ovpjlmgjp`vppjlm`lnslmfmwpajloldj`boQfulovwjlm\\`lmwbjmfqvmgfqpwllgmlp`qjsw=?sfqnjppjlmfb`k#lwkfqbwnlpskfqf#lmel`vp>!?elqn#jg>!sql`fppjmdwkjp-ubovfdfmfqbwjlm@lmefqfm`fpvapfrvfmwtfoo.hmltmubqjbwjlmpqfsvwbwjlmskfmlnfmlmgjp`jsojmfoldl-smd!#+gl`vnfmw/alvmgbqjfpf{sqfppjlmpfwwofnfmwAb`hdqlvmglvw#le#wkffmwfqsqjpf+!kwwsp9!#vmfp`bsf+!sbpptlqg!#gfnl`qbwj`?b#kqfe>!,tqbssfq!=	nfnafqpkjsojmdvjpwj`s{8sbggjmdskjolplskzbppjpwbm`fvmjufqpjwzeb`jojwjfpqf`ldmjyfgsqfefqfm`fje#+wzsflenbjmwbjmfgul`bavobqzkzslwkfpjp-pvanjw+*8%bns8maps8bmmlwbwjlmafkjmg#wkfElvmgbwjlmsvaojpkfq!bppvnswjlmjmwqlgv`fg`lqqvswjlmp`jfmwjpwpf{soj`jwozjmpwfbg#legjnfmpjlmp#lm@oj`h>!`lmpjgfqfggfsbqwnfmwl``vsbwjlmpllm#bewfqjmufpwnfmwsqlmlvm`fgjgfmwjejfgf{sfqjnfmwNbmbdfnfmwdfldqbskj`!#kfjdkw>!ojmh#qfo>!-qfsob`f+,gfsqfppjlm`lmefqfm`fsvmjpknfmwfojnjmbwfgqfpjpwbm`fbgbswbwjlmlsslpjwjlmtfoo#hmltmpvssofnfmwgfwfqnjmfgk2#`obpp>!3s{8nbqdjmnf`kbmj`bopwbwjpwj`p`fofaqbwfgDlufqmnfmw		Gvqjmd#wgfufolsfqpbqwjej`jbofrvjubofmwlqjdjmbwfg@lnnjppjlmbwwb`knfmw?psbm#jg>!wkfqf#tfqfMfgfqobmgpafzlmg#wkfqfdjpwfqfgilvqmbojpweqfrvfmwozboo#le#wkfobmd>!fm!#?,pwzof=	baplovwf8#pvsslqwjmdf{wqfnfoz#nbjmpwqfbn?,pwqlmd=#slsvobqjwzfnsolznfmw?,wbaof=	#`lopsbm>!?,elqn=	##`lmufqpjlmbalvw#wkf#?,s=?,gju=jmwfdqbwfg!#obmd>!fmSlqwvdvfpfpvapwjwvwfjmgjujgvbojnslppjaofnvowjnfgjbbonlpw#boos{#plojg# bsbqw#eqlnpvaif`w#wljm#Fmdojpk`qjwj`jyfgf{`fsw#elqdvjgfojmfplqjdjmboozqfnbqhbaofwkf#pf`lmgk1#`obpp>!?b#wjwof>!+jm`ovgjmdsbqbnfwfqpsqlkjajwfg>#!kwws9,,gj`wjlmbqzsfq`fswjlmqfulovwjlmelvmgbwjlms{8kfjdkw9pv``fppevopvsslqwfqpnjoofmmjvnkjp#ebwkfqwkf#%rvlw8ml.qfsfbw8`lnnfq`jbojmgvpwqjbofm`lvqbdfgbnlvmw#le#vmleej`jbofeej`jfm`zQfefqfm`fp`llqgjmbwfgjp`objnfqf{sfgjwjlmgfufolsjmd`bo`vobwfgpjnsojejfgofdjwjnbwfpvapwqjmd+3!#`obpp>!`lnsofwfozjoovpwqbwfejuf#zfbqpjmpwqvnfmwSvaojpkjmd2!#`obpp>!spz`kloldz`lmejgfm`fmvnafq#le#bapfm`f#leel`vpfg#lmiljmfg#wkfpwqv`wvqfpsqfujlvpoz=?,jeqbnf=lm`f#bdbjmavw#qbwkfqjnnjdqbmwple#`lvqpf/b#dqlvs#leOjwfqbwvqfVmojhf#wkf?,b=%maps8	evm`wjlm#jw#tbp#wkf@lmufmwjlmbvwlnlajofSqlwfpwbmwbddqfppjufbewfq#wkf#Pjnjobqoz/!#,=?,gju=`loof`wjlm	evm`wjlmujpjajojwzwkf#vpf#leulovmwffqpbwwqb`wjlmvmgfq#wkf#wkqfbwfmfg)?"X@GBWBXjnslqwbm`fjm#dfmfqbowkf#obwwfq?,elqn=	?,-jmgf{Le+$j#>#38#j#?gjeefqfm`fgfulwfg#wlwqbgjwjlmppfbq`k#elqvowjnbwfozwlvqmbnfmwbwwqjavwfppl.`boofg#~	?,pwzof=fubovbwjlmfnskbpjyfgb``fppjaof?,pf`wjlm=pv``fppjlmbolmd#tjwkNfbmtkjof/jmgvpwqjfp?,b=?aq#,=kbp#af`lnfbpsf`wp#leWfofujpjlmpveej`jfmwabphfwabooalwk#pjgfp`lmwjmvjmdbm#bqwj`of?jnd#bow>!bgufmwvqfpkjp#nlwkfqnbm`kfpwfqsqjm`jsofpsbqwj`vobq`lnnfmwbqzfeef`wp#legf`jgfg#wl!=?pwqlmd=svaojpkfqpIlvqmbo#legjeej`vowzeb`jojwbwfb``fswbaofpwzof-`pp!\nevm`wjlm#jmmlubwjlm=@lszqjdkwpjwvbwjlmptlvog#kbufavpjmfppfpGj`wjlmbqzpwbwfnfmwplewfm#vpfgsfqpjpwfmwjm#Ibmvbqz`lnsqjpjmd?,wjwof=	\ngjsolnbwj``lmwbjmjmdsfqelqnjmdf{wfmpjlmpnbz#mlw#af`lm`fsw#le#lm`oj`h>!Jw#jp#boplejmbm`jbo#nbhjmd#wkfOv{fnalvqdbggjwjlmbobqf#`boofgfmdbdfg#jm!p`qjsw!*8avw#jw#tbpfof`wqlmj`lmpvanjw>!	?"..#Fmg#fof`wqj`boleej`jboozpvddfpwjlmwls#le#wkfvmojhf#wkfBvpwqbojbmLqjdjmboozqfefqfm`fp	?,kfbg=	qf`ldmjpfgjmjwjbojyfojnjwfg#wlBof{bmgqjbqfwjqfnfmwBgufmwvqfpelvq#zfbqp		%ow8"..#jm`qfbpjmdgf`lqbwjlmk0#`obpp>!lqjdjmp#lelaojdbwjlmqfdvobwjlm`obppjejfg+evm`wjlm+bgubmwbdfpafjmd#wkf#kjpwlqjbmp?abpf#kqfeqfsfbwfgoztjoojmd#wl`lnsbqbaofgfpjdmbwfgmlnjmbwjlmevm`wjlmbojmpjgf#wkfqfufobwjlmfmg#le#wkfp#elq#wkf#bvwklqjyfgqfevpfg#wlwbhf#sob`fbvwlmlnlvp`lnsqlnjpfslojwj`bo#qfpwbvqbmwwtl#le#wkfEfaqvbqz#1rvbojwz#leptelaif`w-vmgfqpwbmgmfbqoz#bootqjwwfm#azjmwfqujftp!#tjgwk>!2tjwkgqbtboeolbw9ofewjp#vpvbooz`bmgjgbwfpmftpsbsfqpnzpwfqjlvpGfsbqwnfmwafpw#hmltmsbqojbnfmwpvssqfppfg`lmufmjfmwqfnfnafqfggjeefqfmw#pzpwfnbwj`kbp#ofg#wlsqlsbdbmgb`lmwqloofgjmeovfm`fp`fqfnlmjbosql`objnfgSqlwf`wjlmoj#`obpp>!P`jfmwjej``obpp>!ml.wqbgfnbqhpnlqf#wkbm#tjgfpsqfbgOjafqbwjlmwllh#sob`fgbz#le#wkfbp#olmd#bpjnsqjplmfgBggjwjlmbo	?kfbg=	?nObalqbwlqzMlufnafq#1f{`fswjlmpJmgvpwqjboubqjfwz#leeolbw9#ofeGvqjmd#wkfbppfppnfmwkbuf#affm#gfbop#tjwkPwbwjpwj`pl``vqqfm`f,vo=?,gju=`ofbqej{!=wkf#svaoj`nbmz#zfbqptkj`k#tfqflufq#wjnf/pzmlmznlvp`lmwfmw!=	sqfpvnbaozkjp#ebnjozvpfqBdfmw-vmf{sf`wfgjm`ovgjmd#`kboofmdfgb#njmlqjwzvmgfejmfg!afolmdp#wlwbhfm#eqlnjm#L`wlafqslpjwjlm9#pbjg#wl#afqfojdjlvp#Efgfqbwjlm#qltpsbm>!lmoz#b#eftnfbmw#wkbwofg#wl#wkf..=	?gju#?ejfogpfw=Bq`kajpkls#`obpp>!mlafjmd#vpfgbssqlb`kfpsqjujofdfpmlp`qjsw=	qfpvowp#jmnbz#af#wkfFbpwfq#fddnf`kbmjpnpqfbplmbaofSlsvobwjlm@loof`wjlmpfof`wfg!=mlp`qjsw=,jmgf{-sksbqqjubo#le.ippgh$**8nbmbdfg#wljm`lnsofwf`bpvbowjfp`lnsofwjlm@kqjpwjbmpPfswfnafq#bqjwknfwj`sql`fgvqfpnjdkw#kbufSqlgv`wjlmjw#bssfbqpSkjolplskzeqjfmgpkjsofbgjmd#wldjujmd#wkfwltbqg#wkfdvbqbmwffggl`vnfmwfg`lolq9 333ujgfl#dbnf`lnnjppjlmqfeof`wjmd`kbmdf#wkfbppl`jbwfgpbmp.pfqjelmhfzsqfpp8#sbggjmd9Kf#tbp#wkfvmgfqozjmdwzsj`booz#/#bmg#wkf#pq`Fofnfmwpv``fppjufpjm`f#wkf#pklvog#af#mfwtlqhjmdb``lvmwjmdvpf#le#wkfoltfq#wkbmpkltp#wkbw?,psbm=	\n\n`lnsobjmwp`lmwjmvlvprvbmwjwjfpbpwqlmlnfqkf#gjg#mlwgvf#wl#jwpbssojfg#wlbm#bufqbdffeelqwp#wlwkf#evwvqfbwwfnsw#wlWkfqfelqf/`bsbajojwzQfsvaoj`bmtbp#elqnfgFof`wqlmj`hjolnfwfqp`kboofmdfpsvaojpkjmdwkf#elqnfqjmgjdfmlvpgjqf`wjlmppvapjgjbqz`lmpsjqb`zgfwbjop#lebmg#jm#wkfbeelqgbaofpvapwbm`fpqfbplm#elq`lmufmwjlmjwfnwzsf>!baplovwfozpvsslpfgozqfnbjmfg#bbwwqb`wjufwqbufoojmdpfsbqbwfozel`vpfp#lmfofnfmwbqzbssoj`baofelvmg#wkbwpwzofpkffwnbmvp`qjswpwbmgp#elq#ml.qfsfbw+plnfwjnfp@lnnfq`jbojm#Bnfqj`bvmgfqwbhfmrvbqwfq#lebm#f{bnsofsfqplmboozjmgf{-sks<?,avwwlm=	sfq`fmwbdfafpw.hmltm`qfbwjmd#b!#gjq>!owqOjfvwfmbmw	?gju#jg>!wkfz#tlvogbajojwz#lenbgf#vs#lemlwfg#wkbw`ofbq#wkbwbqdvf#wkbwwl#bmlwkfq`kjogqfm$psvqslpf#leelqnvobwfgabpfg#vslmwkf#qfdjlmpvaif`w#lesbppfmdfqpslppfppjlm-		Jm#wkf#Afelqf#wkfbewfqtbqgp`vqqfmwoz#b`qlpp#wkfp`jfmwjej``lnnvmjwz-`bsjwbojpnjm#Dfqnbmzqjdkw.tjmdwkf#pzpwfnPl`jfwz#leslojwj`jbmgjqf`wjlm9tfmw#lm#wlqfnlubo#le#Mft#Zlqh#bsbqwnfmwpjmgj`bwjlmgvqjmd#wkfvmofpp#wkfkjpwlqj`bokbg#affm#bgfejmjwjufjmdqfgjfmwbwwfmgbm`f@fmwfq#elqsqlnjmfm`fqfbgzPwbwfpwqbwfdjfpavw#jm#wkfbp#sbqw#le`lmpwjwvwf`objn#wkbwobalqbwlqz`lnsbwjaofebjovqf#le/#pv`k#bp#afdbm#tjwkvpjmd#wkf#wl#sqlujgfefbwvqf#leeqln#tkj`k,!#`obpp>!dfloldj`bopfufqbo#legfojafqbwfjnslqwbmw#klogp#wkbwjmd%rvlw8#ubojdm>wlswkf#Dfqnbmlvwpjgf#lemfdlwjbwfgkjp#`bqffqpfsbqbwjlmjg>!pfbq`ktbp#`boofgwkf#elvqwkqf`qfbwjlmlwkfq#wkbmsqfufmwjlmtkjof#wkf#fgv`bwjlm/`lmmf`wjmdb``vqbwfoztfqf#avjowtbp#hjoofgbdqffnfmwpnv`k#nlqf#Gvf#wl#wkftjgwk9#233plnf#lwkfqHjmdgln#lewkf#fmwjqfebnlvp#elqwl#`lmmf`wlaif`wjufpwkf#Eqfm`ksflsof#bmgefbwvqfg!=jp#pbjg#wlpwqv`wvqboqfefqfmgvnnlpw#lewfmb#pfsbqbwf.=	?gju#jg#Leej`jbo#tlqogtjgf-bqjb.obafowkf#sobmfwbmg#jw#tbpg!#ubovf>!ollhjmd#bwafmfej`jbobqf#jm#wkfnlmjwlqjmdqfslqwfgozwkf#nlgfqmtlqhjmd#lmbooltfg#wltkfqf#wkf#jmmlubwjuf?,b=?,gju=plvmgwqb`hpfbq`kElqnwfmg#wl#afjmsvw#jg>!lsfmjmd#leqfpwqj`wfgbglswfg#azbggqfppjmdwkfloldjbmnfwklgp#leubqjbmw#le@kqjpwjbm#ufqz#obqdfbvwlnlwjufaz#ebq#wkfqbmdf#eqlnsvqpvjw#leeloolt#wkfaqlvdkw#wljm#Fmdobmgbdqff#wkbwb``vpfg#le`lnfp#eqlnsqfufmwjmdgju#pwzof>kjp#lq#kfqwqfnfmglvpeqffgln#le`lm`fqmjmd3#2fn#2fn8Abphfwaboo,pwzof-`ppbm#fbqojfqfufm#bewfq,!#wjwof>!-`ln,jmgf{wbhjmd#wkfsjwwpavqdk`lmwfmw!=?p`qjsw=+ewvqmfg#lvwkbujmd#wkf?,psbm=	#l``bpjlmboaf`bvpf#jwpwbqwfg#wlskzpj`booz=?,gju=	##`qfbwfg#az@vqqfmwoz/#ad`lolq>!wbajmgf{>!gjpbpwqlvpBmbozwj`p#bopl#kbp#b=?gju#jg>!?,pwzof=	?`boofg#elqpjmdfq#bmg-pq`#>#!,,ujlobwjlmpwkjp#sljmw`lmpwbmwozjp#ol`bwfgqf`lqgjmdpg#eqln#wkfmfgfqobmgpslqwvdv/Fp;N;};D;u;F5m4K4]4_7`gfpbqqlool`lnfmwbqjlfgv`b`j/_mpfswjfnaqfqfdjpwqbglgjqf``j/_mvaj`b`j/_msvaoj`jgbgqfpsvfpwbpqfpvowbglpjnslqwbmwfqfpfqubglpbqw/A`volpgjefqfmwfppjdvjfmwfpqfs/Vaoj`bpjwvb`j/_mnjmjpwfqjlsqjub`jgbggjqf`wlqjlelqnb`j/_mslaob`j/_msqfpjgfmwf`lmw', 'fmjglpb``fplqjlpwf`kmlqbwjsfqplmbofp`bwfdlq/Abfpsf`jbofpgjpslmjaofb`wvbojgbgqfefqfm`jbuboobglojgajaojlwf`bqfob`jlmfp`bofmgbqjlslo/Awj`bpbmwfqjlqfpgl`vnfmwlpmbwvqbofybnbwfqjbofpgjefqfm`jbf`lm/_nj`bwqbmpslqwfqlgq/Advfysbqwj`jsbqfm`vfmwqbmgjp`vpj/_mfpwqv`wvqbevmgb`j/_meqf`vfmwfpsfqnbmfmwfwlwbonfmwf<P<R<Z<Q<R<]=o<X<Y=n<P<R<Z<Y=n<^=l<Y<P=c=n<\\<V<Z<Y=k=n<R<]=g<]<R<W<Y<Y<R=k<Y<Q=`=a=n<R<_<R<V<R<_<X<\\<S<R=m<W<Y<^=m<Y<_<R=m<\\<U=n<Y=k<Y=l<Y<[<P<R<_=o=n=m<\\<U=n<\\<Z<T<[<Q<T<P<Y<Z<X=o<]=o<X=o=n<s<R<T=m<V<[<X<Y=m=`<^<T<X<Y<R=m<^=c<[<T<Q=o<Z<Q<R=m<^<R<Y<U<W=b<X<Y<U<S<R=l<Q<R<P<Q<R<_<R<X<Y=n<Y<U=m<^<R<T=i<S=l<\\<^<\\=n<\\<V<R<U<P<Y=m=n<R<T<P<Y<Y=n<Z<T<[<Q=`<R<X<Q<R<U<W=o=k=d<Y<S<Y=l<Y<X=k<\\=m=n<T=k<\\=m=n=`=l<\\<]<R=n<Q<R<^=g=i<S=l<\\<^<R=m<R<]<R<U<S<R=n<R<P<P<Y<Q<Y<Y=k<T=m<W<Y<Q<R<^=g<Y=o=m<W=o<_<R<V<R<W<R<Q<\\<[<\\<X=n<\\<V<R<Y=n<R<_<X<\\<S<R=k=n<T<s<R=m<W<Y=n<\\<V<T<Y<Q<R<^=g<U=m=n<R<T=n=n<\\<V<T=i=m=l<\\<[=o<M<\\<Q<V=n=h<R=l=o<P<v<R<_<X<\\<V<Q<T<_<T=m<W<R<^<\\<Q<\\=d<Y<U<Q<\\<U=n<T=m<^<R<T<P=m<^=c<[=`<W=b<]<R<U=k<\\=m=n<R=m=l<Y<X<T<v=l<R<P<Y<H<R=l=o<P=l=g<Q<V<Y=m=n<\\<W<T<S<R<T=m<V=n=g=m=c=k<P<Y=m=c=j=j<Y<Q=n=l=n=l=o<X<\\=m<\\<P=g=i=l=g<Q<V<\\<q<R<^=g<U=k<\\=m<R<^<P<Y=m=n<\\=h<T<W=`<P<P<\\=l=n<\\=m=n=l<\\<Q<P<Y=m=n<Y=n<Y<V=m=n<Q<\\=d<T=i<P<T<Q=o=n<T<P<Y<Q<T<T<P<Y=b=n<Q<R<P<Y=l<_<R=l<R<X=m<\\<P<R<P=a=n<R<P=o<V<R<Q=j<Y=m<^<R<Y<P<V<\\<V<R<U<|=l=i<T<^5i5j4F4C5e4I4]4_4K5h4]4_4K5h4E4K5h4U4K5i5o4F4D5k4K4D4]4K5i4@4K5h5f5d5i4K5h4Y5d4]4@4C5f4C4E4K5h4U4Z5d4I4Z4K5m4E4K5h5n4_5i4K5h4U4K4D4F4A5i5f5h5i5h5m4K4F5i5h4F5n5e4F4U4C5f5h4K5h4X4U4]4O4B4D4K4]4F4[5d5f4]4U5h5f5o5i4I4]5m4K5n4[5h4D4K4F4K5h5h4V4E4F4]4F5f4D4K5h5j4K4_4K5h4X5f4B5i5j4F4C5f4K5h4U4]4D4K5h5n4Y4Y4K5m5h4K5i4U5h5f5k4K4F4A4C5f4G4K5h5h5k5i4K5h4U5i5h5i5o4F4D4E5f5i5o5j5o4K5h4[5m5h5m5f4C5f5d4I4C4K4]4E4F4K4]5f4B4K5h4Y4A4E4F4_4@5f5h4K5h5d5n4F4U5j4C5i4K5i4C5f5j4E4F4Y5i5f5i4O4]4X5f5m4K5h4\\5f5j4U4]4D5f4E4D5d4K4D4E4O5h4U4K4D4K5h4_5m4]5i4X4K5o5h4F4U4K5h5e4K5h4O5d5h4K5h4_5j4E4@4K5i4U4E4K5h4Y4A5m4K5h4C5f5j5o5h5i4K4F4K5h4B4K4Y4K5h5i5h5m4O4U4Z4K4M5o4F4K4D4E4K5h4B5f4]4]4_4K4J5h4K5h5n5h4D4K5h4O4C4D5i5n4K4[4U5i4]4K4_5h5i5j4[5n4E4K5h5o4F4D4K5h4]4@5h4K4X4F4]5o4K5h5n4C5i5f4U4[5f5opAzWbdMbnf+-isd!#bow>!2s{#plojg# -dje!#bow>!wqbmpsbqfmwjmelqnbwjlmbssoj`bwjlm!#lm`oj`h>!fpwbaojpkfgbgufqwjpjmd-smd!#bow>!fmujqlmnfmwsfqelqnbm`fbssqlsqjbwf%bns8ngbpk8jnnfgjbwfoz?,pwqlmd=?,qbwkfq#wkbmwfnsfqbwvqfgfufolsnfmw`lnsfwjwjlmsob`fklogfqujpjajojwz9`lszqjdkw!=3!#kfjdkw>!fufm#wklvdkqfsob`fnfmwgfpwjmbwjlm@lqslqbwjlm?vo#`obpp>!Bppl`jbwjlmjmgjujgvbopsfqpsf`wjufpfwWjnflvw+vqo+kwws9,,nbwkfnbwj`pnbqdjm.wls9fufmwvbooz#gfp`qjswjlm*#ml.qfsfbw`loof`wjlmp-ISDwkvnasbqwj`jsbwf,kfbg=?algzeolbw9ofew8?oj#`obpp>!kvmgqfgp#le		Kltfufq/#`lnslpjwjlm`ofbq9alwk8`llsfqbwjlmtjwkjm#wkf#obafo#elq>!alqgfq.wls9Mft#Yfbobmgqf`lnnfmgfgsklwldqbskzjmwfqfpwjmd%ow8pvs%dw8`lmwqlufqpzMfwkfqobmgpbowfqmbwjufnb{ofmdwk>!ptjwyfqobmgGfufolsnfmwfppfmwjbooz		Bowklvdk#?,wf{wbqfb=wkvmgfqajqgqfsqfpfmwfg%bns8mgbpk8psf`vobwjlm`lnnvmjwjfpofdjpobwjlmfof`wqlmj`p	\n?gju#jg>!joovpwqbwfgfmdjmffqjmdwfqqjwlqjfpbvwklqjwjfpgjpwqjavwfg5!#kfjdkw>!pbmp.pfqje8`bsbaof#le#gjpbssfbqfgjmwfqb`wjufollhjmd#elqjw#tlvog#afBedkbmjpwbmtbp#`qfbwfgNbwk-eollq+pvqqlvmgjmd`bm#bopl#aflapfqubwjlmnbjmwfmbm`ffm`lvmwfqfg?k1#`obpp>!nlqf#qf`fmwjw#kbp#affmjmubpjlm#le*-dfwWjnf+*evmgbnfmwboGfpsjwf#wkf!=?gju#jg>!jmpsjqbwjlmf{bnjmbwjlmsqfsbqbwjlmf{sobmbwjlm?jmsvw#jg>!?,b=?,psbm=ufqpjlmp#lejmpwqvnfmwpafelqf#wkf##>#$kwws9,,Gfp`qjswjlmqfobwjufoz#-pvapwqjmd+fb`k#le#wkff{sfqjnfmwpjmeovfmwjbojmwfdqbwjlmnbmz#sflsofgvf#wl#wkf#`lnajmbwjlmgl#mlw#kbufNjggof#Fbpw?mlp`qjsw=?`lszqjdkw!#sfqkbsp#wkfjmpwjwvwjlmjm#Gf`fnafqbqqbmdfnfmwnlpw#ebnlvpsfqplmbojwz`qfbwjlm#leojnjwbwjlmpf{`ovpjufozplufqfjdmwz.`lmwfmw!=	?wg#`obpp>!vmgfqdqlvmgsbqboofo#wlgl`wqjmf#lel``vsjfg#azwfqnjmloldzQfmbjppbm`fb#mvnafq#lepvsslqw#elqf{solqbwjlmqf`ldmjwjlmsqfgf`fpplq?jnd#pq`>!,?k2#`obpp>!svaoj`bwjlmnbz#bopl#afpsf`jbojyfg?,ejfogpfw=sqldqfppjufnjoojlmp#lepwbwfp#wkbwfmelq`fnfmwbqlvmg#wkf#lmf#bmlwkfq-sbqfmwMlgfbdqj`vowvqfBowfqmbwjufqfpfbq`kfqpwltbqgp#wkfNlpw#le#wkfnbmz#lwkfq#+fpsf`jbooz?wg#tjgwk>!8tjgwk9233&jmgfsfmgfmw?k0#`obpp>!#lm`kbmdf>!*-bgg@obpp+jmwfqb`wjlmLmf#le#wkf#gbvdkwfq#leb``fpplqjfpaqbm`kfp#le	?gju#jg>!wkf#obqdfpwgf`obqbwjlmqfdvobwjlmpJmelqnbwjlmwqbmpobwjlmgl`vnfmwbqzjm#lqgfq#wl!=	?kfbg=	?!#kfjdkw>!2b`qlpp#wkf#lqjfmwbwjlm*8?,p`qjsw=jnsofnfmwfg`bm#af#pffmwkfqf#tbp#bgfnlmpwqbwf`lmwbjmfq!=`lmmf`wjlmpwkf#Aqjwjpktbp#tqjwwfm"jnslqwbmw8s{8#nbqdjm.elooltfg#azbajojwz#wl#`lnsoj`bwfggvqjmd#wkf#jnnjdqbwjlmbopl#`boofg?k7#`obpp>!gjpwjm`wjlmqfsob`fg#azdlufqmnfmwpol`bwjlm#lejm#Mlufnafqtkfwkfq#wkf?,s=	?,gju=b`rvjpjwjlm`boofg#wkf#sfqpf`vwjlmgfpjdmbwjlmxelmw.pjyf9bssfbqfg#jmjmufpwjdbwff{sfqjfm`fgnlpw#ojhfoztjgfoz#vpfggjp`vppjlmpsqfpfm`f#le#+gl`vnfmw-f{wfmpjufozJw#kbp#affmjw#glfp#mlw`lmwqbqz#wljmkbajwbmwpjnsqlufnfmwp`klobqpkjs`lmpvnswjlmjmpwqv`wjlmelq#f{bnsoflmf#lq#nlqfs{8#sbggjmdwkf#`vqqfmwb#pfqjfp#lebqf#vpvboozqlof#jm#wkfsqfujlvpoz#gfqjubwjufpfujgfm`f#lef{sfqjfm`fp`lolqp`kfnfpwbwfg#wkbw`fqwjej`bwf?,b=?,gju=	#pfof`wfg>!kjdk#p`klloqfpslmpf#wl`lnelqwbaofbglswjlm#lewkqff#zfbqpwkf#`lvmwqzjm#Efaqvbqzpl#wkbw#wkfsflsof#tkl#sqlujgfg#az?sbqbn#mbnfbeef`wfg#azjm#wfqnp#lebssljmwnfmwJPL.;;6:.2!tbp#alqm#jmkjpwlqj`bo#qfdbqgfg#bpnfbpvqfnfmwjp#abpfg#lm#bmg#lwkfq#9#evm`wjlm+pjdmjej`bmw`fofaqbwjlmwqbmpnjwwfg,ip,irvfqz-jp#hmltm#bpwkflqfwj`bo#wbajmgf{>!jw#`lvog#af?mlp`qjsw=	kbujmd#affm	?kfbg=	?#%rvlw8Wkf#`lnsjobwjlmkf#kbg#affmsqlgv`fg#azskjolplskfq`lmpwqv`wfgjmwfmgfg#wlbnlmd#lwkfq`lnsbqfg#wlwl#pbz#wkbwFmdjmffqjmdb#gjeefqfmwqfefqqfg#wlgjeefqfm`fpafojfe#wkbwsklwldqbskpjgfmwjezjmdKjpwlqz#le#Qfsvaoj`#lemf`fppbqjozsqlabajojwzwf`kmj`boozofbujmd#wkfpsf`wb`vobqeqb`wjlm#lefof`wqj`jwzkfbg#le#wkfqfpwbvqbmwpsbqwmfqpkjsfnskbpjp#lmnlpw#qf`fmwpkbqf#tjwk#pbzjmd#wkbwejoofg#tjwkgfpjdmfg#wljw#jp#lewfm!=?,jeqbnf=bp#elooltp9nfqdfg#tjwkwkqlvdk#wkf`lnnfq`jbo#sljmwfg#lvwlsslqwvmjwzujft#le#wkfqfrvjqfnfmwgjujpjlm#lesqldqbnnjmdkf#qf`fjufgpfwJmwfqubo!=?,psbm=?,jm#Mft#Zlqhbggjwjlmbo#`lnsqfppjlm		?gju#jg>!jm`lqslqbwf8?,p`qjsw=?bwwb`kFufmwaf`bnf#wkf#!#wbqdfw>!\\`bqqjfg#lvwPlnf#le#wkfp`jfm`f#bmgwkf#wjnf#le@lmwbjmfq!=nbjmwbjmjmd@kqjpwlskfqNv`k#le#wkftqjwjmdp#le!#kfjdkw>!1pjyf#le#wkfufqpjlm#le#nj{wvqf#le#afwtffm#wkfF{bnsofp#lefgv`bwjlmbo`lnsfwjwjuf#lmpvanjw>!gjqf`wlq#legjpwjm`wjuf,GWG#[KWNO#qfobwjmd#wlwfmgfm`z#wlsqlujm`f#letkj`k#tlvoggfpsjwf#wkfp`jfmwjej`#ofdjpobwvqf-jmmfqKWNO#boofdbwjlmpBdqj`vowvqftbp#vpfg#jmbssqlb`k#wljmwfoojdfmwzfbqp#obwfq/pbmp.pfqjegfwfqnjmjmdSfqelqnbm`fbssfbqbm`fp/#tkj`k#jp#elvmgbwjlmpbaaqfujbwfgkjdkfq#wkbmp#eqln#wkf#jmgjujgvbo#`lnslpfg#lepvsslpfg#wl`objnp#wkbwbwwqjavwjlmelmw.pjyf92fofnfmwp#leKjpwlqj`bo#kjp#aqlwkfqbw#wkf#wjnfbmmjufqpbqzdlufqmfg#azqfobwfg#wl#vowjnbwfoz#jmmlubwjlmpjw#jp#pwjoo`bm#lmoz#afgfejmjwjlmpwlDNWPwqjmdB#mvnafq#lejnd#`obpp>!Fufmwvbooz/tbp#`kbmdfgl``vqqfg#jmmfjdkalqjmdgjpwjmdvjpktkfm#kf#tbpjmwqlgv`jmdwfqqfpwqjboNbmz#le#wkfbqdvfp#wkbwbm#Bnfqj`bm`lmrvfpw#letjgfpsqfbg#tfqf#hjoofgp`qffm#bmg#Jm#lqgfq#wlf{sf`wfg#wlgfp`fmgbmwpbqf#ol`bwfgofdjpobwjufdfmfqbwjlmp#ab`hdqlvmgnlpw#sflsofzfbqp#bewfqwkfqf#jp#mlwkf#kjdkfpweqfrvfmwoz#wkfz#gl#mlwbqdvfg#wkbwpkltfg#wkbwsqfglnjmbmwwkfloldj`boaz#wkf#wjnf`lmpjgfqjmdpklqw.ojufg?,psbm=?,b=`bm#af#vpfgufqz#ojwwoflmf#le#wkf#kbg#boqfbgzjmwfqsqfwfg`lnnvmj`bwfefbwvqfp#ledlufqmnfmw/?,mlp`qjsw=fmwfqfg#wkf!#kfjdkw>!0Jmgfsfmgfmwslsvobwjlmpobqdf.p`bof-#Bowklvdk#vpfg#jm#wkfgfpwqv`wjlmslppjajojwzpwbqwjmd#jmwtl#lq#nlqff{sqfppjlmppvalqgjmbwfobqdfq#wkbmkjpwlqz#bmg?,lswjlm=	@lmwjmfmwbofojnjmbwjmdtjoo#mlw#afsqb`wj`f#lejm#eqlmw#lepjwf#le#wkffmpvqf#wkbwwl#`qfbwf#bnjppjppjssjslwfmwjboozlvwpwbmgjmdafwwfq#wkbmtkbw#jp#mltpjwvbwfg#jmnfwb#mbnf>!WqbgjwjlmbopvddfpwjlmpWqbmpobwjlmwkf#elqn#lebwnlpskfqj`jgfloldj`bofmwfqsqjpfp`bo`vobwjmdfbpw#le#wkfqfnmbmwp#lesovdjmpsbdf,jmgf{-sks<qfnbjmfg#jmwqbmpelqnfgKf#tbp#bopltbp#boqfbgzpwbwjpwj`bojm#ebulq#leNjmjpwqz#lenlufnfmw#leelqnvobwjlmjp#qfrvjqfg?ojmh#qfo>!Wkjp#jp#wkf#?b#kqfe>!,slsvobqjyfgjmuloufg#jmbqf#vpfg#wlbmg#pfufqbonbgf#az#wkfpffnp#wl#afojhfoz#wkbwSbofpwjmjbmmbnfg#bewfqjw#kbg#affmnlpw#`lnnlmwl#qfefq#wlavw#wkjp#jp`lmpf`vwjufwfnslqbqjozJm#dfmfqbo/`lmufmwjlmpwbhfp#sob`fpvagjujpjlmwfqqjwlqjbolsfqbwjlmbosfqnbmfmwoztbp#obqdfozlvwaqfbh#lejm#wkf#sbpwelooltjmd#b#{nomp9ld>!=?b#`obpp>!`obpp>!wf{w@lmufqpjlm#nbz#af#vpfgnbmveb`wvqfbewfq#afjmd`ofbqej{!=	rvfpwjlm#letbp#fof`wfgwl#af`lnf#baf`bvpf#le#plnf#sflsofjmpsjqfg#azpv``fppevo#b#wjnf#tkfmnlqf#`lnnlmbnlmdpw#wkfbm#leej`jbotjgwk9233&8wf`kmloldz/tbp#bglswfgwl#hffs#wkfpfwwofnfmwpojuf#ajqwkpjmgf{-kwno!@lmmf`wj`vwbppjdmfg#wl%bns8wjnfp8b``lvmw#elqbojdm>qjdkwwkf#`lnsbmzbotbzp#affmqfwvqmfg#wljmuloufnfmwAf`bvpf#wkfwkjp#sfqjlg!#mbnf>!r!#`lmejmfg#wlb#qfpvow#leubovf>!!#,=jp#b`wvboozFmujqlmnfmw	?,kfbg=	@lmufqpfoz/=	?gju#jg>!3!#tjgwk>!2jp#sqlabaozkbuf#af`lnf`lmwqloojmdwkf#sqlaofn`jwjyfmp#leslojwj`jbmpqfb`kfg#wkfbp#fbqoz#bp9mlmf8#lufq?wbaof#`fooubojgjwz#legjqf`woz#wllmnlvpfgltmtkfqf#jw#jptkfm#jw#tbpnfnafqp#le#qfobwjlm#wlb``lnnlgbwfbolmd#tjwk#Jm#wkf#obwfwkf#Fmdojpkgfoj`jlvp!=wkjp#jp#mlwwkf#sqfpfmwje#wkfz#bqfbmg#ejmboozb#nbwwfq#le	\n?,gju=		?,p`qjsw=ebpwfq#wkbmnbilqjwz#lebewfq#tkj`k`lnsbqbwjufwl#nbjmwbjmjnsqluf#wkfbtbqgfg#wkffq!#`obpp>!eqbnfalqgfqqfpwlqbwjlmjm#wkf#pbnfbmbozpjp#lewkfjq#ejqpwGvqjmd#wkf#`lmwjmfmwbopfrvfm`f#leevm`wjlm+*xelmw.pjyf9#tlqh#lm#wkf?,p`qjsw=	?afdjmp#tjwkibubp`qjsw9`lmpwjwvfmwtbp#elvmgfgfrvjojaqjvnbppvnf#wkbwjp#djufm#azmffgp#wl#af`llqgjmbwfpwkf#ubqjlvpbqf#sbqw#lelmoz#jm#wkfpf`wjlmp#lejp#b#`lnnlmwkflqjfp#legjp`lufqjfpbppl`jbwjlmfgdf#le#wkfpwqfmdwk#leslpjwjlm#jmsqfpfmw.gbzvmjufqpboozwl#elqn#wkfavw#jmpwfbg`lqslqbwjlmbwwb`kfg#wljp#`lnnlmozqfbplmp#elq#%rvlw8wkf#`bm#af#nbgftbp#baof#wltkj`k#nfbmpavw#gjg#mlwlmNlvpfLufqbp#slppjaoflsfqbwfg#az`lnjmd#eqlnwkf#sqjnbqzbggjwjlm#leelq#pfufqbowqbmpefqqfgb#sfqjlg#lebqf#baof#wlkltfufq/#jwpklvog#kbufnv`k#obqdfq	\n?,p`qjsw=bglswfg#wkfsqlsfqwz#legjqf`wfg#azfeef`wjufoztbp#aqlvdkw`kjogqfm#leSqldqbnnjmdolmdfq#wkbmnbmvp`qjswptbq#bdbjmpwaz#nfbmp#lebmg#nlpw#lepjnjobq#wl#sqlsqjfwbqzlqjdjmbwjmdsqfpwjdjlvpdqbnnbwj`bof{sfqjfm`f-wl#nbhf#wkfJw#tbp#bopljp#elvmg#jm`lnsfwjwlqpjm#wkf#V-P-qfsob`f#wkfaqlvdkw#wkf`bo`vobwjlmeboo#le#wkfwkf#dfmfqbosqb`wj`boozjm#klmlq#leqfofbpfg#jmqfpjgfmwjbobmg#plnf#lehjmd#le#wkfqfb`wjlm#wl2pw#Fbqo#le`vowvqf#bmgsqjm`jsbooz?,wjwof=	##wkfz#`bm#afab`h#wl#wkfplnf#le#kjpf{slpvqf#wlbqf#pjnjobqelqn#le#wkfbggEbulqjwf`jwjyfmpkjssbqw#jm#wkfsflsof#tjwkjm#sqb`wj`fwl#`lmwjmvf%bns8njmvp8bssqlufg#az#wkf#ejqpw#booltfg#wkfbmg#elq#wkfevm`wjlmjmdsobzjmd#wkfplovwjlm#wlkfjdkw>!3!#jm#kjp#allhnlqf#wkbm#belooltp#wkf`qfbwfg#wkfsqfpfm`f#jm%maps8?,wg=mbwjlmbojpwwkf#jgfb#leb#`kbqb`wfqtfqf#elq`fg#`obpp>!awmgbzp#le#wkfefbwvqfg#jmpkltjmd#wkfjmwfqfpw#jmjm#sob`f#lewvqm#le#wkfwkf#kfbg#leOlqg#le#wkfslojwj`boozkbp#jwp#ltmFgv`bwjlmbobssqlubo#leplnf#le#wkffb`k#lwkfq/afkbujlq#lebmg#af`bvpfbmg#bmlwkfqbssfbqfg#lmqf`lqgfg#jmaob`h%rvlw8nbz#jm`ovgfwkf#tlqog$p`bm#ofbg#wlqfefqp#wl#balqgfq>!3!#dlufqmnfmw#tjmmjmd#wkfqfpvowfg#jm#tkjof#wkf#Tbpkjmdwlm/wkf#pvaif`w`jwz#jm#wkf=?,gju=	\n\nqfeof`w#wkfwl#`lnsofwfaf`bnf#nlqfqbgjlb`wjufqfif`wfg#aztjwklvw#bmzkjp#ebwkfq/tkj`k#`lvog`lsz#le#wkfwl#jmgj`bwfb#slojwj`bob``lvmwp#le`lmpwjwvwfptlqhfg#tjwkfq?,b=?,oj=le#kjp#ojefb``lnsbmjfg`ojfmwTjgwksqfufmw#wkfOfdjpobwjufgjeefqfmwozwldfwkfq#jmkbp#pfufqboelq#bmlwkfqwf{w#le#wkfelvmgfg#wkff#tjwk#wkf#jp#vpfg#elq`kbmdfg#wkfvpvbooz#wkfsob`f#tkfqftkfqfbp#wkf=#?b#kqfe>!!=?b#kqfe>!wkfnpfoufp/bowklvdk#kfwkbw#`bm#afwqbgjwjlmboqlof#le#wkfbp#b#qfpvowqfnluf@kjoggfpjdmfg#aztfpw#le#wkfPlnf#sflsofsqlgv`wjlm/pjgf#le#wkfmftpofwwfqpvpfg#az#wkfgltm#wl#wkfb``fswfg#azojuf#jm#wkfbwwfnswp#wllvwpjgf#wkfeqfrvfm`jfpKltfufq/#jmsqldqbnnfqpbw#ofbpw#jmbssql{jnbwfbowklvdk#jwtbp#sbqw#lebmg#ubqjlvpDlufqmlq#lewkf#bqwj`ofwvqmfg#jmwl=?b#kqfe>!,wkf#f`lmlnzjp#wkf#nlpwnlpw#tjgfoztlvog#obwfqbmg#sfqkbspqjpf#wl#wkfl``vqp#tkfmvmgfq#tkj`k`lmgjwjlmp-wkf#tfpwfqmwkflqz#wkbwjp#sqlgv`fgwkf#`jwz#lejm#tkj`k#kfpffm#jm#wkfwkf#`fmwqboavjogjmd#lenbmz#le#kjpbqfb#le#wkfjp#wkf#lmoznlpw#le#wkfnbmz#le#wkfwkf#TfpwfqmWkfqf#jp#mlf{wfmgfg#wlPwbwjpwj`bo`lopsbm>1#pklqw#pwlqzslppjaof#wlwlsloldj`bo`qjwj`bo#leqfslqwfg#wlb#@kqjpwjbmgf`jpjlm#wljp#frvbo#wlsqlaofnp#leWkjp#`bm#afnfq`kbmgjpfelq#nlpw#leml#fujgfm`ffgjwjlmp#lefofnfmwp#jm%rvlw8-#Wkf`ln,jnbdfp,tkj`k#nbhfpwkf#sql`fppqfnbjmp#wkfojwfqbwvqf/jp#b#nfnafqwkf#slsvobqwkf#bm`jfmwsqlaofnp#jmwjnf#le#wkfgfefbwfg#azalgz#le#wkfb#eft#zfbqpnv`k#le#wkfwkf#tlqh#le@bojelqmjb/pfqufg#bp#bdlufqmnfmw-`lm`fswp#lenlufnfmw#jm\n\n?gju#jg>!jw!#ubovf>!obmdvbdf#lebp#wkfz#bqfsqlgv`fg#jmjp#wkbw#wkff{sobjm#wkfgju=?,gju=	Kltfufq#wkfofbg#wl#wkf\n?b#kqfe>!,tbp#dqbmwfgsflsof#kbuf`lmwjmvbooztbp#pffm#bpbmg#qfobwfgwkf#qlof#lesqlslpfg#azle#wkf#afpwfb`k#lwkfq-@lmpwbmwjmfsflsof#eqlngjbof`wp#lewl#qfujpjlmtbp#qfmbnfgb#plvq`f#lewkf#jmjwjboobvm`kfg#jmsqlujgf#wkfwl#wkf#tfpwtkfqf#wkfqfbmg#pjnjobqafwtffm#wtljp#bopl#wkfFmdojpk#bmg`lmgjwjlmp/wkbw#jw#tbpfmwjwofg#wlwkfnpfoufp-rvbmwjwz#leqbmpsbqfm`zwkf#pbnf#bpwl#iljm#wkf`lvmwqz#bmgwkjp#jp#wkfWkjp#ofg#wlb#pwbwfnfmw`lmwqbpw#wlobpwJmgf{Lewkqlvdk#kjpjp#gfpjdmfgwkf#wfqn#jpjp#sqlujgfgsqlwf`w#wkfmd?,b=?,oj=Wkf#`vqqfmwwkf#pjwf#lepvapwbmwjbof{sfqjfm`f/jm#wkf#Tfpwwkfz#pklvogpolufm(ajmb`lnfmwbqjlpvmjufqpjgbg`lmgj`jlmfpb`wjujgbgfpf{sfqjfm`jbwf`mlold/Absqlgv``j/_msvmwvb`j/_mbsoj`b`j/_m`lmwqbpf/]b`bwfdlq/Abpqfdjpwqbqpfsqlefpjlmbowqbwbnjfmwlqfd/Apwqbwfpf`qfwbq/Absqjm`jsbofpsqlwf``j/_mjnslqwbmwfpjnslqwbm`jbslpjajojgbgjmwfqfpbmwf`qf`jnjfmwlmf`fpjgbgfppvp`qjajqpfbpl`jb`j/_mgjpslmjaofpfubovb`j/_mfpwvgjbmwfpqfpslmpbaofqfplov`j/_mdvbgbobibqbqfdjpwqbglplslqwvmjgbg`lnfq`jbofpelwldqbe/Abbvwlqjgbgfpjmdfmjfq/Abwfofujpj/_m`lnsfwfm`jblsfqb`jlmfpfpwbaof`jglpjnsofnfmwfb`wvbonfmwfmbufdb`j/_m`lmelqnjgbgojmf.kfjdkw9elmw.ebnjoz9!#9#!kwws9,,bssoj`bwjlmpojmh!#kqfe>!psf`jej`booz,,?"X@GBWBX	Lqdbmjybwjlmgjpwqjavwjlm3s{8#kfjdkw9qfobwjlmpkjsgfuj`f.tjgwk?gju#`obpp>!?obafo#elq>!qfdjpwqbwjlm?,mlp`qjsw=	,jmgf{-kwno!tjmglt-lsfm+#"jnslqwbmw8bssoj`bwjlm,jmgfsfmgfm`f,,ttt-dlldoflqdbmjybwjlmbvwl`lnsofwfqfrvjqfnfmwp`lmpfqubwjuf?elqn#mbnf>!jmwfoof`wvbonbqdjm.ofew92;wk#`fmwvqzbm#jnslqwbmwjmpwjwvwjlmpbaaqfujbwjlm?jnd#`obpp>!lqdbmjpbwjlm`jujojybwjlm2:wk#`fmwvqzbq`kjwf`wvqfjm`lqslqbwfg13wk#`fmwvqz.`lmwbjmfq!=nlpw#mlwbaoz,=?,b=?,gju=mlwjej`bwjlm$vmgfejmfg$*Evqwkfqnlqf/afojfuf#wkbwjmmfqKWNO#>#sqjlq#wl#wkfgqbnbwj`boozqfefqqjmd#wlmfdlwjbwjlmpkfbgrvbqwfqpPlvwk#Beqj`bvmpv``fppevoSfmmpzoubmjbBp#b#qfpvow/?kwno#obmd>!%ow8,pvs%dw8gfbojmd#tjwkskjobgfoskjbkjpwlqj`booz*8?,p`qjsw=	sbggjmd.wls9f{sfqjnfmwbodfwBwwqjavwfjmpwqv`wjlmpwf`kmloldjfpsbqw#le#wkf#>evm`wjlm+*xpvap`qjswjlmo-gwg!=	?kwdfldqbskj`bo@lmpwjwvwjlm$/#evm`wjlm+pvsslqwfg#azbdqj`vowvqbo`lmpwqv`wjlmsvaoj`bwjlmpelmw.pjyf9#2b#ubqjfwz#le?gju#pwzof>!Fm`z`olsfgjbjeqbnf#pq`>!gfnlmpwqbwfgb``lnsojpkfgvmjufqpjwjfpGfnldqbskj`p*8?,p`qjsw=?gfgj`bwfg#wlhmltofgdf#lepbwjpeb`wjlmsbqwj`vobqoz?,gju=?,gju=Fmdojpk#+VP*bssfmg@kjog+wqbmpnjppjlmp-#Kltfufq/#jmwfoojdfm`f!#wbajmgf{>!eolbw9qjdkw8@lnnlmtfbowkqbmdjmd#eqlnjm#tkj`k#wkfbw#ofbpw#lmfqfsqlgv`wjlmfm`z`olsfgjb8elmw.pjyf92ivqjpgj`wjlmbw#wkbw#wjnf!=?b#`obpp>!Jm#bggjwjlm/gfp`qjswjlm(`lmufqpbwjlm`lmwb`w#tjwkjp#dfmfqboozq!#`lmwfmw>!qfsqfpfmwjmd%ow8nbwk%dw8sqfpfmwbwjlml``bpjlmbooz?jnd#tjgwk>!mbujdbwjlm!=`lnsfmpbwjlm`kbnsjlmpkjsnfgjb>!boo!#ujlobwjlm#leqfefqfm`f#wlqfwvqm#wqvf8Pwqj`w,,FM!#wqbmpb`wjlmpjmwfqufmwjlmufqjej`bwjlmJmelqnbwjlm#gjeej`vowjfp@kbnsjlmpkjs`bsbajojwjfp?"Xfmgje^..=~	?,p`qjsw=	@kqjpwjbmjwzelq#f{bnsof/Sqlefppjlmboqfpwqj`wjlmppvddfpw#wkbwtbp#qfofbpfg+pv`k#bp#wkfqfnluf@obpp+vmfnsolznfmwwkf#Bnfqj`bmpwqv`wvqf#le,jmgf{-kwno#svaojpkfg#jmpsbm#`obpp>!!=?b#kqfe>!,jmwqlgv`wjlmafolmdjmd#wl`objnfg#wkbw`lmpfrvfm`fp?nfwb#mbnf>!Dvjgf#wl#wkflufqtkfonjmdbdbjmpw#wkf#`lm`fmwqbwfg/	-mlmwlv`k#lapfqubwjlmp?,b=	?,gju=	e#+gl`vnfmw-alqgfq9#2s{#xelmw.pjyf92wqfbwnfmw#le3!#kfjdkw>!2nlgjej`bwjlmJmgfsfmgfm`fgjujgfg#jmwldqfbwfq#wkbmb`kjfufnfmwpfpwbaojpkjmdIbubP`qjsw!#mfufqwkfofpppjdmjej`bm`fAqlbg`bpwjmd=%maps8?,wg=`lmwbjmfq!=	pv`k#bp#wkf#jmeovfm`f#leb#sbqwj`vobqpq`>$kwws9,,mbujdbwjlm!#kboe#le#wkf#pvapwbmwjbo#%maps8?,gju=bgubmwbdf#legjp`lufqz#leevmgbnfmwbo#nfwqlslojwbmwkf#lsslpjwf!#{no9obmd>!gfojafqbwfozbojdm>`fmwfqfulovwjlm#lesqfpfqubwjlmjnsqlufnfmwpafdjmmjmd#jmIfpvp#@kqjpwSvaoj`bwjlmpgjpbdqffnfmwwf{w.bojdm9q/#evm`wjlm+*pjnjobqjwjfpalgz=?,kwno=jp#`vqqfmwozboskbafwj`bojp#plnfwjnfpwzsf>!jnbdf,nbmz#le#wkf#eolt9kjggfm8bubjobaof#jmgfp`qjaf#wkff{jpwfm`f#leboo#lufq#wkfwkf#Jmwfqmfw\n?vo#`obpp>!jmpwboobwjlmmfjdkalqkllgbqnfg#elq`fpqfgv`jmd#wkf`lmwjmvfp#wlMlmfwkfofpp/wfnsfqbwvqfp	\n\n?b#kqfe>!`olpf#wl#wkff{bnsofp#le#jp#balvw#wkf+pff#afolt*-!#jg>!pfbq`ksqlefppjlmbojp#bubjobaofwkf#leej`jbo\n\n?,p`qjsw=		\n\n?gju#jg>!b``fofqbwjlmwkqlvdk#wkf#Kboo#le#Ebnfgfp`qjswjlmpwqbmpobwjlmpjmwfqefqfm`f#wzsf>$wf{w,qf`fmw#zfbqpjm#wkf#tlqogufqz#slsvobqxab`hdqlvmg9wqbgjwjlmbo#plnf#le#wkf#`lmmf`wfg#wlf{soljwbwjlmfnfqdfm`f#le`lmpwjwvwjlmB#Kjpwlqz#lepjdmjej`bmw#nbmveb`wvqfgf{sf`wbwjlmp=?mlp`qjsw=?`bm#af#elvmgaf`bvpf#wkf#kbp#mlw#affmmfjdkalvqjmdtjwklvw#wkf#bggfg#wl#wkf\n?oj#`obpp>!jmpwqvnfmwboPlujfw#Vmjlmb`hmltofgdfgtkj`k#`bm#afmbnf#elq#wkfbwwfmwjlm#wlbwwfnswp#wl#gfufolsnfmwpJm#eb`w/#wkf?oj#`obpp>!bjnsoj`bwjlmppvjwbaof#elqnv`k#le#wkf#`lolmjybwjlmsqfpjgfmwjbo`bm`foAvaaof#Jmelqnbwjlmnlpw#le#wkf#jp#gfp`qjafgqfpw#le#wkf#nlqf#lq#ofppjm#PfswfnafqJmwfoojdfm`fpq`>!kwws9,,s{8#kfjdkw9#bubjobaof#wlnbmveb`wvqfqkvnbm#qjdkwpojmh#kqfe>!,bubjobajojwzsqlslqwjlmbolvwpjgf#wkf#bpwqlmlnj`bokvnbm#afjmdpmbnf#le#wkf#bqf#elvmg#jmbqf#abpfg#lmpnboofq#wkbmb#sfqplm#tklf{sbmpjlm#lebqdvjmd#wkbwmlt#hmltm#bpJm#wkf#fbqozjmwfqnfgjbwfgfqjufg#eqlnP`bmgjmbujbm?,b=?,gju=	`lmpjgfq#wkfbm#fpwjnbwfgwkf#Mbwjlmbo?gju#jg>!sbdqfpvowjmd#jm`lnnjppjlmfgbmboldlvp#wlbqf#qfrvjqfg,vo=	?,gju=	tbp#abpfg#lmbmg#af`bnf#b%maps8%maps8w!#ubovf>!!#tbp#`bswvqfgml#nlqf#wkbmqfpsf`wjufoz`lmwjmvf#wl#=	?kfbg=	?tfqf#`qfbwfgnlqf#dfmfqbojmelqnbwjlm#vpfg#elq#wkfjmgfsfmgfmw#wkf#Jnsfqjbo`lnslmfmw#lewl#wkf#mlqwkjm`ovgf#wkf#@lmpwqv`wjlmpjgf#le#wkf#tlvog#mlw#afelq#jmpwbm`fjmufmwjlm#lenlqf#`lnsof{`loof`wjufozab`hdqlvmg9#wf{w.bojdm9#jwp#lqjdjmbojmwl#b``lvmwwkjp#sql`fppbm#f{wfmpjufkltfufq/#wkfwkfz#bqf#mlwqfif`wfg#wkf`qjwj`jpn#legvqjmd#tkj`ksqlabaoz#wkfwkjp#bqwj`of+evm`wjlm+*xJw#pklvog#afbm#bdqffnfmwb``jgfmwboozgjeefqp#eqlnBq`kjwf`wvqfafwwfq#hmltmbqqbmdfnfmwpjmeovfm`f#lmbwwfmgfg#wkfjgfmwj`bo#wlplvwk#le#wkfsbpp#wkqlvdk{no!#wjwof>!tfjdkw9alog8`qfbwjmd#wkfgjpsobz9mlmfqfsob`fg#wkf?jnd#pq`>!,jkwwsp9,,ttt-Tlqog#Tbq#JJwfpwjnlmjbopelvmg#jm#wkfqfrvjqfg#wl#bmg#wkbw#wkfafwtffm#wkf#tbp#gfpjdmfg`lmpjpwp#le#`lmpjgfqbaozsvaojpkfg#azwkf#obmdvbdf@lmpfqubwjlm`lmpjpwfg#leqfefq#wl#wkfab`h#wl#wkf#`pp!#nfgjb>!Sflsof#eqln#bubjobaof#lmsqlufg#wl#afpvddfpwjlmp!tbp#hmltm#bpubqjfwjfp#leojhfoz#wl#af`lnsqjpfg#lepvsslqw#wkf#kbmgp#le#wkf`lvsofg#tjwk`lmmf`w#bmg#alqgfq9mlmf8sfqelqnbm`fpafelqf#afjmdobwfq#af`bnf`bo`vobwjlmplewfm#`boofgqfpjgfmwp#lenfbmjmd#wkbw=?oj#`obpp>!fujgfm`f#elqf{sobmbwjlmpfmujqlmnfmwp!=?,b=?,gju=tkj`k#booltpJmwqlgv`wjlmgfufolsfg#azb#tjgf#qbmdflm#afkboe#leubojdm>!wls!sqjm`jsof#lebw#wkf#wjnf/?,mlp`qjsw=pbjg#wl#kbufjm#wkf#ejqpwtkjof#lwkfqpkzslwkfwj`boskjolplskfqpsltfq#le#wkf`lmwbjmfg#jmsfqelqnfg#azjmbajojwz#wltfqf#tqjwwfmpsbm#pwzof>!jmsvw#mbnf>!wkf#rvfpwjlmjmwfmgfg#elqqfif`wjlm#lejnsojfp#wkbwjmufmwfg#wkfwkf#pwbmgbqgtbp#sqlabaozojmh#afwtffmsqlefpplq#lejmwfqb`wjlmp`kbmdjmd#wkfJmgjbm#L`fbm#`obpp>!obpwtlqhjmd#tjwk$kwws9,,ttt-zfbqp#afelqfWkjp#tbp#wkfqf`qfbwjlmbofmwfqjmd#wkfnfbpvqfnfmwpbm#f{wqfnfozubovf#le#wkfpwbqw#le#wkf	?,p`qjsw=		bm#feelqw#wljm`qfbpf#wkfwl#wkf#plvwkpsb`jmd>!3!=pveej`jfmwozwkf#Fvqlsfbm`lmufqwfg#wl`ofbqWjnflvwgjg#mlw#kbuf`lmpfrvfmwozelq#wkf#mf{wf{wfmpjlm#lef`lmlnj`#bmgbowklvdk#wkfbqf#sqlgv`fgbmg#tjwk#wkfjmpveej`jfmwdjufm#az#wkfpwbwjmd#wkbwf{sfmgjwvqfp?,psbm=?,b=	wklvdkw#wkbwlm#wkf#abpjp`foosbggjmd>jnbdf#le#wkfqfwvqmjmd#wljmelqnbwjlm/pfsbqbwfg#azbppbppjmbwfgp!#`lmwfmw>!bvwklqjwz#lemlqwktfpwfqm?,gju=	?gju#!=?,gju=	##`lmpvowbwjlm`lnnvmjwz#lewkf#mbwjlmbojw#pklvog#afsbqwj`jsbmwp#bojdm>!ofewwkf#dqfbwfpwpfof`wjlm#lepvsfqmbwvqbogfsfmgfmw#lmjp#nfmwjlmfgbooltjmd#wkftbp#jmufmwfgb``lnsbmzjmdkjp#sfqplmbobubjobaof#bwpwvgz#le#wkflm#wkf#lwkfqf{f`vwjlm#leKvnbm#Qjdkwpwfqnp#le#wkfbppl`jbwjlmpqfpfbq`k#bmgpv``ffgfg#azgfefbwfg#wkfbmg#eqln#wkfavw#wkfz#bqf`lnnbmgfq#lepwbwf#le#wkfzfbqp#le#bdfwkf#pwvgz#le?vo#`obpp>!psob`f#jm#wkftkfqf#kf#tbp?oj#`obpp>!ewkfqf#bqf#mltkj`k#af`bnfkf#svaojpkfgf{sqfppfg#jmwl#tkj`k#wkf`lnnjppjlmfqelmw.tfjdkw9wfqqjwlqz#lef{wfmpjlmp!=Qlnbm#Fnsjqffrvbo#wl#wkfJm#`lmwqbpw/kltfufq/#bmgjp#wzsj`boozbmg#kjp#tjef+bopl#`boofg=?vo#`obpp>!feef`wjufoz#fuloufg#jmwlpffn#wl#kbuftkj`k#jp#wkfwkfqf#tbp#mlbm#f{`foofmwboo#le#wkfpfgfp`qjafg#azJm#sqb`wj`f/aqlbg`bpwjmd`kbqdfg#tjwkqfeof`wfg#jmpvaif`wfg#wlnjojwbqz#bmgwl#wkf#sljmwf`lmlnj`boozpfwWbqdfwjmdbqf#b`wvboozuj`wlqz#lufq+*8?,p`qjsw=`lmwjmvlvpozqfrvjqfg#elqfulovwjlmbqzbm#feef`wjufmlqwk#le#wkf/#tkj`k#tbp#eqlmw#le#wkflq#lwkfqtjpfplnf#elqn#lekbg#mlw#affmdfmfqbwfg#azjmelqnbwjlm-sfqnjwwfg#wljm`ovgfp#wkfgfufolsnfmw/fmwfqfg#jmwlwkf#sqfujlvp`lmpjpwfmwozbqf#hmltm#bpwkf#ejfog#lewkjp#wzsf#ledjufm#wl#wkfwkf#wjwof#le`lmwbjmp#wkfjmpwbm`fp#lejm#wkf#mlqwkgvf#wl#wkfjqbqf#gfpjdmfg`lqslqbwjlmptbp#wkbw#wkflmf#le#wkfpfnlqf#slsvobqpv``ffgfg#jmpvsslqw#eqlnjm#gjeefqfmwglnjmbwfg#azgfpjdmfg#elqltmfqpkjs#lebmg#slppjaozpwbmgbqgjyfgqfpslmpfWf{wtbp#jmwfmgfgqf`fjufg#wkfbppvnfg#wkbwbqfbp#le#wkfsqjnbqjoz#jmwkf#abpjp#lejm#wkf#pfmpfb``lvmwp#elqgfpwqlzfg#azbw#ofbpw#wtltbp#gf`obqfg`lvog#mlw#afPf`qfwbqz#lebssfbq#wl#afnbqdjm.wls92,]_p(_p(\',df*xwkqlt#f~8wkf#pwbqw#lewtl#pfsbqbwfobmdvbdf#bmgtkl#kbg#affmlsfqbwjlm#legfbwk#le#wkfqfbo#mvnafqp\n?ojmh#qfo>!sqlujgfg#wkfwkf#pwlqz#le`lnsfwjwjlmpfmdojpk#+VH*fmdojpk#+VP*<p<R<Q<_<R<W<M=l<S=m<V<T=m=l<S=m<V<T=m=l<S=m<V<R5h4U4]4D5f4E\nAOGx\bTA\nzk\vBl\bQ\bTA\nzk\vUm\bQ\bTA\nzk\npeu|	i@	cT\bVV\n\\}\nxS	VptSk`	[X	[X\vHR\bPv\bTW\bUe\na\bQp\v_W\vWs\nxS\vAz\n_yKhjmelqnb`j/_mkfqqbnjfmwbpfof`wq/_mj`lgfp`qjs`j/_m`obpjej`bglp`lml`jnjfmwlsvaoj`b`j/_mqfob`jlmbgbpjmelqn/Mwj`bqfob`jlmbglpgfsbqwbnfmwlwqbabibglqfpgjqf`wbnfmwfbzvmwbnjfmwlnfq`bglOjaqf`lmw/M`wfmlpkbajwb`jlmfp`vnsojnjfmwlqfpwbvqbmwfpgjpslpj`j/_m`lmpf`vfm`jbfof`wq/_mj`bbsoj`b`jlmfpgfp`lmf`wbgljmpwbob`j/_mqfbojyb`j/_mvwjojyb`j/_mfm`j`olsfgjbfmefqnfgbgfpjmpwqvnfmwlpf{sfqjfm`jbpjmpwjwv`j/_msbqwj`vobqfppva`bwfdlqjb=n<R<W=`<V<R<L<R=m=m<T<T=l<\\<]<R=n=g<]<R<W=`=d<Y<S=l<R=m=n<R<P<R<Z<Y=n<Y<X=l=o<_<T=i=m<W=o=k<\\<Y=m<Y<U=k<\\=m<^=m<Y<_<X<\\<L<R=m=m<T=c<p<R=m<V<^<Y<X=l=o<_<T<Y<_<R=l<R<X<\\<^<R<S=l<R=m<X<\\<Q<Q=g=i<X<R<W<Z<Q=g<T<P<Y<Q<Q<R<p<R=m<V<^=g=l=o<]<W<Y<U<p<R=m<V<^<\\=m=n=l<\\<Q=g<Q<T=k<Y<_<R=l<\\<]<R=n<Y<X<R<W<Z<Y<Q=o=m<W=o<_<T=n<Y<S<Y=l=`<r<X<Q<\\<V<R<S<R=n<R<P=o=l<\\<]<R=n=o<\\<S=l<Y<W=c<^<R<R<]=e<Y<R<X<Q<R<_<R=m<^<R<Y<_<R=m=n<\\=n=`<T<X=l=o<_<R<U=h<R=l=o<P<Y=i<R=l<R=d<R<S=l<R=n<T<^=m=m=g<W<V<\\<V<\\<Z<X=g<U<^<W<\\=m=n<T<_=l=o<S<S=g<^<P<Y=m=n<Y=l<\\<]<R=n<\\=m<V<\\<[<\\<W<S<Y=l<^=g<U<X<Y<W<\\=n=`<X<Y<Q=`<_<T<S<Y=l<T<R<X<]<T<[<Q<Y=m<R=m<Q<R<^<Y<P<R<P<Y<Q=n<V=o<S<T=n=`<X<R<W<Z<Q<\\=l<\\<P<V<\\=i<Q<\\=k<\\<W<R<L<\\<]<R=n<\\<N<R<W=`<V<R=m<R<^=m<Y<P<^=n<R=l<R<U<Q<\\=k<\\<W<\\=m<S<T=m<R<V=m<W=o<Z<]=g=m<T=m=n<Y<P<S<Y=k<\\=n<T<Q<R<^<R<_<R<S<R<P<R=e<T=m<\\<U=n<R<^<S<R=k<Y<P=o<S<R<P<R=e=`<X<R<W<Z<Q<R=m=m=g<W<V<T<]=g=m=n=l<R<X<\\<Q<Q=g<Y<P<Q<R<_<T<Y<S=l<R<Y<V=n<M<Y<U=k<\\=m<P<R<X<Y<W<T=n<\\<V<R<_<R<R<Q<W<\\<U<Q<_<R=l<R<X<Y<^<Y=l=m<T=c=m=n=l<\\<Q<Y=h<T<W=`<P=g=o=l<R<^<Q=c=l<\\<[<Q=g=i<T=m<V<\\=n=`<Q<Y<X<Y<W=b=c<Q<^<\\=l=c<P<Y<Q=`=d<Y<P<Q<R<_<T=i<X<\\<Q<Q<R<U<[<Q<\\=k<T=n<Q<Y<W=`<[=c=h<R=l=o<P<\\<N<Y<S<Y=l=`<P<Y=m=c=j<\\<[<\\=e<T=n=g<w=o=k=d<T<Y\fHD\fHU\fIl\fHn\fHy\fH\\\fHD\fIk\fHi\fHF\fHD\fIk\fHy\fHS\fHC\fHR\fHy\fH\\\fIk\fHn\fHi\fHD\fIa\fHC\fHy\fIa\fHC\fHR\fH{\fHR\fHk\fHM\fH@\fHR\fH\\\fIk\fHy\fHS\fHT\fIl\fHJ\fHS\fHC\fHR\fHF\fHU\fH^\fIk\fHT\fHS\fHn\fHU\fHA\fHR\fH\\\fHH\fHi\fHF\fHD\fIl\fHY\fHR\fH^\fIk\fHT\fIk\fHY\fHR\fHy\fH\\\fHH\fIk\fHB\fIk\fH\\\fIk\fHU\fIg\fHD\fIk\fHT\fHy\fHH\fIk\fH@\fHU\fIm\fHH\fHT\fHR\fHk\fHs\fHU\fIg\fH{\fHR\fHp\fHR\fHD\fIk\fHB\fHS\fHD\fHs\fHy\fH\\\fHH\fHR\fHy\fH\\\fHD\fHR\fHe\fHD\fHy\fIk\fHC\fHU\fHR\fHm\fHT\fH@\fHT\fIk\fHA\fHR\fH[\fHR\fHj\fHF\fHy\fIk\fH^\fHS\fHC\fIk\fHZ\fIm\fH\\\fIn\fHk\fHT\fHy\fIk\fHt\fHn\fHs\fIk\fHB\fIk\fH\\\fIl\fHT\fHy\fHH\fHR\fHB\fIk\fH\\\fHR\fH^\fIk\fHy\fH\\\fHi\fHK\fHS\fHy\fHi\fHF\fHD\fHR\fHT\fHB\fHR\fHp\fHB\fIm\fHq\fIk\fHy\fHR\fH\\\fHO\fHU\fIg\fHH\fHR\fHy\fHM\fHP\fIl\fHC\fHU\fHR\fHn\fHU\fIg\fHs\fH^\fHZ\fH@\fIa\fHJ\fH^\fHS\fHC\fHR\fHp\fIl\fHY\fHD\fHp\fHR\fHH\fHR\fHy\fId\fHT\fIk\fHj\fHF\fHy\fHR\fHY\fHR\fH^\fIl\fHJ\fIk\fHD\fIk\fHF\fIn\fH\\\fIl\fHF\fHR\fHD\fIl\fHe\fHT\fHy\fIk\fHU\fIg\fH{\fIl\fH@\fId\fHL\fHy\fHj\fHF\fHy\fIl\fHY\fH\\\fIa\fH[\fH{\fHR\fHn\fHY\fHj\fHF\fHy\fIg\fHp\fHS\fH^\fHR\fHp\fHR\fHD\fHR\fHT\fHU\fHB\fHH\fHU\fHB\fIk\fHn\fHe\fHD\fHy\fIl\fHC\fHR\fHU\fIn\fHJ\fH\\\fIa\fHp\fHT\fIn\fHv\fIl\fHF\fHT\fHn\fHJ\fHT\fHY\fHR\fH^\fHU\fIg\fHD\fHR\fHU\fIg\fHH\fIl\fHp\fId\fHT\fIk\fHY\fHR\fHF\fHT\fHp\fHD\fHH\fHR\fHD\fIk\fHH\fHR\fHp\fHR\fH\\\fIl\fHt\fHR\fHC\fH^\fHp\fHS\fH^\fIk\fHD\fIl\fHv\fIk\fHp\fHR\fHn\fHv\fHF\fHH\fIa\fH\\\fH{\fIn\fH{\fH^\fHp\fHR\fHH\fIk\fH@\fHR\fHU\fH\\\fHj\fHF\fHD\fIk\fHY\fHR\fHU\fHD\fHk\fHT\fHy\fHR\fHT\fIm\fH@\fHU\fH\\\fHU\fHD\fIk\fHk\fHT\fHT\fIk\fHT\fHU\fHS\fHH\fH@\fHM\fHP\fIk\fHt\fHs\fHD\fHR\fHH\fH^\fHR\fHZ\fHF\fHR\fHn\fHv\fHZ\fIa\fH\\\fIl\fH@\fHM\fHP\fIl\fHU\fIg\fHH\fIk\fHT\fHR\fHd\fHs\fHZ\fHR\fHC\fHJ\fHT\fHy\fHH\fIl\fHp\fHR\fHH\fIl\fHY\fHR\fH^\fHR\fHU\fHp\fHR\fH\\\fHF\fHs\fHD\fHR\fH\\\fHz\fHD\fIk\fHT\fHM\fHP\fHy\fHB\fHS\fH^\fHR\fHe\fHT\fHy\fIl\fHy\fIk\fHY\fH^\fH^\fH{\fHH\fHR\fHz\fHR\fHD\fHR\fHi\fH\\\fIa\fHI\fHp\fHU\fHR\fHn\fHJ\fIk\fHz\fHR\fHF\fHU\fH^\fIl\fHD\fHS\fHC\fHB\fH@\fHS\fHD\fHR\fH@\fId\fHn\fHy\fHy\fHU\fIl\fHn\fHy\fHU\fHD\fHR\fHJ\fIk\fHH\fHR\fHU\fHB\fH^\fIk\fHy\fHR\fHG\fIl\fHp\fH@\fHy\fHS\fHH\fIm\fH\\\fHH\fHB\fHR\fHn\fH{\fHY\fHU\fIl\fHn\fH\\\fIg\fHp\fHP\fHB\fHS\fH^\fIl\fHj\fH\\\fIg\fHF\fHT\fIk\fHD\fHR\fHC\fHR\fHJ\fHY\fH^\fIk\fHD\fIk\fHz\fHR\fHH\fHR\fHy\fH\\\fIl\fH@\fHe\fHD\fHy\fHR\fHp\fHY\fHR\fH@\fHF\fIn\fH\\\fHR\fH@\fHM\fHP\fHR\fHT\fI`\fHJ\fHR\fHZ\fIk\fHC\fH\\\fHy\fHS\fHC\fIk\fHy\fHU\fHR\fHn\fHi\fHy\fHT\fH\\\fH@\fHD\fHR\fHc\fHY\fHU\fHR\fHn\fHT\fIa\fHI\fH^\fHB\fHS\fH^\fIk\fH^\fIk\fHz\fHy\fHY\fHS\fH[\fHC\fHy\fIa\fH\\\fHn\fHT\fHB\fIn\fHU\fHI\fHR\fHD\fHR4F4_4F4[5f4U5i4X4K4]5o4E4D5d4K4_4[4E4K5h4Y5m4A4E5i5d4K4Z5f4U4K5h4B4K4Y4E4K5h5i4^5f4C4K5h4U4K5i4E4K5h5o4K4F4D4K5h4]4C5d4C4D4]5j4K5i4@4K5h4C5d5h4E4K5h4U4K5h5i4K5h5i5d5n4U4K5h4U4]4D5f4K5h4_4]5f4U4K5h4@5d4K5h4K5h4\\5k4K4D4K5h4A5f4K4E4K5h4A5n5d5n4K5h5o4]5f5i4K5h4U4]4K5n5i4A5m5d4T4E4K5h4G4K5j5f5i4X4K5k4C4E4K5h5i4]4O4E4K5h5n4]4N5j4K5h4X4D4K4D4K5h4A5d4K4]4K5h4@4C5f4C4K5h4O4_4]4E4K5h4U5h5d5i5i4@5i5d4U4E4K5h4]4A5i5j4K5h5j5n4K4[5m5h4_4[5f5j4K5h5o5d5f4F4K5h4C5j5f4K4D4]5o4K4F5k4K5h4]5f4K4Z4F4A5f4K4F5f4D4F5d5n5f4F4K5h4O5d5h5e4K5h4D4]5f4C4K5h5o5h4K5i4K5h4]4K4D4[4K5h4X4B4Y5f4_5f4K4]4K4F4K5h4G4K5h4G4K5h4Y5h4K4E4K5h4A4C5f4G4K5h4^5d4K4]4K5h4B5h5f4@4K5h4@5i5f4U4K5h4U4K5i5k4K5h4@5i4K5h4K5h4_4K4U4E5i4X4K5k4C5k4K5h4]4J5f4_4K5h4C4B5d5h4K5h5m5j5f4E4K5h5o4F4K4D4K5h4C5d4]5f4K5h4C4]5d4_4K4_4F4V4]5n4F4Y4K5i5f5i4K5h4D5j4K4F4K5h4U4T5f5ifmwfqwbjmnfmwvmgfqpwbmgjmd#>#evm`wjlm+*-isd!#tjgwk>!`lmejdvqbwjlm-smd!#tjgwk>!?algz#`obpp>!Nbwk-qbmgln+*`lmwfnslqbqz#Vmjwfg#Pwbwfp`jq`vnpwbm`fp-bssfmg@kjog+lqdbmjybwjlmp?psbm#`obpp>!!=?jnd#pq`>!,gjpwjmdvjpkfgwklvpbmgp#le#`lnnvmj`bwjlm`ofbq!=?,gju=jmufpwjdbwjlmebuj`lm-j`l!#nbqdjm.qjdkw9abpfg#lm#wkf#Nbppb`kvpfwwpwbaof#alqgfq>jmwfqmbwjlmbobopl#hmltm#bpsqlmvm`jbwjlmab`hdqlvmg9 esbggjmd.ofew9Elq#f{bnsof/#njp`foobmflvp%ow8,nbwk%dw8spz`kloldj`bojm#sbqwj`vobqfbq`k!#wzsf>!elqn#nfwklg>!bp#lsslpfg#wlPvsqfnf#@lvqwl``bpjlmbooz#Bggjwjlmbooz/Mlqwk#Bnfqj`bs{8ab`hdqlvmglsslqwvmjwjfpFmwfqwbjmnfmw-wlOltfq@bpf+nbmveb`wvqjmdsqlefppjlmbo#`lnajmfg#tjwkElq#jmpwbm`f/`lmpjpwjmd#le!#nb{ofmdwk>!qfwvqm#ebopf8`lmp`jlvpmfppNfgjwfqqbmfbmf{wqblqgjmbqzbppbppjmbwjlmpvapfrvfmwoz#avwwlm#wzsf>!wkf#mvnafq#lewkf#lqjdjmbo#`lnsqfkfmpjufqfefqp#wl#wkf?,vo=	?,gju=	skjolplskj`bool`bwjlm-kqfetbp#svaojpkfgPbm#Eqbm`jp`l+evm`wjlm+*x	?gju#jg>!nbjmplskjpwj`bwfgnbwkfnbwj`bo#,kfbg=	?algzpvddfpwp#wkbwgl`vnfmwbwjlm`lm`fmwqbwjlmqfobwjlmpkjspnbz#kbuf#affm+elq#f{bnsof/Wkjp#bqwj`of#jm#plnf#`bpfpsbqwp#le#wkf#gfejmjwjlm#leDqfbw#Aqjwbjm#`foosbggjmd>frvjubofmw#wlsob`fklogfq>!8#elmw.pjyf9#ivpwjej`bwjlmafojfufg#wkbwpveefqfg#eqlnbwwfnswfg#wl#ofbgfq#le#wkf`qjsw!#pq`>!,+evm`wjlm+*#xbqf#bubjobaof	\n?ojmh#qfo>!#pq`>$kwws9,,jmwfqfpwfg#jm`lmufmwjlmbo#!#bow>!!#,=?,bqf#dfmfqboozkbp#bopl#affmnlpw#slsvobq#`lqqfpslmgjmd`qfgjwfg#tjwkwzof>!alqgfq9?,b=?,psbm=?,-dje!#tjgwk>!?jeqbnf#pq`>!wbaof#`obpp>!jmojmf.aol`h8b``lqgjmd#wl#wldfwkfq#tjwkbssql{jnbwfozsbqojbnfmwbqznlqf#bmg#nlqfgjpsobz9mlmf8wqbgjwjlmboozsqfglnjmbmwoz%maps8%maps8%maps8?,psbm=#`foopsb`jmd>?jmsvw#mbnf>!lq!#`lmwfmw>!`lmwqlufqpjbosqlsfqwz>!ld9,{.pkl`htbuf.gfnlmpwqbwjlmpvqqlvmgfg#azMfufqwkfofpp/tbp#wkf#ejqpw`lmpjgfqbaof#Bowklvdk#wkf#`loobalqbwjlmpklvog#mlw#afsqlslqwjlm#le?psbm#pwzof>!hmltm#bp#wkf#pklqwoz#bewfqelq#jmpwbm`f/gfp`qjafg#bp#,kfbg=	?algz#pwbqwjmd#tjwkjm`qfbpjmdoz#wkf#eb`w#wkbwgjp`vppjlm#lenjggof#le#wkfbm#jmgjujgvbogjeej`vow#wl#sljmw#le#ujftklnlpf{vbojwzb``fswbm`f#le?,psbm=?,gju=nbmveb`wvqfqplqjdjm#le#wkf`lnnlmoz#vpfgjnslqwbm`f#legfmlnjmbwjlmpab`hdqlvmg9# ofmdwk#le#wkfgfwfqnjmbwjlmb#pjdmjej`bmw!#alqgfq>!3!=qfulovwjlmbqzsqjm`jsofp#lejp#`lmpjgfqfgtbp#gfufolsfgJmgl.Fvqlsfbmuvomfqbaof#wlsqlslmfmwp#lebqf#plnfwjnfp`olpfq#wl#wkfMft#Zlqh#@jwz#mbnf>!pfbq`kbwwqjavwfg#wl`lvqpf#le#wkfnbwkfnbwj`jbmaz#wkf#fmg#lebw#wkf#fmg#le!#alqgfq>!3!#wf`kmloldj`bo-qfnluf@obpp+aqbm`k#le#wkffujgfm`f#wkbw"Xfmgje^..=	Jmpwjwvwf#le#jmwl#b#pjmdofqfpsf`wjufoz-bmg#wkfqfelqfsqlsfqwjfp#lejp#ol`bwfg#jmplnf#le#tkj`kWkfqf#jp#bopl`lmwjmvfg#wl#bssfbqbm`f#le#%bns8mgbpk8#gfp`qjafp#wkf`lmpjgfqbwjlmbvwklq#le#wkfjmgfsfmgfmwozfrvjssfg#tjwkglfp#mlw#kbuf?,b=?b#kqfe>!`lmevpfg#tjwk?ojmh#kqfe>!,bw#wkf#bdf#lebssfbq#jm#wkfWkfpf#jm`ovgfqfdbqgofpp#le`lvog#af#vpfg#pwzof>%rvlw8pfufqbo#wjnfpqfsqfpfmw#wkfalgz=	?,kwno=wklvdkw#wl#afslsvobwjlm#leslppjajojwjfpsfq`fmwbdf#leb``fpp#wl#wkfbm#bwwfnsw#wlsqlgv`wjlm#leirvfqz,irvfqzwtl#gjeefqfmwafolmd#wl#wkffpwbaojpknfmwqfsob`jmd#wkfgfp`qjswjlm!#gfwfqnjmf#wkfbubjobaof#elqB``lqgjmd#wl#tjgf#qbmdf#le\n?gju#`obpp>!nlqf#`lnnlmozlqdbmjpbwjlmpevm`wjlmbojwztbp#`lnsofwfg#%bns8ngbpk8#sbqwj`jsbwjlmwkf#`kbqb`wfqbm#bggjwjlmbobssfbqp#wl#afeb`w#wkbw#wkfbm#f{bnsof#lepjdmjej`bmwozlmnlvpflufq>!af`bvpf#wkfz#bpzm`#>#wqvf8sqlaofnp#tjwkpffnp#wl#kbufwkf#qfpvow#le#pq`>!kwws9,,ebnjojbq#tjwkslppfppjlm#leevm`wjlm#+*#xwllh#sob`f#jmbmg#plnfwjnfppvapwbmwjbooz?psbm=?,psbm=jp#lewfm#vpfgjm#bm#bwwfnswdqfbw#gfbo#leFmujqlmnfmwbopv``fppevooz#ujqwvbooz#boo13wk#`fmwvqz/sqlefppjlmbopmf`fppbqz#wl#gfwfqnjmfg#az`lnsbwjajojwzaf`bvpf#jw#jpGj`wjlmbqz#lenlgjej`bwjlmpWkf#elooltjmdnbz#qfefq#wl9@lmpfrvfmwoz/Jmwfqmbwjlmbobowklvdk#plnfwkbw#tlvog#aftlqog$p#ejqpw`obppjejfg#bpalwwln#le#wkf+sbqwj`vobqozbojdm>!ofew!#nlpw#`lnnlmozabpjp#elq#wkfelvmgbwjlm#le`lmwqjavwjlmpslsvobqjwz#le`fmwfq#le#wkfwl#qfgv`f#wkfivqjpgj`wjlmpbssql{jnbwjlm#lmnlvpflvw>!Mft#Wfpwbnfmw`loof`wjlm#le?,psbm=?,b=?,jm#wkf#Vmjwfgejon#gjqf`wlq.pwqj`w-gwg!=kbp#affm#vpfgqfwvqm#wl#wkfbowklvdk#wkjp`kbmdf#jm#wkfpfufqbo#lwkfqavw#wkfqf#bqfvmsqf`fgfmwfgjp#pjnjobq#wlfpsf`jbooz#jmtfjdkw9#alog8jp#`boofg#wkf`lnsvwbwjlmbojmgj`bwf#wkbwqfpwqj`wfg#wl\n?nfwb#mbnf>!bqf#wzsj`booz`lmeoj`w#tjwkKltfufq/#wkf#Bm#f{bnsof#le`lnsbqfg#tjwkrvbmwjwjfp#leqbwkfq#wkbm#b`lmpwfoobwjlmmf`fppbqz#elqqfslqwfg#wkbwpsf`jej`bwjlmslojwj`bo#bmg%maps8%maps8?qfefqfm`fp#wlwkf#pbnf#zfbqDlufqmnfmw#ledfmfqbwjlm#lekbuf#mlw#affmpfufqbo#zfbqp`lnnjwnfmw#wl\n\n?vo#`obpp>!ujpvbojybwjlm2:wk#`fmwvqz/sqb`wjwjlmfqpwkbw#kf#tlvogbmg#`lmwjmvfgl``vsbwjlm#lejp#gfejmfg#bp`fmwqf#le#wkfwkf#bnlvmw#le=?gju#pwzof>!frvjubofmw#legjeefqfmwjbwfaqlvdkw#balvwnbqdjm.ofew9#bvwlnbwj`boozwklvdkw#le#bpPlnf#le#wkfpf	?gju#`obpp>!jmsvw#`obpp>!qfsob`fg#tjwkjp#lmf#le#wkffgv`bwjlm#bmgjmeovfm`fg#azqfsvwbwjlm#bp	?nfwb#mbnf>!b``lnnlgbwjlm?,gju=	?,gju=obqdf#sbqw#leJmpwjwvwf#elqwkf#pl.`boofg#bdbjmpw#wkf#Jm#wkjp#`bpf/tbp#bssljmwfg`objnfg#wl#afKltfufq/#wkjpGfsbqwnfmw#lewkf#qfnbjmjmdfeef`w#lm#wkfsbqwj`vobqoz#gfbo#tjwk#wkf	?gju#pwzof>!bonlpw#botbzpbqf#`vqqfmwozf{sqfppjlm#leskjolplskz#leelq#nlqf#wkbm`jujojybwjlmplm#wkf#jpobmgpfof`wfgJmgf{`bm#qfpvow#jm!#ubovf>!!#,=wkf#pwqv`wvqf#,=?,b=?,gju=Nbmz#le#wkfpf`bvpfg#az#wkfle#wkf#Vmjwfgpsbm#`obpp>!n`bm#af#wqb`fgjp#qfobwfg#wlaf`bnf#lmf#lejp#eqfrvfmwozojujmd#jm#wkfwkflqfwj`boozElooltjmd#wkfQfulovwjlmbqzdlufqmnfmw#jmjp#gfwfqnjmfgwkf#slojwj`bojmwqlgv`fg#jmpveej`jfmw#wlgfp`qjswjlm!=pklqw#pwlqjfppfsbqbwjlm#lebp#wl#tkfwkfqhmltm#elq#jwptbp#jmjwjboozgjpsobz9aol`hjp#bm#f{bnsofwkf#sqjm`jsbo`lmpjpwp#le#bqf`ldmjyfg#bp,algz=?,kwno=b#pvapwbmwjboqf`lmpwqv`wfgkfbg#le#pwbwfqfpjpwbm`f#wlvmgfqdqbgvbwfWkfqf#bqf#wtldqbujwbwjlmbobqf#gfp`qjafgjmwfmwjlmboozpfqufg#bp#wkf`obpp>!kfbgfqlsslpjwjlm#wlevmgbnfmwboozglnjmbwfg#wkfbmg#wkf#lwkfqboojbm`f#tjwktbp#elq`fg#wlqfpsf`wjufoz/bmg#slojwj`bojm#pvsslqw#lesflsof#jm#wkf13wk#`fmwvqz-bmg#svaojpkfgolbg@kbqwafbwwl#vmgfqpwbmgnfnafq#pwbwfpfmujqlmnfmwboejqpw#kboe#le`lvmwqjfp#bmgbq`kjwf`wvqboaf#`lmpjgfqfg`kbqb`wfqjyfg`ofbqJmwfqubobvwklqjwbwjufEfgfqbwjlm#letbp#pv``ffgfgbmg#wkfqf#bqfb#`lmpfrvfm`fwkf#Sqfpjgfmwbopl#jm`ovgfgeqff#plewtbqfpv``fppjlm#legfufolsfg#wkftbp#gfpwqlzfgbtbz#eqln#wkf8	?,p`qjsw=	?bowklvdk#wkfzelooltfg#az#bnlqf#sltfqevoqfpvowfg#jm#bVmjufqpjwz#leKltfufq/#nbmzwkf#sqfpjgfmwKltfufq/#plnfjp#wklvdkw#wlvmwjo#wkf#fmgtbp#bmmlvm`fgbqf#jnslqwbmwbopl#jm`ovgfp=?jmsvw#wzsf>wkf#`fmwfq#le#GL#MLW#BOWFQvpfg#wl#qfefqwkfnfp,<plqw>wkbw#kbg#affmwkf#abpjp#elqkbp#gfufolsfgjm#wkf#pvnnfq`lnsbqbwjufozgfp`qjafg#wkfpv`k#bp#wklpfwkf#qfpvowjmdjp#jnslppjaofubqjlvp#lwkfqPlvwk#Beqj`bmkbuf#wkf#pbnffeef`wjufmfppjm#tkj`k#`bpf8#wf{w.bojdm9pwqv`wvqf#bmg8#ab`hdqlvmg9qfdbqgjmd#wkfpvsslqwfg#wkfjp#bopl#hmltmpwzof>!nbqdjmjm`ovgjmd#wkfabkbpb#Nfobzvmlqph#alhn/Iomlqph#mzmlqphpolufm)M(ajmbjmwfqmb`jlmbo`bojej`b`j/_m`lnvmj`b`j/_m`lmpwqv``j/_m!=?gju#`obpp>!gjpbnajdvbwjlmGlnbjmMbnf$/#$bgnjmjpwqbwjlmpjnvowbmflvpozwqbmpslqwbwjlmJmwfqmbwjlmbo#nbqdjm.alwwln9qfpslmpjajojwz?"Xfmgje^..=	?,=?nfwb#mbnf>!jnsofnfmwbwjlmjmeqbpwqv`wvqfqfsqfpfmwbwjlmalqgfq.alwwln9?,kfbg=	?algz=>kwws&0B&1E&1E?elqn#nfwklg>!nfwklg>!slpw!#,ebuj`lm-j`l!#~*8	?,p`qjsw=	-pfwBwwqjavwf+Bgnjmjpwqbwjlm>#mft#Bqqbz+*8?"Xfmgje^..=	gjpsobz9aol`h8Vmelqwvmbwfoz/!=%maps8?,gju=,ebuj`lm-j`l!=>$pwzofpkffw$#jgfmwjej`bwjlm/#elq#f{bnsof/?oj=?b#kqfe>!,bm#bowfqmbwjufbp#b#qfpvow#lesw!=?,p`qjsw=	wzsf>!pvanjw!#	+evm`wjlm+*#xqf`lnnfmgbwjlmelqn#b`wjlm>!,wqbmpelqnbwjlmqf`lmpwqv`wjlm-pwzof-gjpsobz#B``lqgjmd#wl#kjggfm!#mbnf>!bolmd#tjwk#wkfgl`vnfmw-algz-bssql{jnbwfoz#@lnnvmj`bwjlmpslpw!#b`wjlm>!nfbmjmd#%rvlw8..?"Xfmgje^..=Sqjnf#Njmjpwfq`kbqb`wfqjpwj`?,b=#?b#`obpp>wkf#kjpwlqz#le#lmnlvpflufq>!wkf#dlufqmnfmwkqfe>!kwwsp9,,tbp#lqjdjmbooztbp#jmwqlgv`fg`obppjej`bwjlmqfsqfpfmwbwjufbqf#`lmpjgfqfg?"Xfmgje^..=		gfsfmgp#lm#wkfVmjufqpjwz#le#jm#`lmwqbpw#wl#sob`fklogfq>!jm#wkf#`bpf#lejmwfqmbwjlmbo#`lmpwjwvwjlmbopwzof>!alqgfq.9#evm`wjlm+*#xAf`bvpf#le#wkf.pwqj`w-gwg!=	?wbaof#`obpp>!b``lnsbmjfg#azb``lvmw#le#wkf?p`qjsw#pq`>!,mbwvqf#le#wkf#wkf#sflsof#jm#jm#bggjwjlm#wlp*8#ip-jg#>#jg!#tjgwk>!233&!qfdbqgjmd#wkf#Qlnbm#@bwkloj`bm#jmgfsfmgfmwelooltjmd#wkf#-dje!#tjgwk>!2wkf#elooltjmd#gjp`qjnjmbwjlmbq`kbfloldj`bosqjnf#njmjpwfq-ip!=?,p`qjsw=`lnajmbwjlm#le#nbqdjmtjgwk>!`qfbwfFofnfmw+t-bwwb`kFufmw+?,b=?,wg=?,wq=pq`>!kwwsp9,,bJm#sbqwj`vobq/#bojdm>!ofew!#@yf`k#Qfsvaoj`Vmjwfg#Hjmdgln`lqqfpslmgfm`f`lm`ovgfg#wkbw-kwno!#wjwof>!+evm`wjlm#+*#x`lnfp#eqln#wkfbssoj`bwjlm#le?psbm#`obpp>!pafojfufg#wl#affnfmw+$p`qjsw$?,b=	?,oj=	?ojufqz#gjeefqfmw=?psbm#`obpp>!lswjlm#ubovf>!+bopl#hmltm#bp\n?oj=?b#kqfe>!=?jmsvw#mbnf>!pfsbqbwfg#eqlnqfefqqfg#wl#bp#ubojdm>!wls!=elvmgfq#le#wkfbwwfnswjmd#wl#`bqalm#gjl{jgf		?gju#`obpp>!`obpp>!pfbq`k.,algz=	?,kwno=lsslqwvmjwz#wl`lnnvmj`bwjlmp?,kfbg=	?algz#pwzof>!tjgwk9Wj\rVSmd#Uj\rWkw`kbmdfp#jm#wkfalqgfq.`lolq9 3!#alqgfq>!3!#?,psbm=?,gju=?tbp#gjp`lufqfg!#wzsf>!wf{w!#*8	?,p`qjsw=		Gfsbqwnfmw#le#f``ofpjbpwj`bowkfqf#kbp#affmqfpvowjmd#eqln?,algz=?,kwno=kbp#mfufq#affmwkf#ejqpw#wjnfjm#qfpslmpf#wlbvwlnbwj`booz#?,gju=		?gju#jtbp#`lmpjgfqfgsfq`fmw#le#wkf!#,=?,b=?,gju=`loof`wjlm#le#gfp`fmgfg#eqlnpf`wjlm#le#wkfb``fsw.`kbqpfwwl#af#`lmevpfgnfnafq#le#wkf#sbggjmd.qjdkw9wqbmpobwjlm#lejmwfqsqfwbwjlm#kqfe>$kwws9,,tkfwkfq#lq#mlwWkfqf#bqf#boplwkfqf#bqf#nbmzb#pnboo#mvnafqlwkfq#sbqwp#lejnslppjaof#wl##`obpp>!avwwlmol`bwfg#jm#wkf-#Kltfufq/#wkfbmg#fufmwvboozBw#wkf#fmg#le#af`bvpf#le#jwpqfsqfpfmwp#wkf?elqn#b`wjlm>!#nfwklg>!slpw!jw#jp#slppjaofnlqf#ojhfoz#wlbm#jm`qfbpf#jmkbuf#bopl#affm`lqqfpslmgp#wlbmmlvm`fg#wkbwbojdm>!qjdkw!=nbmz#`lvmwqjfpelq#nbmz#zfbqpfbqojfpw#hmltmaf`bvpf#jw#tbpsw!=?,p`qjsw=#ubojdm>!wls!#jmkbajwbmwp#leelooltjmd#zfbq	?gju#`obpp>!njoojlm#sflsof`lmwqlufqpjbo#`lm`fqmjmd#wkfbqdvf#wkbw#wkfdlufqmnfmw#bmgb#qfefqfm`f#wlwqbmpefqqfg#wlgfp`qjajmd#wkf#pwzof>!`lolq9bowklvdk#wkfqfafpw#hmltm#elqpvanjw!#mbnf>!nvowjsoj`bwjlmnlqf#wkbm#lmf#qf`ldmjwjlm#le@lvm`jo#le#wkffgjwjlm#le#wkf##?nfwb#mbnf>!Fmwfqwbjmnfmw#btbz#eqln#wkf#8nbqdjm.qjdkw9bw#wkf#wjnf#lejmufpwjdbwjlmp`lmmf`wfg#tjwkbmg#nbmz#lwkfqbowklvdk#jw#jpafdjmmjmd#tjwk#?psbm#`obpp>!gfp`fmgbmwp#le?psbm#`obpp>!j#bojdm>!qjdkw!?,kfbg=	?algz#bpsf`wp#le#wkfkbp#pjm`f#affmFvqlsfbm#Vmjlmqfnjmjp`fmw#lenlqf#gjeej`vowUj`f#Sqfpjgfmw`lnslpjwjlm#lesbppfg#wkqlvdknlqf#jnslqwbmwelmw.pjyf922s{f{sobmbwjlm#lewkf#`lm`fsw#letqjwwfm#jm#wkf\n?psbm#`obpp>!jp#lmf#le#wkf#qfpfnaobm`f#wllm#wkf#dqlvmgptkj`k#`lmwbjmpjm`ovgjmd#wkf#gfejmfg#az#wkfsvaoj`bwjlm#lenfbmp#wkbw#wkflvwpjgf#le#wkfpvsslqw#le#wkf?jmsvw#`obpp>!?psbm#`obpp>!w+Nbwk-qbmgln+*nlpw#sqlnjmfmwgfp`qjswjlm#le@lmpwbmwjmlsoftfqf#svaojpkfg?gju#`obpp>!pfbssfbqp#jm#wkf2!#kfjdkw>!2!#nlpw#jnslqwbmwtkj`k#jm`ovgfptkj`k#kbg#affmgfpwqv`wjlm#lewkf#slsvobwjlm	\n?gju#`obpp>!slppjajojwz#leplnfwjnfp#vpfgbssfbq#wl#kbufpv``fpp#le#wkfjmwfmgfg#wl#afsqfpfmw#jm#wkfpwzof>!`ofbq9a	?,p`qjsw=	?tbp#elvmgfg#jmjmwfqujft#tjwk\\jg!#`lmwfmw>!`bsjwbo#le#wkf	?ojmh#qfo>!pqfofbpf#le#wkfsljmw#lvw#wkbw{NOKwwsQfrvfpwbmg#pvapfrvfmwpf`lmg#obqdfpwufqz#jnslqwbmwpsf`jej`bwjlmppvqeb`f#le#wkfbssojfg#wl#wkfelqfjdm#sloj`z\\pfwGlnbjmMbnffpwbaojpkfg#jmjp#afojfufg#wlJm#bggjwjlm#wlnfbmjmd#le#wkfjp#mbnfg#bewfqwl#sqlwf`w#wkfjp#qfsqfpfmwfgGf`obqbwjlm#lenlqf#feej`jfmw@obppjej`bwjlmlwkfq#elqnp#lekf#qfwvqmfg#wl?psbm#`obpp>!`sfqelqnbm`f#le+evm`wjlm+*#xje#bmg#lmoz#jeqfdjlmp#le#wkfofbgjmd#wl#wkfqfobwjlmp#tjwkVmjwfg#Mbwjlmppwzof>!kfjdkw9lwkfq#wkbm#wkfzsf!#`lmwfmw>!Bppl`jbwjlm#le	?,kfbg=	?algzol`bwfg#lm#wkfjp#qfefqqfg#wl+jm`ovgjmd#wkf`lm`fmwqbwjlmpwkf#jmgjujgvbobnlmd#wkf#nlpwwkbm#bmz#lwkfq,=	?ojmh#qfo>!#qfwvqm#ebopf8wkf#svqslpf#lewkf#bajojwz#wl8`lolq9 eee~	-	?psbm#`obpp>!wkf#pvaif`w#legfejmjwjlmp#le=	?ojmh#qfo>!`objn#wkbw#wkfkbuf#gfufolsfg?wbaof#tjgwk>!`fofaqbwjlm#leElooltjmd#wkf#wl#gjpwjmdvjpk?psbm#`obpp>!awbhfp#sob`f#jmvmgfq#wkf#mbnfmlwfg#wkbw#wkf=?"Xfmgje^..=	pwzof>!nbqdjm.jmpwfbg#le#wkfjmwqlgv`fg#wkfwkf#sql`fpp#lejm`qfbpjmd#wkfgjeefqfm`fp#jmfpwjnbwfg#wkbwfpsf`jbooz#wkf,gju=?gju#jg>!tbp#fufmwvboozwkqlvdklvw#kjpwkf#gjeefqfm`fplnfwkjmd#wkbwpsbm=?,psbm=?,pjdmjej`bmwoz#=?,p`qjsw=		fmujqlmnfmwbo#wl#sqfufmw#wkfkbuf#affm#vpfgfpsf`jbooz#elqvmgfqpwbmg#wkfjp#fppfmwjbooztfqf#wkf#ejqpwjp#wkf#obqdfpwkbuf#affm#nbgf!#pq`>!kwws9,,jmwfqsqfwfg#bppf`lmg#kboe#le`qloojmd>!ml!#jp#`lnslpfg#leJJ/#Kloz#Qlnbmjp#f{sf`wfg#wlkbuf#wkfjq#ltmgfejmfg#bp#wkfwqbgjwjlmbooz#kbuf#gjeefqfmwbqf#lewfm#vpfgwl#fmpvqf#wkbwbdqffnfmw#tjwk`lmwbjmjmd#wkfbqf#eqfrvfmwozjmelqnbwjlm#lmf{bnsof#jp#wkfqfpvowjmd#jm#b?,b=?,oj=?,vo=#`obpp>!ellwfqbmg#fpsf`jboozwzsf>!avwwlm!#?,psbm=?,psbm=tkj`k#jm`ovgfg=	?nfwb#mbnf>!`lmpjgfqfg#wkf`bqqjfg#lvw#azKltfufq/#jw#jpaf`bnf#sbqw#lejm#qfobwjlm#wlslsvobq#jm#wkfwkf#`bsjwbo#letbp#leej`jbooztkj`k#kbp#affmwkf#Kjpwlqz#lebowfqmbwjuf#wlgjeefqfmw#eqlnwl#pvsslqw#wkfpvddfpwfg#wkbwjm#wkf#sql`fpp##?gju#`obpp>!wkf#elvmgbwjlmaf`bvpf#le#kjp`lm`fqmfg#tjwkwkf#vmjufqpjwzlsslpfg#wl#wkfwkf#`lmwf{w#le?psbm#`obpp>!swf{w!#mbnf>!r!\n\n?gju#`obpp>!wkf#p`jfmwjej`qfsqfpfmwfg#aznbwkfnbwj`jbmpfof`wfg#az#wkfwkbw#kbuf#affm=?gju#`obpp>!`gju#jg>!kfbgfqjm#sbqwj`vobq/`lmufqwfg#jmwl*8	?,p`qjsw=	?skjolplskj`bo#pqsphlkqubwphjwj\rVSmd#Uj\rWkw<L=o=m=m<V<T<U=l=o=m=m<V<T<Ujmufpwjdb`j/_msbqwj`jsb`j/_m<V<R=n<R=l=g<Y<R<]<W<\\=m=n<T<V<R=n<R=l=g<U=k<Y<W<R<^<Y<V=m<T=m=n<Y<P=g<q<R<^<R=m=n<T<V<R=n<R=l=g=i<R<]<W<\\=m=n=`<^=l<Y<P<Y<Q<T<V<R=n<R=l<\\=c=m<Y<_<R<X<Q=c=m<V<\\=k<\\=n=`<Q<R<^<R=m=n<T<O<V=l<\\<T<Q=g<^<R<S=l<R=m=g<V<R=n<R=l<R<U=m<X<Y<W<\\=n=`<S<R<P<R=e=`=b=m=l<Y<X=m=n<^<R<]=l<\\<[<R<P=m=n<R=l<R<Q=g=o=k<\\=m=n<T<Y=n<Y=k<Y<Q<T<Y<<W<\\<^<Q<\\=c<T=m=n<R=l<T<T=m<T=m=n<Y<P<\\=l<Y=d<Y<Q<T=c<M<V<\\=k<\\=n=`<S<R=a=n<R<P=o=m<W<Y<X=o<Y=n=m<V<\\<[<\\=n=`=n<R<^<\\=l<R<^<V<R<Q<Y=k<Q<R=l<Y=d<Y<Q<T<Y<V<R=n<R=l<R<Y<R=l<_<\\<Q<R<^<V<R=n<R=l<R<P<L<Y<V<W<\\<P<\\4K5h5i5j4F4C5e5i5j4F4C5f4K4F4K5h5i5d4Z5d4U4K5h4D4]4K5i4@4K5h5i5d4K5n4U4K5h4]4_4K4J5h5i4X4K4]5o4K4F4K5h4O4U4Z4K4M4K5h4]5f4K4Z4E4K5h4F4Y5i5f5i4K5h4K4U4Z4K4M4K5h5j4F4K4J4@4K5h4O5h4U4K4D4K5h4F4_4@5f5h4K5h4O5n4_4K5i4K5h4Z4V4[4K4F4K5h5m5f4C5f5d4K5h4F4]4A5f4D4K5h4@4C5f4C4E4K5h4F4U5h5f5i4K5h4O4B4D4K4]4K5h4K5m5h4K5i4K5h4O5m5h4K5i4K5h4F4K4]5f4B4K5h4F5n5j5f4E4K5h4K5h4U4K4D4K5h4B5d4K4[4]4K5h5i4@4F5i4U4K5h4C5f5o5d4]4K5h4_5f4K4A4E4U4D4C4K5h5h5k4K5h4F4]4D5f4E4K5h4]5d4K4D4[4K5h4O4C4D5f4E4K5h4K4B4D4K4]4K5h5i4F4A4C4E4K5h4K4V4K5j5f`vqplq9sljmwfq8?,wjwof=	?nfwb#!#kqfe>!kwws9,,!=?psbm#`obpp>!nfnafqp#le#wkf#tjmglt-ol`bwjlmufqwj`bo.bojdm9,b=##?b#kqfe>!?"gl`wzsf#kwno=nfgjb>!p`qffm!#?lswjlm#ubovf>!ebuj`lm-j`l!#,=	\n\n?gju#`obpp>!`kbqb`wfqjpwj`p!#nfwklg>!dfw!#,algz=	?,kwno=	pklqw`vw#j`lm!#gl`vnfmw-tqjwf+sbggjmd.alwwln9qfsqfpfmwbwjufppvanjw!#ubovf>!bojdm>!`fmwfq!#wkqlvdklvw#wkf#p`jfm`f#ej`wjlm	##?gju#`obpp>!pvanjw!#`obpp>!lmf#le#wkf#nlpw#ubojdm>!wls!=?tbp#fpwbaojpkfg*8	?,p`qjsw=	qfwvqm#ebopf8!=*-pwzof-gjpsobzaf`bvpf#le#wkf#gl`vnfmw-`llhjf?elqn#b`wjlm>!,~algzxnbqdjm938Fm`z`olsfgjb#leufqpjlm#le#wkf#-`qfbwfFofnfmw+mbnf!#`lmwfmw>!?,gju=	?,gju=		bgnjmjpwqbwjuf#?,algz=	?,kwno=kjpwlqz#le#wkf#!=?jmsvw#wzsf>!slqwjlm#le#wkf#bp#sbqw#le#wkf#%maps8?b#kqfe>!lwkfq#`lvmwqjfp!=	?gju#`obpp>!?,psbm=?,psbm=?Jm#lwkfq#tlqgp/gjpsobz9#aol`h8`lmwqlo#le#wkf#jmwqlgv`wjlm#le,=	?nfwb#mbnf>!bp#tfoo#bp#wkf#jm#qf`fmw#zfbqp	\n?gju#`obpp>!?,gju=	\n?,gju=	jmpsjqfg#az#wkfwkf#fmg#le#wkf#`lnsbwjaof#tjwkaf`bnf#hmltm#bp#pwzof>!nbqdjm9-ip!=?,p`qjsw=?#Jmwfqmbwjlmbo#wkfqf#kbuf#affmDfqnbm#obmdvbdf#pwzof>!`lolq9 @lnnvmjpw#Sbqwz`lmpjpwfmw#tjwkalqgfq>!3!#`foo#nbqdjmkfjdkw>!wkf#nbilqjwz#le!#bojdm>!`fmwfqqfobwfg#wl#wkf#nbmz#gjeefqfmw#Lqwklgl{#@kvq`kpjnjobq#wl#wkf#,=	?ojmh#qfo>!ptbp#lmf#le#wkf#vmwjo#kjp#gfbwk~*+*8	?,p`qjsw=lwkfq#obmdvbdfp`lnsbqfg#wl#wkfslqwjlmp#le#wkfwkf#Mfwkfqobmgpwkf#nlpw#`lnnlmab`hdqlvmg9vqo+bqdvfg#wkbw#wkfp`qloojmd>!ml!#jm`ovgfg#jm#wkfMlqwk#Bnfqj`bm#wkf#mbnf#le#wkfjmwfqsqfwbwjlmpwkf#wqbgjwjlmbogfufolsnfmw#le#eqfrvfmwoz#vpfgb#`loof`wjlm#leufqz#pjnjobq#wlpvqqlvmgjmd#wkff{bnsof#le#wkjpbojdm>!`fmwfq!=tlvog#kbuf#affmjnbdf\\`bswjlm#>bwwb`kfg#wl#wkfpvddfpwjmd#wkbwjm#wkf#elqn#le#jmuloufg#jm#wkfjp#gfqjufg#eqlnmbnfg#bewfq#wkfJmwqlgv`wjlm#wlqfpwqj`wjlmp#lm#pwzof>!tjgwk9#`bm#af#vpfg#wl#wkf#`qfbwjlm#lenlpw#jnslqwbmw#jmelqnbwjlm#bmgqfpvowfg#jm#wkf`loobspf#le#wkfWkjp#nfbmp#wkbwfofnfmwp#le#wkftbp#qfsob`fg#azbmbozpjp#le#wkfjmpsjqbwjlm#elqqfdbqgfg#bp#wkfnlpw#pv``fppevohmltm#bp#%rvlw8b#`lnsqfkfmpjufKjpwlqz#le#wkf#tfqf#`lmpjgfqfgqfwvqmfg#wl#wkfbqf#qfefqqfg#wlVmplvq`fg#jnbdf=	\n?gju#`obpp>!`lmpjpwp#le#wkfpwlsSqlsbdbwjlmjmwfqfpw#jm#wkfbubjobajojwz#lebssfbqp#wl#kbuffof`wqlnbdmfwj`fmbaofPfquj`fp+evm`wjlm#le#wkfJw#jp#jnslqwbmw?,p`qjsw=?,gju=evm`wjlm+*xubq#qfobwjuf#wl#wkfbp#b#qfpvow#le#wkf#slpjwjlm#leElq#f{bnsof/#jm#nfwklg>!slpw!#tbp#elooltfg#az%bns8ngbpk8#wkfwkf#bssoj`bwjlmip!=?,p`qjsw=	vo=?,gju=?,gju=bewfq#wkf#gfbwktjwk#qfpsf`w#wlpwzof>!sbggjmd9jp#sbqwj`vobqozgjpsobz9jmojmf8#wzsf>!pvanjw!#jp#gjujgfg#jmwl\bTA\nzk#+\vBl\bQ*qfpslmpbajojgbgbgnjmjpwqb`j/_mjmwfqmb`jlmbofp`lqqfpslmgjfmwf\fHe\fHF\fHC\fIg\fH{\fHF\fIn\fH\\\fIa\fHY\fHU\fHB\fHR\fH\\\fIk\fH^\fIg\fH{\fIg\fHn\fHv\fIm\fHD\fHR\fHY\fH^\fIk\fHy\fHS\fHD\fHT\fH\\\fHy\fHR\fH\\\fHF\fIm\fH^\fHS\fHT\fHz\fIg\fHp\fIk\fHn\fHv\fHR\fHU\fHS\fHc\fHA\fIk\fHp\fIk\fHn\fHZ\fHR\fHB\fHS\fH^\fHU\fHB\fHR\fH\\\fIl\fHp\fHR\fH{\fH\\\fHO\fH@\fHD\fHR\fHD\fIk\fHy\fIm\fHB\fHR\fH\\\fH@\fIa\fH^\fIe\fH{\fHB\fHR\fH^\fHS\fHy\fHB\fHU\fHS\fH^\fHR\fHF\fIo\fH[\fIa\fHL\fH@\fHN\fHP\fHH\fIk\fHA\fHR\fHp\fHF\fHR\fHy\fIa\fH^\fHS\fHy\fHs\fIa\fH\\\fIk\fHD\fHz\fHS\fH^\fHR\fHG\fHJ\fI`\fH\\\fHR\fHD\fHB\fHR\fHB\fH^\fIk\fHB\fHH\fHJ\fHR\fHD\fH@\fHR\fHp\fHR\fH\\\fHY\fHS\fHy\fHR\fHT\fHy\fIa\fHC\fIg\fHn\fHv\fHR\fHU\fHH\fIk\fHF\fHU\fIm\fHm\fHv\fH@\fHH\fHR\fHC\fHR\fHT\fHn\fHY\fHR\fHJ\fHJ\fIk\fHz\fHD\fIk\fHF\fHS\fHw\fH^\fIk\fHY\fHS\fHZ\fIk\fH[\fH\\\fHR\fHp\fIa\fHC\fHe\fHH\fIa\fHH\fH\\\fHB\fIm\fHn\fH@\fHd\fHJ\fIg\fHD\fIg\fHn\fHe\fHF\fHy\fH\\\fHO\fHF\fHN\fHP\fIk\fHn\fHT\fIa\fHI\fHS\fHH\fHG\fHS\fH^\fIa\fHB\fHB\fIm\fHz\fIa\fHC\fHi\fHv\fIa\fHw\fHR\fHw\fIn\fHs\fHH\fIl\fHT\fHn\fH{\fIl\fHH\fHp\fHR\fHc\fH{\fHR\fHY\fHS\fHA\fHR\fH{\fHt\fHO\fIa\fHs\fIk\fHJ\fIn\fHT\fH\\\fIk\fHJ\fHS\fHD\fIg\fHn\fHU\fHH\fIa\fHC\fHR\fHT\fIk\fHy\fIa\fHT\fH{\fHR\fHn\fHK\fIl\fHY\fHS\fHZ\fIa\fHY\fH\\\fHR\fHH\fIk\fHn\fHJ\fId\fHs\fIa\fHT\fHD\fHy\fIa\fHZ\fHR\fHT\fHR\fHB\fHD\fIk\fHi\fHJ\fHR\fH^\fHH\fH@\fHS\fHp\fH^\fIl\fHF\fIm\fH\\\fIn\fH[\fHU\fHS\fHn\fHJ\fIl\fHB\fHS\fHH\fIa\fH\\\fHy\fHY\fHS\fHH\fHR\fH\\\fIm\fHF\fHC\fIk\fHT\fIa\fHI\fHR\fHD\fHy\fH\\\fIg\fHM\fHP\fHB\fIm\fHy\fIa\fHH\fHC\fIg\fHp\fHD\fHR\fHy\fIo\fHF\fHC\fHR\fHF\fIg\fHT\fIa\fHs\fHt\fH\\\fIk\fH^\fIn\fHy\fHR\fH\\\fIa\fHC\fHY\fHS\fHv\fHR\fH\\\fHT\fIn\fHv\fHD\fHR\fHB\fIn\fH^\fIa\fHC\fHJ\fIk\fHz\fIk\fHn\fHU\fHB\fIk\fHZ\fHR\fHT\fIa\fHy\fIn\fH^\fHB\fId\fHn\fHD\fIk\fHH\fId\fHC\fHR\fH\\\fHp\fHS\fHT\fHy\fIkqpp({no!#wjwof>!.wzsf!#`lmwfmw>!wjwof!#`lmwfmw>!bw#wkf#pbnf#wjnf-ip!=?,p`qjsw=	?!#nfwklg>!slpw!#?,psbm=?,b=?,oj=ufqwj`bo.bojdm9w,irvfqz-njm-ip!=-`oj`h+evm`wjlm+#pwzof>!sbggjmd.~*+*8	?,p`qjsw=	?,psbm=?b#kqfe>!?b#kqfe>!kwws9,,*8#qfwvqm#ebopf8wf{w.gf`lqbwjlm9#p`qloojmd>!ml!#alqgfq.`loobspf9bppl`jbwfg#tjwk#Abkbpb#JmglmfpjbFmdojpk#obmdvbdf?wf{w#{no9psb`f>-dje!#alqgfq>!3!?,algz=	?,kwno=	lufqeolt9kjggfm8jnd#pq`>!kwws9,,bggFufmwOjpwfmfqqfpslmpjaof#elq#p-ip!=?,p`qjsw=	,ebuj`lm-j`l!#,=lsfqbwjmd#pzpwfn!#pwzof>!tjgwk92wbqdfw>!\\aobmh!=Pwbwf#Vmjufqpjwzwf{w.bojdm9ofew8	gl`vnfmw-tqjwf+/#jm`ovgjmd#wkf#bqlvmg#wkf#tlqog*8	?,p`qjsw=	?!#pwzof>!kfjdkw98lufqeolt9kjggfmnlqf#jmelqnbwjlmbm#jmwfqmbwjlmbob#nfnafq#le#wkf#lmf#le#wkf#ejqpw`bm#af#elvmg#jm#?,gju=	\n\n?,gju=	gjpsobz9#mlmf8!=!#,=	?ojmh#qfo>!	##+evm`wjlm+*#xwkf#26wk#`fmwvqz-sqfufmwGfebvow+obqdf#mvnafq#le#Azybmwjmf#Fnsjqf-isdwkvnaofewubpw#nbilqjwz#lenbilqjwz#le#wkf##bojdm>!`fmwfq!=Vmjufqpjwz#Sqfppglnjmbwfg#az#wkfPf`lmg#Tlqog#Tbqgjpwqjavwjlm#le#pwzof>!slpjwjlm9wkf#qfpw#le#wkf#`kbqb`wfqjyfg#az#qfo>!mleloolt!=gfqjufp#eqln#wkfqbwkfq#wkbm#wkf#b#`lnajmbwjlm#lepwzof>!tjgwk9233Fmdojpk.psfbhjmd`lnsvwfq#p`jfm`falqgfq>!3!#bow>!wkf#f{jpwfm`f#leGfnl`qbwj`#Sbqwz!#pwzof>!nbqdjm.Elq#wkjp#qfbplm/-ip!=?,p`qjsw=	\npAzWbdMbnf+p*X3^ip!=?,p`qjsw=	?-ip!=?,p`qjsw=	ojmh#qfo>!j`lm!#$#bow>$$#`obpp>$elqnbwjlm#le#wkfufqpjlmp#le#wkf#?,b=?,gju=?,gju=,sbdf=	##?sbdf=	?gju#`obpp>!`lmwaf`bnf#wkf#ejqpwabkbpb#Jmglmfpjbfmdojpk#+pjnsof*"y"W"W"["Q"U"V"@=i=l<^<\\=n=m<V<T<V<R<P<S<\\<Q<T<T=c<^<W=c<Y=n=m=c<x<R<]<\\<^<T=n=`=k<Y<W<R<^<Y<V<\\=l<\\<[<^<T=n<T=c<t<Q=n<Y=l<Q<Y=n<r=n<^<Y=n<T=n=`<Q<\\<S=l<T<P<Y=l<T<Q=n<Y=l<Q<Y=n<V<R=n<R=l<R<_<R=m=n=l<\\<Q<T=j=g<V<\\=k<Y=m=n<^<Y=o=m<W<R<^<T=c=i<S=l<R<]<W<Y<P=g<S<R<W=o=k<T=n=`=c<^<W=c=b=n=m=c<Q<\\<T<]<R<W<Y<Y<V<R<P<S<\\<Q<T=c<^<Q<T<P<\\<Q<T<Y=m=l<Y<X=m=n<^<\\4K5h5i5d4K4Z5f4U4K5h4]4J5f4_5f4E4K5h4K5j4F5n4K5h5i4X4K4]5o4K4F5o4K5h4_5f4K4]4K4F4K5h5i5o4F5d4D4E4K5h4_4U5d4C5f4E4K4A4Y4K4J5f4K4F4K5h4U4K5h5i5f4E4K5h4Y5d4F5f4K4F4K5h4K5j4F4]5j4F4K5h4F4Y4K5i5f5i4K5h4I4_5h4K5i5f4K5h5i4X4K4]5o4E4K5h5i4]4J5f4K4Fqlalwp!#`lmwfmw>!?gju#jg>!ellwfq!=wkf#Vmjwfg#Pwbwfp?jnd#pq`>!kwws9,,-isdqjdkwwkvna-ip!=?,p`qjsw=	?ol`bwjlm-sqlwl`loeqbnfalqgfq>!3!#p!#,=	?nfwb#mbnf>!?,b=?,gju=?,gju=?elmw.tfjdkw9alog8%rvlw8#bmg#%rvlw8gfsfmgjmd#lm#wkf#nbqdjm938sbggjmd9!#qfo>!mleloolt!#Sqfpjgfmw#le#wkf#wtfmwjfwk#`fmwvqzfujpjlm=	##?,sbdfJmwfqmfw#F{solqfqb-bpzm`#>#wqvf8	jmelqnbwjlm#balvw?gju#jg>!kfbgfq!=!#b`wjlm>!kwws9,,?b#kqfe>!kwwsp9,,?gju#jg>!`lmwfmw!?,gju=	?,gju=	?gfqjufg#eqln#wkf#?jnd#pq`>$kwws9,,b``lqgjmd#wl#wkf#	?,algz=	?,kwno=	pwzof>!elmw.pjyf9p`qjsw#obmdvbdf>!Bqjbo/#Kfoufwj`b/?,b=?psbm#`obpp>!?,p`qjsw=?p`qjsw#slojwj`bo#sbqwjfpwg=?,wq=?,wbaof=?kqfe>!kwws9,,ttt-jmwfqsqfwbwjlm#leqfo>!pwzofpkffw!#gl`vnfmw-tqjwf+$?`kbqpfw>!vwe.;!=	afdjmmjmd#le#wkf#qfufbofg#wkbw#wkfwfofujpjlm#pfqjfp!#qfo>!mleloolt!=#wbqdfw>!\\aobmh!=`objnjmd#wkbw#wkfkwws&0B&1E&1Ettt-nbmjefpwbwjlmp#leSqjnf#Njmjpwfq#lejmeovfm`fg#az#wkf`obpp>!`ofbqej{!=,gju=	?,gju=		wkqff.gjnfmpjlmbo@kvq`k#le#Fmdobmgle#Mlqwk#@bqlojmbprvbqf#hjolnfwqfp-bggFufmwOjpwfmfqgjpwjm`w#eqln#wkf`lnnlmoz#hmltm#bpSklmfwj`#Boskbafwgf`obqfg#wkbw#wkf`lmwqloofg#az#wkfAfmibnjm#Eqbmhojmqlof.sobzjmd#dbnfwkf#Vmjufqpjwz#lejm#Tfpwfqm#Fvqlsfsfqplmbo#`lnsvwfqSqlif`w#Dvwfmafqdqfdbqgofpp#le#wkfkbp#affm#sqlslpfgwldfwkfq#tjwk#wkf=?,oj=?oj#`obpp>!jm#plnf#`lvmwqjfpnjm-ip!=?,p`qjsw=le#wkf#slsvobwjlmleej`jbo#obmdvbdf?jnd#pq`>!jnbdfp,jgfmwjejfg#az#wkfmbwvqbo#qfplvq`fp`obppjej`bwjlm#le`bm#af#`lmpjgfqfgrvbmwvn#nf`kbmj`pMfufqwkfofpp/#wkfnjoojlm#zfbqp#bdl?,algz=	?,kwno="y"W"W"["Q"U"V"@	wbhf#bgubmwbdf#lebmg/#b``lqgjmd#wlbwwqjavwfg#wl#wkfNj`qlplew#Tjmgltpwkf#ejqpw#`fmwvqzvmgfq#wkf#`lmwqlogju#`obpp>!kfbgfqpklqwoz#bewfq#wkfmlwbaof#f{`fswjlmwfmp#le#wklvpbmgppfufqbo#gjeefqfmwbqlvmg#wkf#tlqog-qfb`kjmd#njojwbqzjplobwfg#eqln#wkflsslpjwjlm#wl#wkfwkf#Log#WfpwbnfmwBeqj`bm#Bnfqj`bmpjmpfqwfg#jmwl#wkfpfsbqbwf#eqln#wkfnfwqlslojwbm#bqfbnbhfp#jw#slppjaofb`hmltofgdfg#wkbwbqdvbaoz#wkf#nlpwwzsf>!wf{w,`pp!=	wkf#JmwfqmbwjlmboB``lqgjmd#wl#wkf#sf>!wf{w,`pp!#,=	`ljm`jgf#tjwk#wkfwtl.wkjqgp#le#wkfGvqjmd#wkjp#wjnf/gvqjmd#wkf#sfqjlgbmmlvm`fg#wkbw#kfwkf#jmwfqmbwjlmbobmg#nlqf#qf`fmwozafojfufg#wkbw#wkf`lmp`jlvpmfpp#bmgelqnfqoz#hmltm#bppvqqlvmgfg#az#wkfejqpw#bssfbqfg#jml``bpjlmbooz#vpfgslpjwjlm9baplovwf8!#wbqdfw>!\\aobmh!#slpjwjlm9qfobwjuf8wf{w.bojdm9`fmwfq8ib{,ojap,irvfqz,2-ab`hdqlvmg.`lolq9 wzsf>!bssoj`bwjlm,bmdvbdf!#`lmwfmw>!?nfwb#kwws.frvju>!Sqjub`z#Sloj`z?,b=f+!&0@p`qjsw#pq`>$!#wbqdfw>!\\aobmh!=Lm#wkf#lwkfq#kbmg/-isdwkvnaqjdkw1?,gju=?gju#`obpp>!?gju#pwzof>!eolbw9mjmfwffmwk#`fmwvqz?,algz=	?,kwno=	?jnd#pq`>!kwws9,,p8wf{w.bojdm9`fmwfqelmw.tfjdkw9#alog8#B``lqgjmd#wl#wkf#gjeefqfm`f#afwtffm!#eqbnfalqgfq>!3!#!#pwzof>!slpjwjlm9ojmh#kqfe>!kwws9,,kwno7,ollpf-gwg!=	gvqjmd#wkjp#sfqjlg?,wg=?,wq=?,wbaof=`olpfoz#qfobwfg#wlelq#wkf#ejqpw#wjnf8elmw.tfjdkw9alog8jmsvw#wzsf>!wf{w!#?psbm#pwzof>!elmw.lmqfbgzpwbwf`kbmdf\n?gju#`obpp>!`ofbqgl`vnfmw-ol`bwjlm-#Elq#f{bnsof/#wkf#b#tjgf#ubqjfwz#le#?"GL@WZSF#kwno=	?%maps8%maps8%maps8!=?b#kqfe>!kwws9,,pwzof>!eolbw9ofew8`lm`fqmfg#tjwk#wkf>kwws&0B&1E&1Ettt-jm#slsvobq#`vowvqfwzsf>!wf{w,`pp!#,=jw#jp#slppjaof#wl#Kbqubqg#Vmjufqpjwzwzofpkffw!#kqfe>!,wkf#nbjm#`kbqb`wfqL{elqg#Vmjufqpjwz##mbnf>!hfztlqgp!#`pwzof>!wf{w.bojdm9wkf#Vmjwfg#Hjmdglnefgfqbo#dlufqmnfmw?gju#pwzof>!nbqdjm#gfsfmgjmd#lm#wkf#gfp`qjswjlm#le#wkf?gju#`obpp>!kfbgfq-njm-ip!=?,p`qjsw=gfpwqv`wjlm#le#wkfpojdkwoz#gjeefqfmwjm#b``lqgbm`f#tjwkwfof`lnnvmj`bwjlmpjmgj`bwfp#wkbw#wkfpklqwoz#wkfqfbewfqfpsf`jbooz#jm#wkf#Fvqlsfbm#`lvmwqjfpKltfufq/#wkfqf#bqfpq`>!kwws9,,pwbwj`pvddfpwfg#wkbw#wkf!#pq`>!kwws9,,ttt-b#obqdf#mvnafq#le#Wfof`lnnvmj`bwjlmp!#qfo>!mleloolt!#wKloz#Qlnbm#Fnsfqlqbonlpw#f{`ovpjufoz!#alqgfq>!3!#bow>!Pf`qfwbqz#le#Pwbwf`vonjmbwjmd#jm#wkf@JB#Tlqog#Eb`wallhwkf#nlpw#jnslqwbmwbmmjufqpbqz#le#wkfpwzof>!ab`hdqlvmg.?oj=?fn=?b#kqfe>!,wkf#Bwobmwj`#L`fbmpwqj`woz#psfbhjmd/pklqwoz#afelqf#wkfgjeefqfmw#wzsfp#lewkf#Lwwlnbm#Fnsjqf=?jnd#pq`>!kwws9,,Bm#Jmwqlgv`wjlm#wl`lmpfrvfm`f#le#wkfgfsbqwvqf#eqln#wkf@lmefgfqbwf#Pwbwfpjmgjdfmlvp#sflsofpSql`ffgjmdp#le#wkfjmelqnbwjlm#lm#wkfwkflqjfp#kbuf#affmjmuloufnfmw#jm#wkfgjujgfg#jmwl#wkqffbgib`fmw#`lvmwqjfpjp#qfpslmpjaof#elqgjpplovwjlm#le#wkf`loobalqbwjlm#tjwktjgfoz#qfdbqgfg#bpkjp#`lmwfnslqbqjfpelvmgjmd#nfnafq#leGlnjmj`bm#Qfsvaoj`dfmfqbooz#b``fswfgwkf#slppjajojwz#lebqf#bopl#bubjobaofvmgfq#`lmpwqv`wjlmqfpwlqbwjlm#le#wkfwkf#dfmfqbo#svaoj`jp#bonlpw#fmwjqfozsbppfp#wkqlvdk#wkfkbp#affm#pvddfpwfg`lnsvwfq#bmg#ujgflDfqnbmj`#obmdvbdfp#b``lqgjmd#wl#wkf#gjeefqfmw#eqln#wkfpklqwoz#bewfqtbqgpkqfe>!kwwsp9,,ttt-qf`fmw#gfufolsnfmwAlbqg#le#Gjqf`wlqp?gju#`obpp>!pfbq`k#?b#kqfe>!kwws9,,Jm#sbqwj`vobq/#wkfNvowjsof#ellwmlwfplq#lwkfq#pvapwbm`fwklvpbmgp#le#zfbqpwqbmpobwjlm#le#wkf?,gju=	?,gju=		?b#kqfe>!jmgf{-skstbp#fpwbaojpkfg#jmnjm-ip!=?,p`qjsw=	sbqwj`jsbwf#jm#wkfb#pwqlmd#jmeovfm`fpwzof>!nbqdjm.wls9qfsqfpfmwfg#az#wkfdqbgvbwfg#eqln#wkfWqbgjwjlmbooz/#wkfFofnfmw+!p`qjsw!*8Kltfufq/#pjm`f#wkf,gju=	?,gju=	?gju#ofew8#nbqdjm.ofew9sqlwf`wjlm#bdbjmpw38#ufqwj`bo.bojdm9Vmelqwvmbwfoz/#wkfwzsf>!jnbdf,{.j`lm,gju=	?gju#`obpp>!#`obpp>!`ofbqej{!=?gju#`obpp>!ellwfq\n\n?,gju=	\n\n?,gju=	wkf#nlwjlm#sj`wvqf<}=f<W<_<\\=l=m<V<T<]=f<W<_<\\=l=m<V<T<H<Y<X<Y=l<\\=j<T<T<Q<Y=m<V<R<W=`<V<R=m<R<R<]=e<Y<Q<T<Y=m<R<R<]=e<Y<Q<T=c<S=l<R<_=l<\\<P<P=g<r=n<S=l<\\<^<T=n=`<]<Y=m<S<W<\\=n<Q<R<P<\\=n<Y=l<T<\\<W=g<S<R<[<^<R<W=c<Y=n<S<R=m<W<Y<X<Q<T<Y=l<\\<[<W<T=k<Q=g=i<S=l<R<X=o<V=j<T<T<S=l<R<_=l<\\<P<P<\\<S<R<W<Q<R=m=n=`=b<Q<\\=i<R<X<T=n=m=c<T<[<]=l<\\<Q<Q<R<Y<Q<\\=m<Y<W<Y<Q<T=c<T<[<P<Y<Q<Y<Q<T=c<V<\\=n<Y<_<R=l<T<T<|<W<Y<V=m<\\<Q<X=l\fHJ\fIa\fHY\fHR\fH\\\fHR\fHB\fId\fHD\fIm\fHi\fH^\fHF\fIa\fH\\\fHJ\fHR\fHD\fHA\fHR\fH\\\fHH\fIl\fHC\fHi\fHD\fIm\fHJ\fIk\fHZ\fHU\fHS\fHD\fIa\fHJ\fIl\fHk\fHn\fHM\fHS\fHC\fHR\fHJ\fHS\fH^\fIa\fH^\fIl\fHi\fHK\fHS\fHy\fHR\fH\\\fHY\fIl\fHM\fHS\fHC\fIg\fHv\fHS\fHs\fIa\fHL\fIk\fHT\fHB\fHR\fHv\fHR\fH\\\fHp\fHn\fHy\fIa\fHZ\fHD\fHJ\fIm\fHD\fHS\fHC\fHR\fHF\fIa\fH\\\fHC\fIg\fH{\fHi\fHD\fIm\fHT\fHR\fH\\\fH}\fHD\fH^\fHR\fHk\fHD\fHF\fHR\fH\\\fIa\fHs\fIl\fHZ\fH\\\fIa\fHH\fIg\fHn\fH^\fIg\fHy\fHT\fHA\fHR\fHG\fHP\fIa\fH^\fId\fHZ\fHZ\fH\\\fIa\fHH\fIk\fHn\fHF\fIa\fH\\\fHJ\fIk\fHZ\fHF\fIa\fH^\fIk\fHC\fH\\\fHy\fIk\fHn\fHJ\fIa\fH\\\fHT\fIa\fHI\fHS\fHH\fHS\fHe\fHH\fIa\fHF\fHR\fHJ\fHe\fHD\fIa\fHU\fIk\fHn\fHv\fHS\fHs\fIa\fHL\fHR\fHC\fHR\fHH\fIa\fH\\\fHR\fHp\fIa\fHC\fHR\fHJ\fHR\fHF\fIm\fH\\\fHR\fHD\fIk\fHp\fIg\fHM\fHP\fIk\fHn\fHi\fHD\fIm\fHY\fHR\fHJ\fHZ\fIa\fH\\\fIk\fHO\fIl\fHZ\fHS\fHy\fIa\fH[\fHR\fHT\fH\\\fHy\fHR\fH\\\fIl\fHT\fHn\fH{\fIa\fH\\\fHU\fHF\fH\\\fHS\fHO\fHR\fHB\fH@\fIa\fH\\\fHR\fHn\fHM\fH@\fHv\fIa\fHv\fIg\fHn\fHe\fHF\fH^\fH@\fIa\fHK\fHB\fHn\fHH\fIa\fH\\\fIl\fHT\fHn\fHF\fH\\\fIa\fHy\fHe\fHB\fIa\fHB\fIl\fHJ\fHB\fHR\fHK\fIa\fHC\fHB\fHT\fHU\fHR\fHC\fHH\fHR\fHZ\fH@\fIa\fHJ\fIg\fHn\fHB\fIl\fHM\fHS\fHC\fHR\fHj\fHd\fHF\fIl\fHc\fH^\fHB\fIg\fH@\fHR\fHk\fH^\fHT\fHn\fHz\fIa\fHC\fHR\fHj\fHF\fH\\\fIk\fHZ\fHD\fHi\fHD\fIm\fH@\fHn\fHK\fH@\fHR\fHp\fHP\fHR\fH\\\fHD\fHY\fIl\fHD\fHH\fHB\fHF\fIa\fH\\\fHB\fIm\fHz\fHF\fIa\fH\\\fHZ\fIa\fHD\fHF\fH\\\fHS\fHY\fHR\fH\\\fHD\fIm\fHy\fHT\fHR\fHD\fHT\fHB\fH\\\fIa\fHI\fHD\fHj\fHC\fIg\fHp\fHS\fHH\fHT\fIg\fHB\fHY\fHR\fH\\4K5h5i4X4K4]5o4K4F4K5h5i5j4F4C5f4K4F4K5h5o5i4D5f5d4F4]4K5h5i4X4K5k4C4K4F4U4C4C4K5h4^5d4K4]4U4C4C4K5h4]4C5d4C4K5h4I4_5h4K5i5f4E4K5h5m5d4F5d4X5d4D4K5h5i4_4K4D5n4K4F4K5h5i4U5h5d5i4K4F4K5h5i4_5h4_5h4K4F4K5h4@4]4K5m5f5o4_4K5h4K4_5h4K5i5f4E4K5h4K4F4Y4K5h4K4Fhfztlqgp!#`lmwfmw>!t0-lqd,2:::,{kwno!=?b#wbqdfw>!\\aobmh!#wf{w,kwno8#`kbqpfw>!#wbqdfw>!\\aobmh!=?wbaof#`foosbggjmd>!bvwl`lnsofwf>!lee!#wf{w.bojdm9#`fmwfq8wl#obpw#ufqpjlm#az#ab`hdqlvmg.`lolq9# !#kqfe>!kwws9,,ttt-,gju=?,gju=?gju#jg>?b#kqfe>! !#`obpp>!!=?jnd#pq`>!kwws9,,`qjsw!#pq`>!kwws9,,	?p`qjsw#obmdvbdf>!,,FM!#!kwws9,,ttt-tfm`lgfVQJ@lnslmfmw+!#kqfe>!ibubp`qjsw9?gju#`obpp>!`lmwfmwgl`vnfmw-tqjwf+$?p`slpjwjlm9#baplovwf8p`qjsw#pq`>!kwws9,,#pwzof>!nbqdjm.wls9-njm-ip!=?,p`qjsw=	?,gju=	?gju#`obpp>!t0-lqd,2:::,{kwno!#		?,algz=	?,kwno=gjpwjm`wjlm#afwtffm,!#wbqdfw>!\\aobmh!=?ojmh#kqfe>!kwws9,,fm`lgjmd>!vwe.;!<=	t-bggFufmwOjpwfmfq<b`wjlm>!kwws9,,ttt-j`lm!#kqfe>!kwws9,,#pwzof>!ab`hdqlvmg9wzsf>!wf{w,`pp!#,=	nfwb#sqlsfqwz>!ld9w?jmsvw#wzsf>!wf{w!##pwzof>!wf{w.bojdm9wkf#gfufolsnfmw#le#wzofpkffw!#wzsf>!wfkwno8#`kbqpfw>vwe.;jp#`lmpjgfqfg#wl#afwbaof#tjgwk>!233&!#Jm#bggjwjlm#wl#wkf#`lmwqjavwfg#wl#wkf#gjeefqfm`fp#afwtffmgfufolsnfmw#le#wkf#Jw#jp#jnslqwbmw#wl#?,p`qjsw=		?p`qjsw##pwzof>!elmw.pjyf92=?,psbm=?psbm#jg>daOjaqbqz#le#@lmdqfpp?jnd#pq`>!kwws9,,jnFmdojpk#wqbmpobwjlmB`bgfnz#le#P`jfm`fpgju#pwzof>!gjpsobz9`lmpwqv`wjlm#le#wkf-dfwFofnfmwAzJg+jg*jm#`lmivm`wjlm#tjwkFofnfmw+$p`qjsw$*8#?nfwb#sqlsfqwz>!ld9<}=f<W<_<\\=l=m<V<T	#wzsf>!wf{w!#mbnf>!=Sqjub`z#Sloj`z?,b=bgnjmjpwfqfg#az#wkffmbaofPjmdofQfrvfpwpwzof>%rvlw8nbqdjm9?,gju=?,gju=?,gju=?=?jnd#pq`>!kwws9,,j#pwzof>%rvlw8eolbw9qfefqqfg#wl#bp#wkf#wlwbo#slsvobwjlm#lejm#Tbpkjmdwlm/#G-@-#pwzof>!ab`hdqlvmg.bnlmd#lwkfq#wkjmdp/lqdbmjybwjlm#le#wkfsbqwj`jsbwfg#jm#wkfwkf#jmwqlgv`wjlm#lejgfmwjejfg#tjwk#wkfej`wjlmbo#`kbqb`wfq#L{elqg#Vmjufqpjwz#njpvmgfqpwbmgjmd#leWkfqf#bqf/#kltfufq/pwzofpkffw!#kqfe>!,@lovnajb#Vmjufqpjwzf{sbmgfg#wl#jm`ovgfvpvbooz#qfefqqfg#wljmgj`bwjmd#wkbw#wkfkbuf#pvddfpwfg#wkbwbeejojbwfg#tjwk#wkf`lqqfobwjlm#afwtffmmvnafq#le#gjeefqfmw=?,wg=?,wq=?,wbaof=Qfsvaoj`#le#Jqfobmg	?,p`qjsw=	?p`qjsw#vmgfq#wkf#jmeovfm`f`lmwqjavwjlm#wl#wkfLeej`jbo#tfapjwf#lekfbgrvbqwfqp#le#wkf`fmwfqfg#bqlvmg#wkfjnsoj`bwjlmp#le#wkfkbuf#affm#gfufolsfgEfgfqbo#Qfsvaoj`#leaf`bnf#jm`qfbpjmdoz`lmwjmvbwjlm#le#wkfMlwf/#kltfufq/#wkbwpjnjobq#wl#wkbw#le#`bsbajojwjfp#le#wkfb``lqgbm`f#tjwk#wkfsbqwj`jsbmwp#jm#wkfevqwkfq#gfufolsnfmwvmgfq#wkf#gjqf`wjlmjp#lewfm#`lmpjgfqfgkjp#zlvmdfq#aqlwkfq?,wg=?,wq=?,wbaof=?b#kwws.frvju>![.VB.skzpj`bo#sqlsfqwjfple#Aqjwjpk#@lovnajbkbp#affm#`qjwj`jyfg+tjwk#wkf#f{`fswjlmrvfpwjlmp#balvw#wkfsbppjmd#wkqlvdk#wkf3!#`foosbggjmd>!3!#wklvpbmgp#le#sflsofqfgjqf`wp#kfqf-#Elqkbuf#`kjogqfm#vmgfq&0F&0@,p`qjsw&0F!**8?b#kqfe>!kwws9,,ttt-?oj=?b#kqfe>!kwws9,,pjwf\\mbnf!#`lmwfmw>!wf{w.gf`lqbwjlm9mlmfpwzof>!gjpsobz9#mlmf?nfwb#kwws.frvju>![.mft#Gbwf+*-dfwWjnf+*#wzsf>!jnbdf,{.j`lm!?,psbm=?psbm#`obpp>!obmdvbdf>!ibubp`qjswtjmglt-ol`bwjlm-kqfe?b#kqfe>!ibubp`qjsw9..=	?p`qjsw#wzsf>!w?b#kqfe>$kwws9,,ttt-klqw`vw#j`lm!#kqfe>!?,gju=	?gju#`obpp>!?p`qjsw#pq`>!kwws9,,!#qfo>!pwzofpkffw!#w?,gju=	?p`qjsw#wzsf>,b=#?b#kqfe>!kwws9,,#booltWqbmpsbqfm`z>![.VB.@lnsbwjaof!#`lmqfobwjlmpkjs#afwtffm	?,p`qjsw=	?p`qjsw#?,b=?,oj=?,vo=?,gju=bppl`jbwfg#tjwk#wkf#sqldqbnnjmd#obmdvbdf?,b=?b#kqfe>!kwws9,,?,b=?,oj=?oj#`obpp>!elqn#b`wjlm>!kwws9,,?gju#pwzof>!gjpsobz9wzsf>!wf{w!#mbnf>!r!?wbaof#tjgwk>!233&!#ab`hdqlvmg.slpjwjlm9!#alqgfq>!3!#tjgwk>!qfo>!pklqw`vw#j`lm!#k5=?vo=?oj=?b#kqfe>!##?nfwb#kwws.frvju>!`pp!#nfgjb>!p`qffm!#qfpslmpjaof#elq#wkf#!#wzsf>!bssoj`bwjlm,!#pwzof>!ab`hdqlvmg.kwno8#`kbqpfw>vwe.;!#booltwqbmpsbqfm`z>!pwzofpkffw!#wzsf>!wf	?nfwb#kwws.frvju>!=?,psbm=?psbm#`obpp>!3!#`foopsb`jmd>!3!=8	?,p`qjsw=	?p`qjsw#plnfwjnfp#`boofg#wkfglfp#mlw#mf`fppbqjozElq#nlqf#jmelqnbwjlmbw#wkf#afdjmmjmd#le#?"GL@WZSF#kwno=?kwnosbqwj`vobqoz#jm#wkf#wzsf>!kjggfm!#mbnf>!ibubp`qjsw9uljg+3*8!feef`wjufmfpp#le#wkf#bvwl`lnsofwf>!lee!#dfmfqbooz#`lmpjgfqfg=?jmsvw#wzsf>!wf{w!#!=?,p`qjsw=	?p`qjswwkqlvdklvw#wkf#tlqog`lnnlm#njp`lm`fswjlmbppl`jbwjlm#tjwk#wkf?,gju=	?,gju=	?gju#`gvqjmd#kjp#ojefwjnf/`lqqfpslmgjmd#wl#wkfwzsf>!jnbdf,{.j`lm!#bm#jm`qfbpjmd#mvnafqgjsolnbwj`#qfobwjlmpbqf#lewfm#`lmpjgfqfgnfwb#`kbqpfw>!vwe.;!#?jmsvw#wzsf>!wf{w!#f{bnsofp#jm`ovgf#wkf!=?jnd#pq`>!kwws9,,jsbqwj`jsbwjlm#jm#wkfwkf#fpwbaojpknfmw#le	?,gju=	?gju#`obpp>!%bns8maps8%bns8maps8wl#gfwfqnjmf#tkfwkfqrvjwf#gjeefqfmw#eqlnnbqhfg#wkf#afdjmmjmdgjpwbm`f#afwtffm#wkf`lmwqjavwjlmp#wl#wkf`lmeoj`w#afwtffm#wkftjgfoz#`lmpjgfqfg#wltbp#lmf#le#wkf#ejqpwtjwk#ubqzjmd#gfdqffpkbuf#psf`vobwfg#wkbw+gl`vnfmw-dfwFofnfmwsbqwj`jsbwjmd#jm#wkflqjdjmbooz#gfufolsfgfwb#`kbqpfw>!vwe.;!=#wzsf>!wf{w,`pp!#,=	jmwfq`kbmdfbaoz#tjwknlqf#`olpfoz#qfobwfgpl`jbo#bmg#slojwj`bowkbw#tlvog#lwkfqtjpfsfqsfmgj`vobq#wl#wkfpwzof#wzsf>!wf{w,`ppwzsf>!pvanjw!#mbnf>!ebnjojfp#qfpjgjmd#jmgfufolsjmd#`lvmwqjfp`lnsvwfq#sqldqbnnjmdf`lmlnj`#gfufolsnfmwgfwfqnjmbwjlm#le#wkfelq#nlqf#jmelqnbwjlmlm#pfufqbo#l``bpjlmpslqwvdv/Fp#+Fvqlsfv*<O<V=l<\\={<Q=m=`<V<\\=o<V=l<\\={<Q=m=`<V<\\<L<R=m=m<T<U=m<V<R<U<P<\\=n<Y=l<T<\\<W<R<^<T<Q=h<R=l<P<\\=j<T<T=o<S=l<\\<^<W<Y<Q<T=c<Q<Y<R<]=i<R<X<T<P<R<T<Q=h<R=l<P<\\=j<T=c<t<Q=h<R=l<P<\\=j<T=c<L<Y=m<S=o<]<W<T<V<T<V<R<W<T=k<Y=m=n<^<R<T<Q=h<R=l<P<\\=j<T=b=n<Y=l=l<T=n<R=l<T<T<X<R=m=n<\\=n<R=k<Q<R4K5h5i4F5d4K4@4C5d5j4K5h4K4X4F4]4K5o4K4F4K5h4K5n4F4]4K4A4K4Fkwno8#`kbqpfw>VWE.;!#pfwWjnflvw+evm`wjlm+*gjpsobz9jmojmf.aol`h8?jmsvw#wzsf>!pvanjw!#wzsf#>#$wf{w,ibubp`qj?jnd#pq`>!kwws9,,ttt-!#!kwws9,,ttt-t0-lqd,pklqw`vw#j`lm!#kqfe>!!#bvwl`lnsofwf>!lee!#?,b=?,gju=?gju#`obpp>?,b=?,oj=	?oj#`obpp>!`pp!#wzsf>!wf{w,`pp!#?elqn#b`wjlm>!kwws9,,{w,`pp!#kqfe>!kwws9,,ojmh#qfo>!bowfqmbwf!#	?p`qjsw#wzsf>!wf{w,#lm`oj`h>!ibubp`qjsw9+mft#Gbwf*-dfwWjnf+*~kfjdkw>!2!#tjgwk>!2!#Sflsof$p#Qfsvaoj`#le##?b#kqfe>!kwws9,,ttt-wf{w.gf`lqbwjlm9vmgfqwkf#afdjmmjmd#le#wkf#?,gju=	?,gju=	?,gju=	fpwbaojpknfmw#le#wkf#?,gju=?,gju=?,gju=?,g ujftslqwxnjm.kfjdkw9	?p`qjsw#pq`>!kwws9,,lswjlm=?lswjlm#ubovf>lewfm#qfefqqfg#wl#bp#,lswjlm=	?lswjlm#ubov?"GL@WZSF#kwno=	?"..XJmwfqmbwjlmbo#Bjqslqw=	?b#kqfe>!kwws9,,ttt?,b=?b#kqfe>!kwws9,,t\fTL\fT^\fTE\fT^\fUh\fT{\fTN\roI\ro|\roL\ro{\roO\rov\rot\nAOGx\bTA\nzk#+\vUmGx*\fHD\fHS\fH\\\fIa\fHJ\fIk\fHZ\fHM\fHR\fHe\fHD\fH^\fIg\fHM\fHy\fIa\fH[\fIk\fHH\fIa\fH\\\fHp\fHR\fHD\fHy\fHR\fH\\\fIl\fHT\fHn\fH@\fHn\fHK\fHS\fHH\fHT\fIa\fHI\fHR\fHF\fHD\fHR\fHT\fIa\fHY\fIl\fHy\fHR\fH\\\fHT\fHn\fHT\fIa\fHy\fH\\\fHO\fHT\fHR\fHB\fH{\fIa\fH\\\fIl\fHv\fHS\fHs\fIa\fHL\fIg\fHn\fHY\fHS\fHp\fIa\fHr\fHR\fHD\fHi\fHB\fIk\fH\\\fHS\fHy\fHR\fHY\fHS\fHA\fHS\fHD\fIa\fHD\fH{\fHR\fHM\fHS\fHC\fHR\fHm\fHy\fIa\fHC\fIg\fHn\fHy\fHS\fHT\fIm\fH\\\fHy\fIa\fH[\fHR\fHF\fHU\fIm\fHm\fHv\fHH\fIl\fHF\fIa\fH\\\fH@\fHn\fHK\fHD\fHs\fHS\fHF\fIa\fHF\fHO\fIl\fHy\fIa\fH\\\fHS\fHy\fIk\fHs\fHF\fIa\fH\\\fHR\fH\\\fHn\fHA\fHF\fIa\fH\\\fHR\fHF\fIa\fHH\fHB\fHR\fH^\fHS\fHy\fIg\fHn\fH\\\fHG\fHP\fIa\fHH\fHR\fH\\\fHD\fHS\fH\\\fIa\fHB\fHR\fHO\fH^\fHS\fHB\fHS\fHs\fIk\fHMgfp`qjswjlm!#`lmwfmw>!gl`vnfmw-ol`bwjlm-sqlw-dfwFofnfmwpAzWbdMbnf+?"GL@WZSF#kwno=	?kwno#?nfwb#`kbqpfw>!vwe.;!=9vqo!#`lmwfmw>!kwws9,,-`pp!#qfo>!pwzofpkffw!pwzof#wzsf>!wf{w,`pp!=wzsf>!wf{w,`pp!#kqfe>!t0-lqd,2:::,{kwno!#{nowzsf>!wf{w,ibubp`qjsw!#nfwklg>!dfw!#b`wjlm>!ojmh#qfo>!pwzofpkffw!##>#gl`vnfmw-dfwFofnfmwwzsf>!jnbdf,{.j`lm!#,=`foosbggjmd>!3!#`foops-`pp!#wzsf>!wf{w,`pp!#?,b=?,oj=?oj=?b#kqfe>!!#tjgwk>!2!#kfjdkw>!2!!=?b#kqfe>!kwws9,,ttt-pwzof>!gjpsobz9mlmf8!=bowfqmbwf!#wzsf>!bssoj.,,T0@,,GWG#[KWNO#2-3#foopsb`jmd>!3!#`foosbg#wzsf>!kjggfm!#ubovf>!,b=%maps8?psbm#qlof>!p	?jmsvw#wzsf>!kjggfm!#obmdvbdf>!IbubP`qjsw!##gl`vnfmw-dfwFofnfmwpAd>!3!#`foopsb`jmd>!3!#zsf>!wf{w,`pp!#nfgjb>!wzsf>$wf{w,ibubp`qjsw$tjwk#wkf#f{`fswjlm#le#zsf>!wf{w,`pp!#qfo>!pw#kfjdkw>!2!#tjgwk>!2!#>$(fm`lgfVQJ@lnslmfmw+?ojmh#qfo>!bowfqmbwf!#	algz/#wq/#jmsvw/#wf{wnfwb#mbnf>!qlalwp!#`lmnfwklg>!slpw!#b`wjlm>!=	?b#kqfe>!kwws9,,ttt-`pp!#qfo>!pwzofpkffw!#?,gju=?,gju=?gju#`obppobmdvbdf>!ibubp`qjsw!=bqjb.kjggfm>!wqvf!=.[?qjsw!#wzsf>!wf{w,ibubpo>38~*+*8	+evm`wjlm+*xab`hdqlvmg.jnbdf9#vqo+,b=?,oj=?oj=?b#kqfe>!k\n\n?oj=?b#kqfe>!kwws9,,bwlq!#bqjb.kjggfm>!wqv=#?b#kqfe>!kwws9,,ttt-obmdvbdf>!ibubp`qjsw!#,lswjlm=	?lswjlm#ubovf,gju=?,gju=?gju#`obpp>qbwlq!#bqjb.kjggfm>!wqf>+mft#Gbwf*-dfwWjnf+*slqwvdv/Fp#+gl#Aqbpjo*<R=l<_<\\<Q<T<[<\\=j<T<T<^<R<[<P<R<Z<Q<R=m=n=`<R<]=l<\\<[<R<^<\\<Q<T=c=l<Y<_<T=m=n=l<\\=j<T<T<^<R<[<P<R<Z<Q<R=m=n<T<R<]=c<[<\\=n<Y<W=`<Q<\\?"GL@WZSF#kwno#SVAOJ@#!mw.Wzsf!#`lmwfmw>!wf{w,?nfwb#kwws.frvju>!@lmwfqbmpjwjlmbo,,FM!#!kwws9?kwno#{nomp>!kwws9,,ttt.,,T0@,,GWG#[KWNO#2-3#WGWG,{kwno2.wqbmpjwjlmbo,,ttt-t0-lqd,WQ,{kwno2,sf#>#$wf{w,ibubp`qjsw$8?nfwb#mbnf>!gfp`qjswjlmsbqfmwMlgf-jmpfqwAfelqf?jmsvw#wzsf>!kjggfm!#mbip!#wzsf>!wf{w,ibubp`qj+gl`vnfmw*-qfbgz+evm`wjp`qjsw#wzsf>!wf{w,ibubpjnbdf!#`lmwfmw>!kwws9,,VB.@lnsbwjaof!#`lmwfmw>wno8#`kbqpfw>vwe.;!#,=	ojmh#qfo>!pklqw`vw#j`lm?ojmh#qfo>!pwzofpkffw!#?,p`qjsw=	?p`qjsw#wzsf>>#gl`vnfmw-`qfbwfFofnfm?b#wbqdfw>!\\aobmh!#kqfe>#gl`vnfmw-dfwFofnfmwpAjmsvw#wzsf>!wf{w!#mbnf>b-wzsf#>#$wf{w,ibubp`qjmsvw#wzsf>!kjggfm!#mbnfkwno8#`kbqpfw>vwe.;!#,=gwg!=	?kwno#{nomp>!kwws.,,T0@,,GWG#KWNO#7-32#WfmwpAzWbdMbnf+$p`qjsw$*jmsvw#wzsf>!kjggfm!#mbn?p`qjsw#wzsf>!wf{w,ibubp!#pwzof>!gjpsobz9mlmf8!=gl`vnfmw-dfwFofnfmwAzJg+>gl`vnfmw-`qfbwfFofnfmw+$#wzsf>$wf{w,ibubp`qjsw$jmsvw#wzsf>!wf{w!#mbnf>!g-dfwFofnfmwpAzWbdMbnf+pmj`bo!#kqfe>!kwws9,,ttt-@,,GWG#KWNO#7-32#Wqbmpjw?pwzof#wzsf>!wf{w,`pp!=		?pwzof#wzsf>!wf{w,`pp!=jlmbo-gwg!=	?kwno#{nomp>kwws.frvju>!@lmwfmw.Wzsfgjmd>!3!#`foopsb`jmd>!3!kwno8#`kbqpfw>vwe.;!#,=	#pwzof>!gjpsobz9mlmf8!=??oj=?b#kqfe>!kwws9,,ttt-#wzsf>$wf{w,ibubp`qjsw$=<X<Y=c=n<Y<W=`<Q<R=m=n<T=m<R<R=n<^<Y=n=m=n<^<T<T<S=l<R<T<[<^<R<X=m=n<^<\\<]<Y<[<R<S<\\=m<Q<R=m=n<T\fHF\fIm\fHT\fIa\fHH\fHS\fHy\fHR\fHy\fHR\fHn\fH{\fIa\fH\\\fIk\fHT\fHe\fHD\fIa\fHU\fIg\fHn\fHD\fIk\fHY\fHS\fHK\fHR\fHD\fHT\fHA\fHR\fHG\fHS\fHy\fIa\fHT\fHS\fHn\fH{\fHT\fIm\fH\\\fHy\fIa\fH[\fHS\fHH\fHy\fIe\fHF\fIl\fH\\\fHR\fHk\fHs\fHY\fHS\fHp\fIa\fHr\fHR\fHF\fHD\fHy\fHR\fH\\\fIa\fH\\\fHY\fHR\fHd\fHT\fHy\fIa\fH\\\fHS\fHC\fHH\fHR', "۷%ƌ'T%'W%×%O%g%¦&Ɠ%ǥ&>&*&'&^&Ÿా&ƭ&ƒ&)&^&%&'&&P&1&±&3&]&m&u&E&t&C&Ï&V&V&/&>&6&ྲྀ᝼o&p&@&E&M&P&x&@&F&e&Ì&7&:&(&D&0&C&)&.&F&-&1&(&L&F&1ɞ*Ϫ⇳&፲&K&;&)&E&H&P&0&?&9&V&&-&v&a&,&E&)&?&=&'&'&B&മ&ԃ&̖*&*8&%&%&&&%,)&&>&&7&]&F&2&>&J&6&n&2&%&?&&2&6&J&g&-&0&,&*&J&*&O&)&6&(&<&B&N&.&P&@&2&.&W&M&%Լ(,(<&,&Ϛ&ᣇ&-&,(%&(&%&(Ļ0&X&D&&j&'&J&(&.&B&3&Z&R&h&3&E&E&<Æ-͠ỳ&%8?&@&,&Z&@&0&J&,&^&x&_&6&C&6&Cܬ⨥&f&-&-&-&-&,&J&2&8&z&8&C&Y&8&-&d&ṸÌ-&7&1&F&7&t&W&7&I&.&.&^&=ྜ᧓&8(>&/&/&ݻ')'ၥ')'%@/&0&%оী*&*@&CԽהɴ׫4෗ܚӑ6඄&/Ÿ̃Z&*%ɆϿ&Ĵ&1¨ҴŴ", dictionarySizeBits, "AAAAKKLLKKKKKJJIHHIHHGGFF");
+      setData(asReadOnlyBuffer(dictionaryData), dictionarySizeBits);
+    }
+    function min(a2, b2) {
+      return a2 <= b2 ? a2 : b2;
+    }
+    function copyBytes(dst, target, src, start, end) {
+      dst.set(src.slice(start, end), target);
+    }
+    function readInput(src, dst, offset, length) {
+      if (src == null) return -1;
+      let end = min(src.offset + length, src.data.length);
+      let bytesRead = end - src.offset;
+      dst.set(src.data.subarray(src.offset, end), offset);
+      src.offset += bytesRead;
+      return bytesRead;
+    }
+    function closeInput(src) {
+      return 0;
+    }
+    function asReadOnlyBuffer(src) {
+      return src;
+    }
+    function toUsAsciiBytes(src) {
+      let n2 = src.length;
+      let result = new Int8Array(n2);
+      for (let i2 = 0; i2 < n2; ++i2) result[i2] = src.charCodeAt(i2);
+      return result;
+    }
+    function decode(bytes, options) {
+      let s2 = new State();
+      initState(s2, new InputStream(bytes));
+      if (options) {
+        let customDictionary = options["customDictionary"];
+        if (customDictionary) attachDictionaryChunk(s2, customDictionary);
+      }
+      let totalOutput = 0;
+      let chunks = [];
+      while (true) {
+        let chunk = new Int8Array(16384);
+        chunks.push(chunk);
+        s2.output = chunk;
+        s2.outputOffset = 0;
+        s2.outputLength = 16384;
+        s2.outputUsed = 0;
+        decompress(s2);
+        totalOutput += s2.outputUsed;
+        if (s2.outputUsed < 16384) break;
+      }
+      close(s2);
+      let result = new Int8Array(totalOutput);
+      let offset = 0;
+      for (let i2 = 0; i2 < chunks.length; ++i2) {
+        let chunk = chunks[i2];
+        let len = min(totalOutput, offset + 16384) - offset;
+        if (len < 16384) result.set(chunk.subarray(0, len), offset);
+        else result.set(chunk, offset);
+        offset += len;
+      }
+      return result;
+    }
+    return decode;
+  };
+  let BrotliDecode = makeBrotliDecode();
+  const inflateAsync = async (d2) => {
+    const ds = new DecompressionStream("deflate");
+    const writer = ds.writable.getWriter();
+    writer.write(d2);
+    writer.close();
+    return new Uint8Array(await new Response(ds.readable).arrayBuffer());
+  };
+  const brotliDecompressAsync = (d2) => Uint8Array.from(BrotliDecode(Int8Array.from(d2)));
+  const inflates = {
+    inflateAsync,
+    brotliDecompressAsync
+  };
+  var KeepLiveWS = class extends KeepLive {
+    constructor(roomid, opts) {
+      super(() => new LiveWSBase(inflates, roomid, opts));
+    }
+  };
+  let keep = null;
+  let started = false;
+  let reconnectTimer = null;
+  const recentDanmaku = new Map();
+  function asRecord(value) {
+    return typeof value === "object" && value !== null ? value : {};
+  }
+  function asString(value, fallback = "") {
+    return typeof value === "string" ? value : fallback;
+  }
+  function asNumber(value, fallback = 0) {
+    return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  }
+  function avatarUrl$1(uid) {
+    return uid ? `${BASE_URL.BILIBILI_AVATAR}/${uid}?size=96` : void 0;
+  }
+  function cleanupRecent() {
+    const now = Date.now();
+    for (const [key, ts] of recentDanmaku) {
+      if (now - ts > 8e3) recentDanmaku.delete(key);
+    }
+  }
+  function hasRecentWsDanmaku(text, uid) {
+    cleanupRecent();
+    return recentDanmaku.has(`${uid ?? ""}:${text}`);
+  }
+  function rememberWsDanmaku(text, uid) {
+    cleanupRecent();
+    recentDanmaku.set(`${uid ?? ""}:${text}`, Date.now());
+  }
+  function eventId(cmd, data, fallback) {
+    return asString(data.msg_id) || String(data.id ?? data.uid ?? fallback);
+  }
+  async function fetchDanmuInfo(roomId) {
+    const resp = await fetch(`${BASE_URL.BILIBILI_DANMU_INFO}?id=${roomId}&type=0`, { credentials: "include" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+    const json = await resp.json();
+    if (json.code !== 0 || !json.data?.token) throw new Error(json.message ?? "弹幕服务器信息获取失败");
+    const host = json.data.host_list?.find((item) => item.host && (item.wss_port || item.port || item.ws_port));
+    if (!host?.host) throw new Error("弹幕服务器地址为空");
+    const port = host.wss_port || host.port || host.ws_port || 443;
+    return { key: json.data.token, address: `wss://${host.host}:${port}/sub` };
+  }
+  function emit(event) {
+    emitCustomChatEvent(event);
+  }
+  function bindEvents(roomId, live) {
+    live.addEventListener("live", () => appendLog(`🟢 Chatterbox Chat WS 已连接：${roomId}`));
+    live.addEventListener("close", () => appendLog("⚪ Chatterbox Chat WS 已断开"));
+    live.addEventListener("error", () => appendLog("🔴 Chatterbox Chat WS 连接异常，DOM 消息源继续兜底"));
+    live.addEventListener("DANMU_MSG", ({ data }) => {
+      const info = data.info;
+      const text = info[1];
+      const user = info[2];
+      const badge = info[3];
+      const level = info[4];
+      const uid = String(user[0]);
+      rememberWsDanmaku(text, uid);
+      const badges = [];
+      if (badge && badge[0]) badges.push(`${badge[1]} ${badge[0]}`);
+      if (level?.[0]) badges.push(`UL ${level[0]}`);
+      if (user[2] === 1) badges.push("房管");
+      emit({
+        id: data.msg_id ?? `dm-${uid}-${Date.now()}-${Math.random()}`,
+        kind: "danmaku",
+        text,
+        sendText: text,
+        uname: user[1] || "匿名",
+        uid,
+        time: chatEventTime(asNumber(info[0][4], Date.now())),
+        isReply: false,
+        source: "ws",
+        badges,
+        avatarUrl: avatarUrl$1(uid),
+        rawCmd: data.cmd
+      });
+    });
+    live.addEventListener("SEND_GIFT", ({ data }) => {
+      const gift = data.data;
+      const uid = String(gift.uid ?? "");
+      emit({
+        id: eventId(data.cmd, gift, `gift-${Date.now()}`),
+        kind: "gift",
+        text: `${gift.action || "投喂"} ${gift.giftName} x${gift.num}`,
+        uname: gift.uname || "匿名",
+        uid,
+        time: chatEventTime(),
+        isReply: false,
+        source: "ws",
+        badges: gift.price > 0 ? [`${Math.round(gift.price / 1e3)}元`] : [],
+        avatarUrl: avatarUrl$1(uid),
+        amount: gift.price,
+        rawCmd: data.cmd
+      });
+    });
+    live.addEventListener("SUPER_CHAT_MESSAGE", ({ data }) => {
+      const sc = data.data;
+      emit({
+        id: String(sc.id ?? data.msg_id ?? `sc-${Date.now()}`),
+        kind: "superchat",
+        text: sc.message,
+        sendText: sc.message,
+        uname: sc.user_info?.uname || "匿名",
+        uid: String(sc.uid ?? ""),
+        time: chatEventTime((sc.ts || sc.start_time || Date.now() / 1e3) * 1e3),
+        isReply: false,
+        source: "ws",
+        badges: [`SC ${sc.price}元`],
+        avatarUrl: avatarUrl$1(String(sc.uid ?? "")),
+        amount: sc.price,
+        rawCmd: data.cmd
+      });
+    });
+    live.addEventListener("INTERACT_WORD", ({ data }) => {
+      const d2 = data.data;
+      if (d2.msg_type !== 1 && d2.msg_type !== 2) return;
+      emit({
+        id: `interact-${d2.uid}-${d2.trigger_time || Date.now()}`,
+        kind: "enter",
+        text: d2.msg_type === 2 ? "关注了直播间" : "进入直播间",
+        uname: d2.uname || d2.uinfo?.base?.name || "匿名",
+        uid: String(d2.uid ?? ""),
+        time: chatEventTime((d2.timestamp || Date.now()) * 1e3),
+        isReply: false,
+        source: "ws",
+        badges: d2.privilege_type ? [`舰队 ${d2.privilege_type}`] : [],
+        avatarUrl: avatarUrl$1(String(d2.uid ?? "")),
+        rawCmd: data.cmd
+      });
+    });
+    live.addEventListener("ENTRY_EFFECT", ({ data }) => {
+      const d2 = data.data;
+      emit({
+        id: `entry-${d2.uid}-${d2.id}-${Date.now()}`,
+        kind: "enter",
+        text: asString(d2.copy_writing_v2 || d2.copy_writing, "进入直播间").replace(/<%|%>/g, ""),
+        uname: d2.uinfo?.base?.name || "匿名",
+        uid: String(d2.uid ?? ""),
+        time: chatEventTime(),
+        isReply: false,
+        source: "ws",
+        badges: d2.privilege_type ? [`舰队 ${d2.privilege_type}`] : [],
+        avatarUrl: avatarUrl$1(String(d2.uid ?? "")),
+        rawCmd: data.cmd
+      });
+    });
+    live.addEventListener("COMMON_NOTICE_DANMAKU", ({ data }) => {
+      const d2 = asRecord(data);
+      emit({
+        id: `notice-${Date.now()}-${Math.random()}`,
+        kind: "notice",
+        text: asString(asRecord(d2.data).content_segments?.toString?.() ?? d2.cmd, "系统通知"),
+        uname: "系统",
+        uid: null,
+        time: chatEventTime(),
+        isReply: false,
+        source: "ws",
+        badges: ["NOTICE"],
+        rawCmd: asString(d2.cmd)
+      });
+    });
+  }
+  async function connect() {
+    if (!started) return;
+    try {
+      const roomId = await ensureRoomId();
+      const info = await fetchDanmuInfo(roomId);
+      keep = new KeepLiveWS(roomId, info);
+      bindEvents(roomId, keep);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      appendLog(`🔴 Chatterbox Chat WS 启动失败：${message}`);
+      reconnectTimer = setTimeout(() => void connect(), 8e3);
+    }
+  }
+  function startLiveWsSource() {
+    if (started) return;
+    started = true;
+    void connect();
+  }
+  function stopLiveWsSource() {
+    started = false;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    keep?.close();
+    keep = null;
+  }
+  const ROOT_ID = "laplace-custom-chat";
+  const STYLE_ID$1 = "laplace-custom-chat-style";
+  const USER_STYLE_ID = "laplace-custom-chat-user-style";
+  const MAX_MESSAGES = 220;
+  const STYLE$1 = `
+#${ROOT_ID}, #${ROOT_ID} * {
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  letter-spacing: 0;
+}
+#${ROOT_ID} {
+  height: 100%;
+  min-height: 340px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  color: #f2f4f8;
+  background: #101214;
+  border-left: 1px solid rgba(255, 255, 255, .08);
+  overflow: hidden;
+}
+#${ROOT_ID} .lc-chat-toolbar {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, .045);
+  border-bottom: 1px solid rgba(255, 255, 255, .07);
+}
+#${ROOT_ID} .lc-chat-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  margin-right: auto;
+}
+#${ROOT_ID} .lc-chat-pill {
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .08);
+  color: #dce3ee;
+  height: 23px;
+  padding: 0 7px;
+  font-size: 11px;
+  cursor: pointer;
+}
+#${ROOT_ID} .lc-chat-pill[aria-pressed="true"] {
+  color: #111;
+  background: #8ee6c9;
+  border-color: #8ee6c9;
+}
+#${ROOT_ID} .lc-chat-search {
+  min-width: 80px;
+  width: 34%;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, .22);
+  color: #fff;
+  padding: 0 7px;
+  font-size: 11px;
+  outline: none;
+}
+#${ROOT_ID} .lc-chat-search:focus {
+  border-color: #8ee6c9;
+}
+#${ROOT_ID} .lc-chat-list {
+  min-height: 0;
+  overflow: auto;
+  padding: 6px;
+  scrollbar-width: thin;
+  scroll-behavior: smooth;
+}
+#${ROOT_ID} .lc-chat-message {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 5px 7px;
+  padding: 6px 7px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+}
+#${ROOT_ID} .lc-chat-message:hover {
+  background: rgba(255, 255, 255, .055);
+  border-color: rgba(255, 255, 255, .08);
+}
+#${ROOT_ID} .lc-chat-message[data-kind="gift"] {
+  background: rgba(255, 209, 102, .08);
+}
+#${ROOT_ID} .lc-chat-message[data-kind="superchat"] {
+  background: linear-gradient(135deg, rgba(255, 122, 89, .28), rgba(255, 209, 102, .12));
+  border-color: rgba(255, 209, 102, .38);
+}
+#${ROOT_ID} .lc-chat-message[data-kind="enter"],
+#${ROOT_ID} .lc-chat-message[data-kind="notice"],
+#${ROOT_ID} .lc-chat-message[data-kind="system"] {
+  opacity: .86;
+}
+#${ROOT_ID} .lc-chat-meta {
+  grid-column: 2 / 3;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #8f9aaa;
+  font-size: 11px;
+}
+#${ROOT_ID} .lc-chat-name {
+  color: #8ee6c9;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#${ROOT_ID} .lc-chat-avatar {
+  grid-row: 1 / 3;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: rgba(255, 255, 255, .12);
+  align-self: start;
+}
+#${ROOT_ID} .lc-chat-avatar-fallback {
+  display: grid;
+  place-items: center;
+  color: #111;
+  background: #8ee6c9;
+  font-weight: 800;
+  font-size: 12px;
+}
+#${ROOT_ID} .lc-chat-reply {
+  color: #ffd166;
+}
+#${ROOT_ID} .lc-chat-badge {
+  border-radius: 3px;
+  padding: 1px 4px;
+  background: rgba(255, 255, 255, .1);
+  color: #dce3ee;
+  font-size: 10px;
+}
+#${ROOT_ID} .lc-chat-kind {
+  color: #111;
+  background: #8ee6c9;
+}
+#${ROOT_ID} .lc-chat-kind[data-kind="gift"] {
+  background: #ffd166;
+}
+#${ROOT_ID} .lc-chat-kind[data-kind="superchat"] {
+  background: #ff7a59;
+  color: #fff;
+}
+#${ROOT_ID} .lc-chat-kind[data-kind="enter"] {
+  background: #9cb8ff;
+}
+#${ROOT_ID} .lc-chat-text {
+  grid-column: 2 / -1;
+  color: #f5f7fb;
+  font-size: 13px;
+  line-height: 1.42;
+  word-break: break-word;
+}
+#${ROOT_ID} .lc-chat-actions {
+  grid-column: 3 / 4;
+  display: flex;
+  gap: 3px;
+  opacity: 0;
+  transition: opacity .12s;
+}
+#${ROOT_ID} .lc-chat-message:hover .lc-chat-actions,
+#${ROOT_ID} .lc-chat-message.lc-chat-peek .lc-chat-actions {
+  opacity: 1;
+}
+#${ROOT_ID} .lc-chat-action {
+  min-width: 24px;
+  height: 22px;
+  border: 0;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, .1);
+  color: #f2f4f8;
+  font-size: 11px;
+  cursor: pointer;
+}
+#${ROOT_ID} .lc-chat-action:hover {
+  background: #8ee6c9;
+  color: #111;
+}
+#${ROOT_ID} .lc-chat-composer {
+  display: grid;
+  gap: 6px;
+  padding: 7px;
+  border-top: 1px solid rgba(255, 255, 255, .07);
+  background: rgba(255, 255, 255, .045);
+}
+#${ROOT_ID} .lc-chat-input-wrap {
+  position: relative;
+}
+#${ROOT_ID} textarea {
+  width: 100%;
+  height: 54px;
+  resize: vertical;
+  min-height: 42px;
+  max-height: 120px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, .28);
+  color: #fff;
+  padding: 7px 38px 7px 8px;
+  outline: none;
+  font-size: 13px;
+  line-height: 1.35;
+}
+#${ROOT_ID} textarea:focus {
+  border-color: #8ee6c9;
+  box-shadow: 0 0 0 3px rgba(142, 230, 201, .12);
+}
+#${ROOT_ID} .lc-chat-count {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  color: #8f9aaa;
+  font-size: 11px;
+  pointer-events: none;
+}
+#${ROOT_ID} .lc-chat-send-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#${ROOT_ID} .lc-chat-send {
+  min-height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: #8ee6c9;
+  color: #111;
+  font-weight: 700;
+  cursor: pointer;
+}
+#${ROOT_ID} .lc-chat-send:disabled {
+  opacity: .5;
+  cursor: wait;
+}
+#${ROOT_ID} .lc-chat-hint {
+  color: #8f9aaa;
+  font-size: 11px;
+}
+html.lc-custom-chat-hide-native .chat-items,
+html.lc-custom-chat-hide-native .chat-control-panel,
+html.lc-custom-chat-hide-native .chat-input-panel,
+html.lc-custom-chat-hide-native .control-panel-ctnr,
+html.lc-custom-chat-hide-native .chat-input-ctnr {
+  display: none !important;
+}
+`;
+  let unsubscribeDom = null;
+  let unsubscribeEvents = null;
+  let disposeSettings = null;
+  let root = null;
+  let listEl = null;
+  let pauseBtn = null;
+  let unreadEl = null;
+  let searchInput = null;
+  let matchCountEl = null;
+  let textarea = null;
+  let countEl = null;
+  let styleEl$1 = null;
+  let userStyleEl = null;
+  let messageSeq = 0;
+  let paused = false;
+  let unread = 0;
+  let sending = false;
+  let searchQuery = "";
+  const messages = [];
+  function eventToSendableMessage$1(ev) {
+    if (!ev.isReply) return ev.text;
+    return ev.uname ? `@${ev.uname} ${ev.text}` : ev.text;
+  }
+  function setText(el, text) {
+    el.textContent = text;
+  }
+  function makeButton(className, text, title, onClick) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = className;
+    btn.textContent = text;
+    btn.title = title;
+    btn.addEventListener("click", onClick);
+    return btn;
+  }
+  function splitQuery(query) {
+    return query.match(/(?:[^\s"]+|"[^"]*")+/g)?.map((token) => token.replace(/^"|"$/g, "").trim()).filter(Boolean) ?? [];
+  }
+  function includesFolded(value, needle) {
+    return value.toLowerCase().includes(needle.toLowerCase());
+  }
+  function kindLabel(kind) {
+    if (kind === "danmaku") return "弹幕";
+    if (kind === "gift") return "礼物";
+    if (kind === "superchat") return "SC";
+    if (kind === "enter") return "进场";
+    if (kind === "notice") return "通知";
+    return "系统";
+  }
+  function avatarUrl(uid) {
+    return uid ? `${BASE_URL.BILIBILI_AVATAR}/${uid}?size=96` : void 0;
+  }
+  function tokenMatches(message, token) {
+    const normalized = token.trim();
+    if (!normalized) return true;
+    const colon = normalized.indexOf(":");
+    if (colon > 0) {
+      const key = normalized.slice(0, colon).toLowerCase();
+      const value = normalized.slice(colon + 1);
+      if (key === "user" || key === "name" || key === "from") return includesFolded(message.uname, value);
+      if (key === "uid") return includesFolded(message.uid ?? "", value);
+      if (key === "text" || key === "msg") return includesFolded(message.text, value);
+      if (key === "kind" || key === "type") return includesFolded(message.kind, value) || includesFolded(kindLabel(message.kind), value);
+      if (key === "source") return includesFolded(message.source, value);
+      if (key === "is") return value.toLowerCase() === "reply" ? message.isReply : true;
+    }
+    return includesFolded(message.text, normalized) || includesFolded(message.uname, normalized);
+  }
+  function messageMatchesSearch(message) {
+    const tokens = splitQuery(searchQuery);
+    for (const rawToken of tokens) {
+      const negative = rawToken.startsWith("-");
+      const token = negative ? rawToken.slice(1) : rawToken;
+      const matched = tokenMatches(message, token);
+      if (negative ? matched : !matched) return false;
+    }
+    return true;
+  }
+  function updateMatchCount() {
+    if (!matchCountEl) return;
+    if (!searchQuery.trim()) {
+      matchCountEl.textContent = "";
+      matchCountEl.style.display = "none";
+      return;
+    }
+    const count = messages.filter(messageMatchesSearch).length;
+    matchCountEl.textContent = `${count}/${messages.length}`;
+    matchCountEl.style.display = "";
+  }
+  function updateUnread() {
+    if (unreadEl) {
+      unreadEl.textContent = unread > 0 ? `${unread} 新` : "";
+      unreadEl.style.display = unread > 0 ? "" : "none";
+    }
+    if (pauseBtn) pauseBtn.setAttribute("aria-pressed", paused ? "true" : "false");
+  }
+  function scrollToBottom() {
+    if (!listEl) return;
+    listEl.scrollTop = listEl.scrollHeight;
+  }
+  function pruneMessages() {
+    while (messages.length > MAX_MESSAGES) {
+      messages.shift();
+    }
+    rerenderMessages();
+  }
+  function renderMessage(message, countUnread = true) {
+    if (!listEl) return;
+    if (!messageMatchesSearch(message)) {
+      updateMatchCount();
+      return;
+    }
+    const row = document.createElement("div");
+    row.className = "lc-chat-message lc-chat-peek";
+    row.dataset.uid = message.uid ?? "";
+    row.dataset.kind = message.kind;
+    row.dataset.source = message.source;
+    const avatar = message.avatarUrl || avatarUrl(message.uid);
+    let avatarEl;
+    if (avatar) {
+      const img = document.createElement("img");
+      img.className = "lc-chat-avatar";
+      img.src = avatar;
+      img.alt = "头像";
+      img.referrerPolicy = "no-referrer";
+      img.loading = "lazy";
+      avatarEl = img;
+    } else {
+      const fallback = document.createElement("div");
+      fallback.className = "lc-chat-avatar lc-chat-avatar-fallback";
+      fallback.textContent = message.uname.slice(0, 1).toUpperCase() || "?";
+      avatarEl = fallback;
+    }
+    const meta = document.createElement("div");
+    meta.className = "lc-chat-meta";
+    const kind = document.createElement("span");
+    kind.className = "lc-chat-badge lc-chat-kind";
+    kind.dataset.kind = message.kind;
+    setText(kind, kindLabel(message.kind));
+    const name = document.createElement("span");
+    name.className = "lc-chat-name";
+    setText(name, message.uname);
+    const time = document.createElement("span");
+    setText(time, message.time);
+    meta.append(kind, name, time);
+    if (message.isReply) {
+      const reply = document.createElement("span");
+      reply.className = "lc-chat-reply";
+      reply.textContent = "回复";
+      meta.append(reply);
+    }
+    for (const badgeText of message.badges.slice(0, 4)) {
+      const badge = document.createElement("span");
+      badge.className = "lc-chat-badge";
+      setText(badge, badgeText);
+      meta.append(badge);
+    }
+    const actions = document.createElement("div");
+    actions.className = "lc-chat-actions";
+    if (message.sendText) {
+      actions.append(
+        makeButton("lc-chat-action", "偷", "偷到发送框并复制", () => void stealDanmaku(message.sendText ?? message.text)),
+        makeButton("lc-chat-action", "+1", "+1 发送", (e2) => {
+          void repeatDanmaku(message.sendText ?? message.text, {
+            confirm: danmakuDirectConfirm.value,
+            anchor: { x: e2.clientX, y: e2.clientY }
+          });
+        })
+      );
+    }
+    actions.append(makeButton("lc-chat-action", "复制", "复制事件文本", () => void copyText(message.sendText ?? message.text)));
+    const text = document.createElement("div");
+    text.className = "lc-chat-text";
+    setText(text, message.text);
+    row.append(avatarEl, meta, actions, text);
+    listEl.append(row);
+    window.setTimeout(() => row.classList.remove("lc-chat-peek"), 2600);
+    pruneMessages();
+    if (paused && countUnread) {
+      unread++;
+      updateUnread();
+    } else {
+      scrollToBottom();
+    }
+    updateMatchCount();
+  }
+  function clearMessages() {
+    messages.length = 0;
+    unread = 0;
+    listEl?.replaceChildren();
+    updateUnread();
+    updateMatchCount();
+  }
+  function rerenderMessages() {
+    if (!listEl) return;
+    listEl.replaceChildren();
+    for (const message of messages) renderMessage(message, false);
+    updateMatchCount();
+    if (!paused) scrollToBottom();
+  }
+  async function sendFromComposer() {
+    if (!textarea || sending) return;
+    const text = textarea.value;
+    sending = true;
+    const sendBtn = root?.querySelector(".lc-chat-send");
+    if (sendBtn) sendBtn.disabled = true;
+    const sent = await sendManualDanmaku(text);
+    if (sent) {
+      textarea.value = "";
+      updateCount();
+    }
+    sending = false;
+    if (sendBtn) sendBtn.disabled = false;
+  }
+  function updateCount() {
+    if (countEl && textarea) countEl.textContent = String(textarea.value.length);
+  }
+  function createRoot() {
+    const panel = document.createElement("section");
+    panel.id = ROOT_ID;
+    const toolbar = document.createElement("div");
+    toolbar.className = "lc-chat-toolbar";
+    const title = document.createElement("div");
+    title.className = "lc-chat-title";
+    title.textContent = "Chatterbox Chat";
+    pauseBtn = makeButton("lc-chat-pill", "暂停", "暂停自动滚动", () => {
+      paused = !paused;
+      if (!paused) {
+        unread = 0;
+        scrollToBottom();
+      }
+      updateUnread();
+    });
+    unreadEl = document.createElement("span");
+    unreadEl.className = "lc-chat-hint";
+    unreadEl.style.display = "none";
+    matchCountEl = document.createElement("span");
+    matchCountEl.className = "lc-chat-hint";
+    matchCountEl.style.display = "none";
+    searchInput = document.createElement("input");
+    searchInput.type = "search";
+    searchInput.className = "lc-chat-search";
+    searchInput.placeholder = "搜索 user:名 kind:gift source:ws -词";
+    searchInput.value = searchQuery;
+    searchInput.addEventListener("input", () => {
+      searchQuery = searchInput?.value ?? "";
+      unread = 0;
+      rerenderMessages();
+      updateUnread();
+    });
+    const clearBtn = makeButton("lc-chat-pill", "清屏", "清空自定义评论区", clearMessages);
+    toolbar.append(title, searchInput, matchCountEl, pauseBtn, unreadEl, clearBtn);
+    listEl = document.createElement("div");
+    listEl.className = "lc-chat-list";
+    const composer = document.createElement("div");
+    composer.className = "lc-chat-composer";
+    const inputWrap = document.createElement("div");
+    inputWrap.className = "lc-chat-input-wrap";
+    textarea = document.createElement("textarea");
+    textarea.placeholder = "输入弹幕... Enter 发送，Shift+Enter 换行";
+    textarea.addEventListener("input", updateCount);
+    textarea.addEventListener("keydown", (e2) => {
+      if (e2.key === "Enter" && !e2.shiftKey && !e2.isComposing) {
+        e2.preventDefault();
+        void sendFromComposer();
+      }
+    });
+    countEl = document.createElement("span");
+    countEl.className = "lc-chat-count";
+    countEl.textContent = "0";
+    inputWrap.append(textarea, countEl);
+    const sendRow = document.createElement("div");
+    sendRow.className = "lc-chat-send-row";
+    const sendBtn = makeButton("lc-chat-send", "发送", "发送弹幕", () => void sendFromComposer());
+    const hint = document.createElement("span");
+    hint.className = "lc-chat-hint";
+    hint.textContent = "可偷、+1、复制；设置里可贴自定义 CSS";
+    sendRow.append(sendBtn, hint);
+    composer.append(inputWrap, sendRow);
+    panel.append(toolbar, listEl, composer);
+    updateUnread();
+    return panel;
+  }
+  function ensureStyles() {
+    if (!styleEl$1) {
+      styleEl$1 = document.createElement("style");
+      styleEl$1.id = STYLE_ID$1;
+      styleEl$1.textContent = STYLE$1;
+      document.head.appendChild(styleEl$1);
+    }
+    if (!userStyleEl) {
+      userStyleEl = document.createElement("style");
+      userStyleEl.id = USER_STYLE_ID;
+      document.head.appendChild(userStyleEl);
+    }
+    userStyleEl.textContent = customChatCss.value;
+  }
+  function mount$1(container) {
+    ensureStyles();
+    root?.remove();
+    const parent = container.parentElement;
+    if (!parent) return;
+    root = createRoot();
+    parent.insertBefore(root, container);
+    rerenderMessages();
+  }
+  function addDomMessage(ev) {
+    const text = ev.text.trim();
+    if (!text) return;
+    const uid = ev.uid;
+    if (hasRecentWsDanmaku(text, uid)) return;
+    emitCustomChatEvent({
+      id: `dom-${++messageSeq}`,
+      kind: "danmaku",
+      text,
+      sendText: eventToSendableMessage$1(ev),
+      uname: ev.uname || "匿名",
+      uid,
+      time: chatEventTime(),
+      isReply: ev.isReply,
+      source: "dom",
+      badges: [],
+      avatarUrl: avatarUrl(uid)
+    });
+  }
+  function addEvent(event) {
+    if (messages.some((message) => message.id === event.id && message.source === event.source)) return;
+    messages.push(event);
+    renderMessage(event);
+  }
+  function startCustomChat() {
+    if (unsubscribeDom) return;
+    ensureStyles();
+    disposeSettings = j(() => {
+      document.documentElement.classList.toggle("lc-custom-chat-hide-native", customChatHideNative.value);
+      ensureStyles();
+    });
+    unsubscribeEvents = subscribeCustomChatEvents(addEvent);
+    unsubscribeDom = subscribeDanmaku({
+      onAttach: mount$1,
+      onMessage: addDomMessage,
+      emitExisting: true
+    });
+  }
+  function stopCustomChat() {
+    if (unsubscribeDom) {
+      unsubscribeDom();
+      unsubscribeDom = null;
+    }
+    if (unsubscribeEvents) {
+      unsubscribeEvents();
+      unsubscribeEvents = null;
+    }
+    if (disposeSettings) {
+      disposeSettings();
+      disposeSettings = null;
+    }
+    document.documentElement.classList.remove("lc-custom-chat-hide-native");
+    root?.remove();
+    root = null;
+    styleEl$1?.remove();
+    styleEl$1 = null;
+    userStyleEl?.remove();
+    userStyleEl = null;
+    listEl = null;
+    pauseBtn = null;
+    unreadEl = null;
+    textarea = null;
+    countEl = null;
+    searchInput = null;
+    matchCountEl = null;
+    messages.length = 0;
+    unread = 0;
+    paused = false;
+    sending = false;
+    searchQuery = "";
+  }
   const MARKER = "lc-dm-direct";
   const STYLE_ID = "lc-dm-direct-style";
   const STYLE = `
@@ -2875,7 +5756,7 @@ html.lc-dm-direct-always .${MARKER} {
     const stealBtn = document.createElement("button");
     stealBtn.type = "button";
     stealBtn.textContent = "偷";
-    stealBtn.title = "偷弹幕到发送框";
+    stealBtn.title = "偷弹幕到发送框并复制";
     stealBtn.dataset.action = "steal";
     const repeatBtn = document.createElement("button");
     repeatBtn.type = "button";
@@ -2889,50 +5770,6 @@ html.lc-dm-direct-always .${MARKER} {
       container.classList.remove("lc-dm-direct-peek");
     }, 2400);
   }
-  async function copyText(text) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      textarea.style.position = "fixed";
-      textarea.style.opacity = "0";
-      document.body.appendChild(textarea);
-      textarea.select();
-      const ok = document.execCommand("copy");
-      textarea.remove();
-      return ok;
-    }
-  }
-  async function handleSteal(msg) {
-    const copied = await copyText(msg);
-    fasongText.value = msg;
-    activeTab.value = "fasong";
-    dialogOpen.value = true;
-    appendLog(copied ? `🥷 偷并复制: ${msg}` : `🥷 偷: ${msg}`);
-  }
-  async function handleRepeat(msg, anchor) {
-    if (danmakuDirectConfirm.value) {
-      const confirmed = await showConfirm({ title: "确认发送以下弹幕？", body: msg, confirmText: "发送", anchor });
-      if (!confirmed) return;
-    }
-    try {
-      const roomId = await ensureRoomId();
-      const csrfToken = getCsrfToken();
-      if (!csrfToken) {
-        appendLog("❌ 未找到登录信息，请先登录 Bilibili");
-        return;
-      }
-      const processed = applyReplacements(msg);
-      const result = await enqueueDanmaku(processed, roomId, csrfToken, SendPriority.MANUAL);
-      const display = msg !== processed ? `${msg} → ${processed}` : processed;
-      appendLog(result, "+1", display);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      appendLog(`🔴 +1 出错：${message}`);
-    }
-  }
   function handleDelegatedClick(e2) {
     const target = e2.target;
     if (!(target instanceof HTMLElement)) return;
@@ -2943,9 +5780,9 @@ html.lc-dm-direct-always .${MARKER} {
     const msg = container?.dataset.msg;
     if (!msg) return;
     const action = btn.dataset.action;
-    if (action === "steal") void handleSteal(msg);
+    if (action === "steal") void stealDanmaku(msg);
     else if (action === "repeat") {
-      void handleRepeat(msg, { x: e2.clientX, y: e2.clientY });
+      void repeatDanmaku(msg, { confirm: danmakuDirectConfirm.value, anchor: { x: e2.clientX, y: e2.clientY } });
     }
   }
   let unsubscribe = null;
@@ -2976,7 +5813,7 @@ html.lc-dm-direct-always .${MARKER} {
     repeatEl.onclick = (e2) => {
       const text = ul.parentElement?.querySelector("span")?.textContent?.trim() ?? null;
       if (text) {
-        void handleRepeat(text, { x: e2.clientX, y: e2.clientY });
+        void repeatDanmaku(text, { confirm: danmakuDirectConfirm.value, anchor: { x: e2.clientX, y: e2.clientY } });
       }
       closeNativeContextMenu();
     };
@@ -2984,7 +5821,7 @@ html.lc-dm-direct-always .${MARKER} {
     stealEl.onclick = () => {
       const text = ul.parentElement?.querySelector("span")?.textContent?.trim() ?? null;
       if (text) {
-        void handleSteal(text);
+        void stealDanmaku(text);
       }
       closeNativeContextMenu();
     };
@@ -4193,7 +7030,7 @@ u$2(
         });
       }
     }, [memes.value]);
-    const updateCount = (id, count) => {
+    const updateCount2 = (id, count) => {
       capturePositions();
       const now = ( new Date()).toISOString();
       const updated = memes.value.map((m2) => m2.id === id ? { ...m2, copyCount: count, lastCopiedAt: now } : m2);
@@ -4347,113 +7184,17 @@ u$2(
               if (!q2) return true;
               if (m2.content.toLowerCase().includes(q2)) return true;
               return m2.tags.some((t2) => t2.name.toLowerCase().includes(q2));
-            }).map((meme) => u$2(MemeItem, { meme, onUpdateCount: updateCount, onTagClick: handleTagClick }, meme.id))
+            }).map((meme) => u$2(MemeItem, { meme, onUpdateCount: updateCount2, onTagClick: handleTagClick }, meme.id))
           }
         )
       ] })
     ] });
   }
-  async function detectSensitiveWords(text) {
-    try {
-      const resp = await fetch(BASE_URL.LAPLACE_CHAT_AUDIT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          completionMetadata: { input: text }
-        })
-      });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
-      return data.completion ?? { hasSensitiveContent: false };
-    } catch (err) {
-      console.error("AI detection error:", err);
-      const msg = err instanceof Error ? err.message : String(err);
-      appendLog(`⚠️ AI检测服务出错：${msg}`);
-      return { hasSensitiveContent: false };
-    }
-  }
-  function insertInvisibleChars(word) {
-    const graphemes = getGraphemes(word);
-    return graphemes.join("­");
-  }
-  function replaceSensitiveWords(text, sensitiveWords) {
-    let result = text;
-    for (const word of sensitiveWords) {
-      result = result.split(word).join(insertInvisibleChars(word));
-    }
-    return result;
-  }
-  async function tryAiEvasion(message, roomId, csrfToken, logPrefix) {
-    if (!aiEvasion.value) return { success: false };
-    appendLog(`🤖 ${logPrefix}AI规避：正在检测敏感词…`);
-    const detection = await detectSensitiveWords(message);
-    if (detection.hasSensitiveContent && detection.sensitiveWords && detection.sensitiveWords.length > 0) {
-      appendLog(`🤖 ${logPrefix}检测到敏感词：${detection.sensitiveWords.join(", ")}，正在尝试规避…`);
-      const evadedMessage = replaceSensitiveWords(message, detection.sensitiveWords);
-      const retryResult = await enqueueDanmaku(evadedMessage, roomId, csrfToken, SendPriority.MANUAL);
-      if (retryResult.success) {
-        appendLog(`✅ ${logPrefix}AI规避成功: ${evadedMessage}`);
-        return { success: true, evadedMessage };
-      }
-      appendLog(`❌ ${logPrefix}AI规避失败: ${evadedMessage}，原因：${retryResult.error}`);
-      return { success: false, evadedMessage, error: retryResult.error };
-    }
-    appendLog(`⚠️ ${logPrefix}无法检测到敏感词，请手动检查`);
-    return { success: false };
-  }
   function NormalSendTab() {
     const sendMessage = async () => {
-      const originalMessage = fasongText.value.trim();
-      if (!originalMessage) {
-        appendLog("⚠️ 消息内容不能为空");
-        return;
-      }
-      const isEmote = isEmoticonUnique(originalMessage);
-      const processedMessage = isEmote ? originalMessage : applyReplacements(originalMessage);
-      const wasReplaced = !isEmote && originalMessage !== processedMessage;
-      fasongText.value = "";
-      try {
-        const roomId = await ensureRoomId();
-        const csrfToken = getCsrfToken();
-        if (!csrfToken) {
-          appendLog("❌ 未找到登录信息，请先登录 Bilibili");
-          void syncGuardRoomRiskEvent({
-            kind: "login_missing",
-            source: "manual",
-            level: "observe",
-            roomId,
-            reason: "未找到登录信息",
-            advice: "先登录 Bilibili，再发送弹幕。"
-          });
-          return;
-        }
-        const segments = isEmote ? [processedMessage] : processMessages(processedMessage, maxLength.value);
-        const total = segments.length;
-        for (let i2 = 0; i2 < total; i2++) {
-          const segment = segments[i2];
-          const result = await enqueueDanmaku(segment, roomId, csrfToken, SendPriority.MANUAL);
-          const baseLabel = result.isEmoticon ? "手动表情" : "手动";
-          const label = total > 1 ? `${baseLabel} [${i2 + 1}/${total}]` : baseLabel;
-          const displayMsg = wasReplaced && total === 1 ? `${originalMessage} → ${segment}` : segment;
-          appendLog(result, label, displayMsg);
-          if (!result.success) {
-            const risk = classifyRiskEvent(result.error);
-            void syncGuardRoomRiskEvent({
-              ...risk,
-              source: "manual",
-              roomId,
-              errorCode: result.errorCode,
-              reason: result.error
-            });
-            await tryAiEvasion(segment, roomId, csrfToken, "");
-          }
-          if (i2 < total - 1) {
-            await new Promise((r2) => setTimeout(r2, msgSendInterval.value * 1e3));
-          }
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        appendLog(`🔴 发送出错：${msg}`);
+      const sent = await sendManualDanmaku(fasongText.value);
+      if (sent) {
+        fasongText.value = "";
       }
     };
     return u$2(
@@ -4480,7 +7221,7 @@ u$2(
                       void sendMessage();
                     }
                   },
-                  placeholder: "输入弹幕内容… (Enter 发送)",
+                  placeholder: "输入弹幕内容... (Enter 发送)",
                   style: {
                     boxSizing: "border-box",
                     height: "50px",
@@ -5634,6 +8375,82 @@ u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", align
 u$2(
                   "input",
                   {
+                    id: "customChatEnabled",
+                    type: "checkbox",
+                    checked: customChatEnabled.value,
+                    onInput: (e2) => {
+                      customChatEnabled.value = e2.currentTarget.checked;
+                    }
+                  }
+                ),
+u$2("label", { htmlFor: "customChatEnabled", children: "接管 B 站评论区（Chatterbox Chat）" })
+              ] }),
+u$2(
+                "span",
+                {
+                  className: "cb-switch-row",
+                  style: { display: "inline-flex", alignItems: "center", gap: ".25em", paddingLeft: "1.5em" },
+                  children: [
+u$2(
+                      "input",
+                      {
+                        id: "customChatHideNative",
+                        type: "checkbox",
+                        checked: customChatHideNative.value,
+                        disabled: !customChatEnabled.value,
+                        onInput: (e2) => {
+                          customChatHideNative.value = e2.currentTarget.checked;
+                        }
+                      }
+                    ),
+u$2("label", { htmlFor: "customChatHideNative", style: { color: customChatEnabled.value ? void 0 : "#999" }, children: "隐藏 B 站原评论列表和原发送框" })
+                  ]
+                }
+              ),
+u$2(
+                "span",
+                {
+                  className: "cb-switch-row",
+                  style: { display: "inline-flex", alignItems: "center", gap: ".25em", paddingLeft: "1.5em" },
+                  children: [
+u$2(
+                      "input",
+                      {
+                        id: "customChatUseWs",
+                        type: "checkbox",
+                        checked: customChatUseWs.value,
+                        disabled: !customChatEnabled.value,
+                        onInput: (e2) => {
+                          customChatUseWs.value = e2.currentTarget.checked;
+                        }
+                      }
+                    ),
+u$2("label", { htmlFor: "customChatUseWs", style: { color: customChatEnabled.value ? void 0 : "#999" }, children: "直连 WebSocket 获取礼物、醒目留言、进场等事件（DOM 兜底）" })
+                  ]
+                }
+              ),
+u$2("details", { style: { marginLeft: "1.5em" }, children: [
+u$2("summary", { children: "自定义评论区 CSS" }),
+u$2("div", { className: "cb-body cb-stack", children: [
+u$2(
+                    "textarea",
+                    {
+                      value: customChatCss.value,
+                      disabled: !customChatEnabled.value,
+                      onInput: (e2) => {
+                        customChatCss.value = e2.currentTarget.value;
+                      },
+                      placeholder: "#laplace-custom-chat .lc-chat-message { ... }",
+                      style: { minHeight: "90px", resize: "vertical", width: "100%" }
+                    }
+                  ),
+u$2("div", { className: "cb-note", children: "可覆盖 #laplace-custom-chat、.lc-chat-message、.lc-chat-name、.lc-chat-text、.lc-chat-action 等选择器。" })
+                ] })
+              ] }),
+u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
+u$2(
+                  "input",
+                  {
                     id: "danmakuDirectMode",
                     type: "checkbox",
                     checked: danmakuDirectMode.value,
@@ -6736,6 +9553,22 @@ u$2("div", { style: { paddingInline: "10px", paddingBlockEnd: "10px" }, children
       }
       return () => stopAutoBlend();
     }, [autoBlendEnabled.value]);
+    y$2(() => {
+      if (customChatEnabled.value) {
+        startCustomChat();
+      } else {
+        stopCustomChat();
+      }
+      return () => stopCustomChat();
+    }, [customChatEnabled.value]);
+    y$2(() => {
+      if (customChatEnabled.value && customChatUseWs.value) {
+        startLiveWsSource();
+      } else {
+        stopLiveWsSource();
+      }
+      return () => stopLiveWsSource();
+    }, [customChatEnabled.value, customChatUseWs.value]);
     y$2(() => {
       const el = document.querySelector(".app-body");
       if (!el) return;

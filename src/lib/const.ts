@@ -27,6 +27,9 @@ export const BASE_URL = {
   /** Get danmaku config by group. GET, params: room_id, web_location, w_rid, wts. */
   BILIBILI_GET_DM_CONFIG: 'https://api.live.bilibili.com/xlive/web-room/v1/dM/GetDMConfigByGroup',
 
+  /** Get live WebSocket token and host list. GET, param: id (real room ID). */
+  BILIBILI_DANMU_INFO: 'https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo',
+
   /** Get emoticons for a room. GET, params: platform, room_id. */
   BILIBILI_GET_EMOTICONS: 'https://api.live.bilibili.com/xlive/web-ucenter/v2/emoticon/GetEmoticons',
 
@@ -45,4 +48,6 @@ export const BASE_URL = {
 
   LAPLACE_MEMES: 'https://workers.vrp.moe/laplace/memes',
   LAPLACE_MEME_COPY: 'https://workers.vrp.moe/laplace/meme-copy',
+  BILIBILI_AVATAR: 'https://workers.vrp.moe/bilibili/avatar',
+  BILIBILI_SUPERCHAT_ORDER: 'https://workers.vrp.moe/bilibili/live-create-order',
 } as const

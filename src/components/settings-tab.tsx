@@ -15,6 +15,10 @@ import { appendLog, maxLogLines } from '../lib/log'
 import { buildReplacementMap } from '../lib/replacement'
 import {
   cachedRoomId,
+  customChatCss,
+  customChatEnabled,
+  customChatHideNative,
+  customChatUseWs,
   danmakuDirectAlwaysShow,
   danmakuDirectConfirm,
   danmakuDirectMode,
@@ -1097,6 +1101,68 @@ export function SettingsTab() {
           其他设置
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '.5em' }}>
+          <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
+            <input
+              id='customChatEnabled'
+              type='checkbox'
+              checked={customChatEnabled.value}
+              onInput={e => {
+                customChatEnabled.value = e.currentTarget.checked
+              }}
+            />
+            <label htmlFor='customChatEnabled'>接管 B 站评论区（Chatterbox Chat）</label>
+          </span>
+          <span
+            className='cb-switch-row'
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
+          >
+            <input
+              id='customChatHideNative'
+              type='checkbox'
+              checked={customChatHideNative.value}
+              disabled={!customChatEnabled.value}
+              onInput={e => {
+                customChatHideNative.value = e.currentTarget.checked
+              }}
+            />
+            <label htmlFor='customChatHideNative' style={{ color: customChatEnabled.value ? undefined : '#999' }}>
+              隐藏 B 站原评论列表和原发送框
+            </label>
+          </span>
+          <span
+            className='cb-switch-row'
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em', paddingLeft: '1.5em' }}
+          >
+            <input
+              id='customChatUseWs'
+              type='checkbox'
+              checked={customChatUseWs.value}
+              disabled={!customChatEnabled.value}
+              onInput={e => {
+                customChatUseWs.value = e.currentTarget.checked
+              }}
+            />
+            <label htmlFor='customChatUseWs' style={{ color: customChatEnabled.value ? undefined : '#999' }}>
+              直连 WebSocket 获取礼物、醒目留言、进场等事件（DOM 兜底）
+            </label>
+          </span>
+          <details style={{ marginLeft: '1.5em' }}>
+            <summary>自定义评论区 CSS</summary>
+            <div className='cb-body cb-stack'>
+              <textarea
+                value={customChatCss.value}
+                disabled={!customChatEnabled.value}
+                onInput={e => {
+                  customChatCss.value = e.currentTarget.value
+                }}
+                placeholder={'#laplace-custom-chat .lc-chat-message { ... }'}
+                style={{ minHeight: '90px', resize: 'vertical', width: '100%' }}
+              />
+              <div className='cb-note'>
+                可覆盖 #laplace-custom-chat、.lc-chat-message、.lc-chat-name、.lc-chat-text、.lc-chat-action 等选择器。
+              </div>
+            </div>
+          </details>
           <span className='cb-switch-row' style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
             <input
               id='danmakuDirectMode'

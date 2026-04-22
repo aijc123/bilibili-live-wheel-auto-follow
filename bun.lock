@@ -5,6 +5,7 @@
     "": {
       "name": "laplace-userscripts",
       "dependencies": {
+        "@laplace.live/ws": "^7.1.10",
         "@preact/signals": "^2.9.0",
         "@soniox/speech-to-text-web": "^1.4.0",
         "preact": "^10.29.1",
@@ -144,6 +145,8 @@
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
     "@laplace.live/internal": ["@laplace.live/internal@1.3.9", "", { "peerDependencies": { "typescript": "^5.9.3" } }, "sha512-O9SKQcR2Iovag08Nj1DtBk5SRvE2gUkRuuvoyqLnKvoa8JC056S0xqJ3fX13qDtUbDgNUhxVLOg9stRQIdh7LQ=="],
+
+    "@laplace.live/ws": ["@laplace.live/ws@7.1.10", "", { "dependencies": { "@laplace.live/internal": "^1.3.9" } }, "sha512-3FWgg/8xEjIT9sGBRCc51fx1kJhOnMKcUUWws8yJM0i83WBfIyLUa3QecF4gu6QjDTBUTZmW1t7h/wPR3czM+A=="],
 
     "@preact/preset-vite": ["@preact/preset-vite@2.10.5", "", { "dependencies": { "@babel/plugin-transform-react-jsx": "^7.27.1", "@babel/plugin-transform-react-jsx-development": "^7.27.1", "@prefresh/vite": "^2.4.11", "@rollup/pluginutils": "^5.0.0", "babel-plugin-transform-hook-names": "^1.0.2", "debug": "^4.4.3", "magic-string": "^0.30.21", "picocolors": "^1.1.1", "vite-prerender-plugin": "^0.5.8", "zimmerframe": "^1.1.4" }, "peerDependencies": { "@babel/core": "7.x", "vite": "2.x || 3.x || 4.x || 5.x || 6.x || 7.x || 8.x" } }, "sha512-p0vJpxiVO7KWWazWny3LUZ+saXyZKWv6Ju0bYMWNJRp2YveufRPgSUB1C4MTqGJfz07EehMgfN+AJNwQy+w6Iw=="],
 
