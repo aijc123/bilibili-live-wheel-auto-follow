@@ -34,6 +34,33 @@ interface RemoteKeywords {
   rooms?: Array<{ room: string; keywords?: Record<string, string> }>
 }
 
+function getMedalCheckCounts(results: MedalRestrictionCheck[]) {
+  return {
+    restricted: results.filter(result => result.status === 'restricted').length,
+    deactivated: results.filter(result => result.status === 'deactivated').length,
+    unknown: results.filter(result => result.status === 'unknown').length,
+    ok: results.filter(result => result.status === 'ok').length,
+  }
+}
+
+function signalKindLabel(kind: string): string {
+  if (kind === 'muted') return '房间禁言'
+  if (kind === 'blocked') return '房间屏蔽/拉黑'
+  if (kind === 'account') return '账号风控'
+  if (kind === 'rate-limit') return '频率限制'
+  if (kind === 'deactivated') return '主播已注销'
+  return '未知信号'
+}
+
+function formatCheckTime(ts: number): string {
+  return new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+function sortMedalResults(results: MedalRestrictionCheck[]): MedalRestrictionCheck[] {
+  const rank = { restricted: 0, unknown: 1, deactivated: 2, ok: 3 } satisfies Record<MedalRestrictionCheck['status'], number>
+  return [...results].sort((a, b) => rank[a.status] - rank[b.status] || a.room.anchorName.localeCompare(b.room.anchorName))
+}
+
 async function fetchRemoteKeywords(): Promise<RemoteKeywords> {
   const response = await fetch(BASE_URL.REMOTE_KEYWORDS)
   if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
@@ -287,12 +314,6 @@ export function SettingsTab() {
   }
 
   const checkMedalRooms = async () => {
-    if (
-      !confirm(
-        '即将检查所有粉丝牌对应直播间是否有禁言/封禁信号。检查不会发送弹幕，但会访问 B 站直播间接口。是否继续？'
-      )
-    )
-      return
     checkingMedalRooms.value = true
     medalCheckResults.value = []
     medalCheckStatus.value = '正在获取粉丝牌…'
@@ -314,8 +335,12 @@ export function SettingsTab() {
         medalCheckResults.value = [...results]
         const label = `${room.anchorName} / ${room.medalName} / ${room.roomId}`
         if (result.status === 'restricted') {
-          const detail = result.signals.map(signal => `${signal.message}，时长：${signal.duration}`).join('；')
+          const detail = result.signals
+            .map(signal => `${signalKindLabel(signal.kind)}：${signal.message}，时长：${signal.duration}`)
+            .join('；')
           appendLog(`禁言巡检：发现限制 - ${label}：${detail}`)
+        } else if (result.status === 'deactivated') {
+          appendLog(`禁言巡检：主播已注销 - ${label}`)
         } else if (result.status === 'unknown') {
           appendLog(`禁言巡检：无法确认 - ${label}：${result.note ?? '接口未返回明确结果'}`)
         } else {
@@ -324,10 +349,11 @@ export function SettingsTab() {
         if (i < rooms.length - 1) await new Promise(r => setTimeout(r, 500))
       }
 
-      const restricted = results.filter(result => result.status === 'restricted').length
-      const unknown = results.filter(result => result.status === 'unknown').length
-      medalCheckStatus.value = `完成：${rooms.length} 个房间，${restricted} 个发现限制，${unknown} 个无法确认`
-      appendLog(`禁言巡检完成：${rooms.length} 个房间，${restricted} 个发现限制，${unknown} 个无法确认`)
+      const counts = getMedalCheckCounts(results)
+      medalCheckStatus.value = `完成：${rooms.length} 个房间，${counts.restricted} 个限制，${counts.deactivated} 个主播注销，${counts.unknown} 个无法确认`
+      appendLog(
+        `禁言巡检完成：${rooms.length} 个房间，${counts.restricted} 个限制，${counts.deactivated} 个主播注销，${counts.unknown} 个无法确认`
+      )
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       medalCheckStatus.value = `检查失败：${msg}`
@@ -730,7 +756,7 @@ export function SettingsTab() {
           粉丝牌禁言巡检
         </div>
         <div className='cb-note' style={{ marginBlock: '.5em', color: '#666' }}>
-          一键检查所有粉丝牌直播间。此功能只读取 B 站接口，不会发送弹幕；若接口没有返回时长，会显示“接口未返回时长”。
+          只读取 B 站接口，不发送弹幕。结果会按限制、无法确认、主播注销、正常排序；接口不给时长时会标明。
         </div>
         <div
           className='cb-row'
@@ -744,12 +770,36 @@ export function SettingsTab() {
           </span>
         </div>
         {medalCheckResults.value.length > 0 && (
-          <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'grid', gap: '.35em' }}>
-            {medalCheckResults.value.map(result => {
+          <div className='cb-stack'>
+            {(() => {
+              const counts = getMedalCheckCounts(medalCheckResults.value)
+              return (
+                <div className='cb-panel' style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
+                  <span style={{ color: '#a15c00' }}>限制 {counts.restricted}</span>
+                  <span style={{ color: '#666' }}>未知 {counts.unknown}</span>
+                  <span style={{ color: '#8e8e93' }}>注销 {counts.deactivated}</span>
+                  <span style={{ color: '#0a7f55' }}>正常 {counts.ok}</span>
+                </div>
+              )
+            })()}
+            <div style={{ maxHeight: '220px', overflowY: 'auto', display: 'grid', gap: '.35em' }}>
+            {sortMedalResults(medalCheckResults.value).map(result => {
               const color =
-                result.status === 'restricted' ? '#a15c00' : result.status === 'unknown' ? '#666' : '#0a7f55'
+                result.status === 'restricted'
+                  ? '#a15c00'
+                  : result.status === 'unknown'
+                    ? '#666'
+                    : result.status === 'deactivated'
+                      ? '#8e8e93'
+                      : '#0a7f55'
               const title =
-                result.status === 'restricted' ? '发现限制' : result.status === 'unknown' ? '无法确认' : '未发现限制'
+                result.status === 'restricted'
+                  ? '发现限制'
+                  : result.status === 'unknown'
+                    ? '无法确认'
+                    : result.status === 'deactivated'
+                      ? '主播已注销'
+                      : '未发现限制'
               return (
                 <div
                   key={result.room.roomId}
@@ -762,11 +812,15 @@ export function SettingsTab() {
                     </strong>
                     <span style={{ color, whiteSpace: 'nowrap' }}>{title}</span>
                   </div>
-                  <div className='cb-note'>房间号：{result.room.roomId}</div>
+                  <div className='cb-note'>
+                    房间号：{result.room.roomId} · 检查时间：{formatCheckTime(result.checkedAt)}
+                  </div>
                   {result.signals.length > 0 ? (
                     result.signals.map((signal, index) => (
                       <div key={index} style={{ color, wordBreak: 'break-all', lineHeight: 1.5 }}>
-                        {signal.message}；时长：{signal.duration}；来源：{signal.source}
+                        {signalKindLabel(signal.kind)}：{signal.message}
+                        <br />
+                        时长：{signal.duration} · 来源：{signal.source}
                       </div>
                     ))
                   ) : (
@@ -775,6 +829,7 @@ export function SettingsTab() {
                 </div>
               )
             })}
+            </div>
           </div>
         )}
       </div>

@@ -1,4 +1,4 @@
-export type RestrictionKind = 'muted' | 'account' | 'rate-limit' | 'blocked' | 'unknown'
+export type RestrictionKind = 'muted' | 'account' | 'rate-limit' | 'blocked' | 'deactivated' | 'unknown'
 
 export interface RestrictionSignal {
   kind: RestrictionKind
@@ -126,6 +126,7 @@ function scanNode(data: unknown, source: string, signals: RestrictionSignal[], p
 }
 
 function classifyText(text: string): RestrictionKind | null {
+  if (text === '账号已注销' || text.includes('账号已注销')) return 'deactivated'
   if (isRateLimitError(text)) return 'rate-limit'
   if (isMutedError(text)) return 'muted'
   if (isAccountRestrictedError(text)) return 'account'

@@ -145,7 +145,7 @@ export interface MedalRoom {
 
 export interface MedalRestrictionCheck {
   room: MedalRoom
-  status: 'restricted' | 'ok' | 'unknown'
+  status: 'restricted' | 'ok' | 'unknown' | 'deactivated'
   signals: RestrictionSignal[]
   checkedAt: number
   note?: string
@@ -305,13 +305,20 @@ export async function checkMedalRoomRestriction(room: MedalRoom): Promise<MedalR
       fetchRoomUserInfoSignals(room.roomId),
       fetchSilentListSignals(room.roomId),
     ])
-    const signals = [...roomInfoSignals, ...silentListSignals].filter(signal => signal.kind !== 'unknown')
+    const allSignals = [...roomInfoSignals, ...silentListSignals]
+    const deactivatedSignals = allSignals.filter(signal => signal.kind === 'deactivated')
+    const signals = allSignals.filter(signal => signal.kind !== 'unknown' && signal.kind !== 'deactivated')
     return {
       room,
-      status: signals.length > 0 ? 'restricted' : 'ok',
+      status: signals.length > 0 ? 'restricted' : deactivatedSignals.length > 0 ? 'deactivated' : 'ok',
       signals,
       checkedAt,
-      note: signals.length > 0 ? undefined : '接口未发现禁言/封禁信号',
+      note:
+        signals.length > 0
+          ? undefined
+          : deactivatedSignals.length > 0
+            ? '主播账号已注销，跳过禁言判断'
+            : '接口未发现禁言/封禁信号',
     }
   } catch (err) {
     return {
