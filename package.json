@@ -2,6 +2,23 @@
   "name": "bilibili-live-wheel-auto-follow",
   "private": true,
   "version": "2.5.3",
+  "description": "B站/哔哩哔哩直播间独轮车与自动跟车弹幕助手 userscript",
+  "homepage": "https://github.com/aijc123/bilibili-live-wheel-auto-follow",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aijc123/bilibili-live-wheel-auto-follow.git"
+  },
+  "keywords": [
+    "bilibili",
+    "bilibili-live",
+    "userscript",
+    "tampermonkey",
+    "greasyfork",
+    "弹幕",
+    "独轮车",
+    "自动跟车",
+    "哔哩哔哩直播"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite",

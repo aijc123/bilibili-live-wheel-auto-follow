@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://aijc123.github.io/bilibili-live-wheel-auto-follow/sitemap.xml

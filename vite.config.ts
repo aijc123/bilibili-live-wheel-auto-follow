@@ -9,13 +9,15 @@ export default defineConfig({
     monkey({
       entry: 'src/main.tsx',
       userscript: {
-        name: 'B站独轮车 + 自动跟车',
-        namespace: 'https://github.com/aijc123/chatterbox',
+        name: 'B站独轮车 + 自动跟车 / Bilibili Live Auto Follow',
+        namespace: 'https://github.com/aijc123/bilibili-live-wheel-auto-follow',
         description:
-          '给 B 站直播间用的民间弹幕助手：支持独轮车循环发送、自动跟车、常规发送、同传、烂梗库和弹幕替换规则。',
+          '给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、常规发送、同传、烂梗库和弹幕替换规则。',
         author: 'aijc123',
         license: 'AGPL-3.0',
         icon: 'https://www.bilibili.com/favicon.ico',
+        homepageURL: 'https://github.com/aijc123/bilibili-live-wheel-auto-follow',
+        supportURL: 'https://github.com/aijc123/bilibili-live-wheel-auto-follow/issues',
         match: ['*://live.bilibili.com/*'],
         'run-at': 'document-start',
       },

@@ -1,11 +1,18 @@
 # B站独轮车 + 自动跟车
 
-一个给 B 站直播间用的民间弹幕助手。主打两件事：
+一个给 B 站/哔哩哔哩直播间用的民间弹幕助手 userscript，可以通过 Tampermonkey、Violentmonkey 或 Greasy Fork 安装。主打两件事：
 
 - **独轮车**：提前写好几句弹幕，按间隔自动循环发送。
 - **自动跟车**：看到直播间里很多人在刷同一句话时，自动跟上一句。
 
 项目基于 [LAPLACE Chatterbox](https://github.com/laplace-live/chatterbox) fork 修改，保留原项目的同传、烂梗库、弹幕替换、AI 规避等能力，并在自动跟车和小面板 UI 上做了自己的调整。
+
+项目链接：
+
+- GitHub：[aijc123/bilibili-live-wheel-auto-follow](https://github.com/aijc123/bilibili-live-wheel-auto-follow)
+- Greasy Fork：[B站独轮车 + 自动跟车](https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6)
+
+常见搜索词：B站独轮车、B站自动跟车、哔哩哔哩直播弹幕助手、Bilibili Live auto follow、Tampermonkey bilibili live userscript。
 
 ## 功能
 
@@ -58,6 +65,10 @@
 
 - [Tampermonkey](https://www.tampermonkey.net/)
 - [Violentmonkey](https://violentmonkey.github.io/)
+
+### 从 Greasy Fork 安装
+
+打开 [Greasy Fork 脚本页](https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6)，点击安装即可。
 
 ### 本地安装当前版本
 

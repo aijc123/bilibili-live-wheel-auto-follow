@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>B站独轮车 + 自动跟车 | Bilibili Live Auto Follow</title>
+    <meta
+      name="description"
+      content="B站/哔哩哔哩直播间弹幕助手 userscript，支持独轮车循环发送、自动跟车、常规发送、同传、烂梗库和弹幕替换规则，可通过 Greasy Fork、Tampermonkey 或 Violentmonkey 安装。"
+    >
+    <meta
+      name="keywords"
+      content="B站独轮车,B站自动跟车,哔哩哔哩直播弹幕助手,Bilibili Live Auto Follow,Tampermonkey bilibili userscript,Greasy Fork bilibili"
+    >
+    <link rel="canonical" href="https://aijc123.github.io/bilibili-live-wheel-auto-follow/">
+    <meta property="og:title" content="B站独轮车 + 自动跟车">
+    <meta
+      property="og:description"
+      content="给 B 站直播间用的弹幕助手：独轮车循环发送、自动跟车、同传、烂梗库和弹幕替换规则。"
+    >
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://aijc123.github.io/bilibili-live-wheel-auto-follow/">
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family:
+          Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui,
+          sans-serif;
+        background: #f7f7fb;
+        color: #1d2433;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      main {
+        box-sizing: border-box;
+        min-height: 100vh;
+        display: grid;
+        align-content: center;
+        gap: 28px;
+        width: min(920px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 64px 0;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(36px, 7vw, 72px);
+        line-height: 1.05;
+        letter-spacing: 0;
+      }
+
+      p {
+        max-width: 720px;
+        margin: 0;
+        font-size: 18px;
+        line-height: 1.8;
+      }
+
+      .links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+        padding: 0 18px;
+        border: 1px solid #ccd3df;
+        border-radius: 8px;
+        background: #ffffff;
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .primary {
+        border-color: #00a1d6;
+        background: #00a1d6;
+        color: #ffffff;
+      }
+
+      ul {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding-left: 22px;
+        line-height: 1.7;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          background: #11141a;
+          color: #eef2f7;
+        }
+
+        .button {
+          border-color: #3d4655;
+          background: #1b2029;
+        }
+
+        .primary {
+          border-color: #00a1d6;
+          background: #00a1d6;
+        }
+      }
+    </style>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "B站独轮车 + 自动跟车",
+        "alternateName": "Bilibili Live Auto Follow",
+        "applicationCategory": "BrowserApplication",
+        "operatingSystem": "Chrome, Edge, Firefox",
+        "description": "B站/哔哩哔哩直播间弹幕助手 userscript，支持独轮车循环发送、自动跟车、常规发送、同传、烂梗库和弹幕替换规则。",
+        "url": "https://aijc123.github.io/bilibili-live-wheel-auto-follow/",
+        "downloadUrl": "https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6",
+        "codeRepository": "https://github.com/aijc123/bilibili-live-wheel-auto-follow",
+        "license": "https://spdx.org/licenses/AGPL-3.0.html",
+        "author": {
+          "@type": "Person",
+          "name": "aijc123"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <main>
+      <h1>B站独轮车 + 自动跟车</h1>
+      <p>
+        给 B 站/哔哩哔哩直播间用的弹幕助手 userscript。支持独轮车循环发送、自动跟车、常规发送、同传、烂梗库和弹幕替换规则。
+      </p>
+      <div class="links" aria-label="项目链接">
+        <a class="button primary" href="https://greasyfork.org/zh-CN/scripts/574939-b%E7%AB%99%E7%8B%AC%E8%BD%AE%E8%BD%A6-%E8%87%AA%E5%8A%A8%E8%B7%9F%E8%BD%A6">Greasy Fork 安装</a>
+        <a class="button" href="https://github.com/aijc123/bilibili-live-wheel-auto-follow">GitHub 源码</a>
+      </div>
+      <ul>
+        <li>适用于 Bilibili Live / B 站直播间。</li>
+        <li>支持 Tampermonkey、Violentmonkey 等用户脚本管理器。</li>
+        <li>常见搜索词：B站独轮车、B站自动跟车、哔哩哔哩直播弹幕助手、Bilibili Live Auto Follow。</li>
+      </ul>
+    </main>
+  </body>
+</html>
