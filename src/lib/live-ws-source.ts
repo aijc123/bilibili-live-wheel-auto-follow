@@ -170,7 +170,7 @@ function bindEvents(roomId: number, live: KeepLiveWS): void {
       time: chatEventTime((d.timestamp || Date.now()) * 1000),
       isReply: false,
       source: 'ws',
-      badges: d.privilege_type ? [`舰队 ${d.privilege_type}`] : [],
+      badges: d.privilege_type ? [`舰队 ${d.privilege_type}`, `GUARD ${d.privilege_type}`] : [],
       avatarUrl: avatarUrl(String(d.uid ?? '')),
       rawCmd: data.cmd,
     })
@@ -187,7 +187,7 @@ function bindEvents(roomId: number, live: KeepLiveWS): void {
       time: chatEventTime(),
       isReply: false,
       source: 'ws',
-      badges: d.privilege_type ? [`舰队 ${d.privilege_type}`] : [],
+      badges: d.privilege_type ? [`舰队 ${d.privilege_type}`, `GUARD ${d.privilege_type}`] : [],
       avatarUrl: avatarUrl(String(d.uid ?? '')),
       rawCmd: data.cmd,
     })

@@ -1,5 +1,11 @@
 # Greasy Fork Release Notes
 
+## 2.8.4
+
+- 礼物、醒目留言和舰队/舰长类事件改成 Laplace 风格大卡片，在 iMessage 评论流里更醒目。
+- 新增“奶绿 iMessage”自定义 CSS 预设，设置页可一键套用或清空。
+- 舰队事件会附带 guard 等级标记，方便主题 CSS 针对舰长/提督/总督分别换色。
+
 ## 2.8.3
 
 - 修复 Chatterbox Chat 出现横向滚动条的问题：评论列表、消息行、meta 徽章和输入区都限制在容器宽度内。

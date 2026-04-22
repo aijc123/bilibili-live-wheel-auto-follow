@@ -10,6 +10,7 @@ import {
   sendDanmaku,
 } from '../lib/api'
 import { BASE_URL, VERSION } from '../lib/const'
+import { MILK_GREEN_IMESSAGE_CSS } from '../lib/custom-chat-presets'
 import { gmSignal } from '../lib/gm-signal'
 import { appendLog, maxLogLines } from '../lib/log'
 import { buildReplacementMap } from '../lib/replacement'
@@ -1165,6 +1166,26 @@ export function SettingsTab() {
           <details style={{ marginLeft: '1.5em' }}>
             <summary>自定义评论区 CSS</summary>
             <div className='cb-body cb-stack'>
+              <div className='cb-row'>
+                <button
+                  type='button'
+                  disabled={!customChatEnabled.value}
+                  onClick={() => {
+                    customChatCss.value = MILK_GREEN_IMESSAGE_CSS
+                  }}
+                >
+                  奶绿 iMessage
+                </button>
+                <button
+                  type='button'
+                  disabled={!customChatEnabled.value || !customChatCss.value.trim()}
+                  onClick={() => {
+                    customChatCss.value = ''
+                  }}
+                >
+                  清空 CSS
+                </button>
+              </div>
               <textarea
                 value={customChatCss.value}
                 disabled={!customChatEnabled.value}

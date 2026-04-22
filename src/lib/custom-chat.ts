@@ -215,6 +215,91 @@ const STYLE = `
   background: transparent;
   border-color: transparent;
 }
+#${ROOT_ID} .lc-chat-card-event {
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 3px 10px;
+  padding: 7px 2px;
+}
+#${ROOT_ID} .lc-chat-card-event .lc-chat-avatar {
+  width: 36px;
+  height: 36px;
+  margin-bottom: 8px;
+}
+#${ROOT_ID} .lc-chat-card-event .lc-chat-meta {
+  padding-left: 6px;
+}
+#${ROOT_ID} .lc-chat-card-event .lc-chat-bubble {
+  width: 100%;
+  max-width: 100%;
+  min-height: 66px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  border-top-left-radius: 18px;
+  border-bottom-left-radius: 18px;
+  font-size: 14px;
+  font-weight: 720;
+  box-shadow: 0 4px 13px var(--lc-chat-shadow);
+}
+#${ROOT_ID} .lc-chat-card-event .lc-chat-bubble::before {
+  top: 10px;
+  left: -8px;
+  width: 15px;
+  height: 15px;
+}
+#${ROOT_ID} .lc-chat-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 6px;
+  font-size: 12px;
+  line-height: 1.2;
+  opacity: .92;
+}
+#${ROOT_ID} .lc-chat-card-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#${ROOT_ID} .lc-chat-card-mark {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  min-width: 28px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .28);
+  color: currentColor;
+  font-size: 11px;
+  font-weight: 800;
+}
+#${ROOT_ID} .lc-chat-card-text {
+  display: block;
+}
+#${ROOT_ID} .lc-chat-card-event[data-card="gift"] .lc-chat-bubble {
+  background: linear-gradient(135deg, #ffd8bf, #fff2c7);
+  color: #4a2a10;
+  border-color: rgba(191, 92, 0, .2);
+}
+#${ROOT_ID} .lc-chat-card-event[data-card="superchat"] .lc-chat-bubble {
+  background: linear-gradient(135deg, #ff9f0a, #ff453a);
+  color: #fff;
+  border-color: rgba(255, 69, 58, .32);
+}
+#${ROOT_ID} .lc-chat-card-event[data-card="guard"] .lc-chat-bubble {
+  background: linear-gradient(135deg, #2f80ed, #7c5cff);
+  color: #fff;
+  border-color: rgba(47, 128, 237, .32);
+}
+#${ROOT_ID} .lc-chat-card-event[data-guard="2"] .lc-chat-bubble {
+  background: linear-gradient(135deg, #af52de, #ff7ad9);
+}
+#${ROOT_ID} .lc-chat-card-event[data-guard="1"] .lc-chat-bubble {
+  background: linear-gradient(135deg, #ff2d55, #ff9f0a);
+}
 #${ROOT_ID} .lc-chat-message[data-kind="enter"],
 #${ROOT_ID} .lc-chat-message[data-kind="notice"],
 #${ROOT_ID} .lc-chat-message[data-kind="system"] {
@@ -545,6 +630,37 @@ function avatarUrl(uid: string | null): string | undefined {
   return uid ? `${BASE_URL.BILIBILI_AVATAR}/${uid}?size=96` : undefined
 }
 
+function guardLevel(message: CustomChatEvent): string | null {
+  const value = `${message.text} ${message.badges.join(' ')} ${message.rawCmd ?? ''}`
+  if (/总督|GUARD\s*1|舰队\s*1|privilege[_-]?type["':\s]*1/i.test(value)) return '1'
+  if (/提督|GUARD\s*2|舰队\s*2|privilege[_-]?type["':\s]*2/i.test(value)) return '2'
+  if (/舰长|GUARD\s*3|舰队\s*3|privilege[_-]?type["':\s]*3/i.test(value)) return '3'
+  return null
+}
+
+function cardType(message: CustomChatEvent): 'gift' | 'superchat' | 'guard' | null {
+  if (message.kind === 'superchat') return 'superchat'
+  if (message.kind === 'gift') return 'gift'
+  if (guardLevel(message)) return 'guard'
+  return null
+}
+
+function cardTitle(type: 'gift' | 'superchat' | 'guard', message: CustomChatEvent, guard: string | null): string {
+  if (type === 'superchat') return message.amount ? `醒目留言 ¥${message.amount}` : '醒目留言'
+  if (type === 'gift') return message.amount ? `礼物 ¥${Math.round(message.amount / 1000)}` : '礼物事件'
+  if (guard === '1') return '总督事件'
+  if (guard === '2') return '提督事件'
+  return '舰长事件'
+}
+
+function cardMark(type: 'gift' | 'superchat' | 'guard', guard: string | null): string {
+  if (type === 'superchat') return 'SC'
+  if (type === 'gift') return '礼物'
+  if (guard === '1') return '总督'
+  if (guard === '2') return '提督'
+  return '舰长'
+}
+
 function createAvatar(message: CustomChatEvent): HTMLElement {
   const fallback = document.createElement('div')
   fallback.className = 'lc-chat-avatar lc-chat-avatar-fallback'
@@ -663,6 +779,13 @@ function renderMessage(message: CustomChatEvent, countUnread = true): void {
   row.dataset.uid = message.uid ?? ''
   row.dataset.kind = message.kind
   row.dataset.source = message.source
+  const guard = guardLevel(message)
+  const card = cardType(message)
+  if (card) {
+    row.classList.add('lc-chat-card-event')
+    row.dataset.card = card
+  }
+  if (guard) row.dataset.guard = guard
 
   const avatar = message.avatarUrl || avatarUrl(message.uid)
   let avatarEl: HTMLElement
@@ -733,7 +856,27 @@ function renderMessage(message: CustomChatEvent, countUnread = true): void {
 
   const text = document.createElement('div')
   text.className = 'lc-chat-bubble lc-chat-text'
-  setText(text, message.text)
+  if (card) {
+    const head = document.createElement('div')
+    head.className = 'lc-chat-card-head'
+
+    const title = document.createElement('span')
+    title.className = 'lc-chat-card-title'
+    setText(title, cardTitle(card, message, guard))
+
+    const mark = document.createElement('span')
+    mark.className = 'lc-chat-card-mark'
+    setText(mark, cardMark(card, guard))
+
+    const content = document.createElement('span')
+    content.className = 'lc-chat-card-text'
+    setText(content, message.text)
+
+    head.append(title, mark)
+    text.append(head, content)
+  } else {
+    setText(text, message.text)
+  }
   body.append(meta, text)
 
   row.append(avatarEl, body, actions)
