@@ -130,3 +130,23 @@ export function enqueueDanmaku(
 export function getQueueDepth(): number {
   return queue.reduce((n, q) => (q.cancelled ? n : n + 1), 0)
 }
+
+/**
+ * Immediately cancels all queued AUTO-priority items. Called by cancelLoop()
+ * so clicking 停车 drains the queue at once rather than waiting for each
+ * in-queue item to be dequeued and discovered as stale.
+ */
+export function cancelPendingAuto(): void {
+  for (const q of queue) {
+    if (!q.cancelled && q.priority === SendPriority.AUTO) {
+      q.cancelled = true
+      q.resolve({
+        success: false,
+        cancelled: true,
+        message: q.message,
+        isEmoticon: false,
+        error: 'loop-stopped',
+      })
+    }
+  }
+}

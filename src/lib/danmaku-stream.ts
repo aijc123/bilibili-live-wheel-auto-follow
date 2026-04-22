@@ -41,6 +41,7 @@ export interface DanmakuSubscription {
 const subscriptions = new Set<DanmakuSubscription>()
 let observer: MutationObserver | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
+let healthTimer: ReturnType<typeof setInterval> | null = null
 let attached: HTMLElement | null = null
 
 export function isValidDanmakuNode(node: HTMLElement): boolean {
@@ -90,6 +91,16 @@ function notifyAttach(container: HTMLElement, sub: DanmakuSubscription): void {
   }
 }
 
+function startPollTimer(): void {
+  if (pollTimer) return
+  pollTimer = setInterval(() => {
+    if (tryAttach() && pollTimer !== null) {
+      clearInterval(pollTimer)
+      pollTimer = null
+    }
+  }, 1000)
+}
+
 function tryAttach(): boolean {
   const container = document.querySelector<HTMLElement>('.chat-items')
   if (!container) return false
@@ -121,14 +132,16 @@ function tryAttach(): boolean {
 }
 
 function ensureAttached(): void {
+  // If the previously-attached container was removed from the DOM (e.g. during
+  // SPA navigation or a Bilibili layout refresh), reset state before trying again.
+  if (attached && !attached.isConnected) {
+    observer?.disconnect()
+    observer = null
+    attached = null
+  }
   if (attached || pollTimer) return
   if (tryAttach()) return
-  pollTimer = setInterval(() => {
-    if (tryAttach() && pollTimer !== null) {
-      clearInterval(pollTimer)
-      pollTimer = null
-    }
-  }, 1000)
+  startPollTimer()
 }
 
 function maybeDetach(): void {
@@ -136,6 +149,10 @@ function maybeDetach(): void {
   if (pollTimer) {
     clearInterval(pollTimer)
     pollTimer = null
+  }
+  if (healthTimer) {
+    clearInterval(healthTimer)
+    healthTimer = null
   }
   if (observer) {
     observer.disconnect()
@@ -151,6 +168,22 @@ export function subscribeDanmaku(sub: DanmakuSubscription): () => void {
   } else {
     ensureAttached()
   }
+
+  // Start a health-check timer on the first subscriber so we detect when
+  // Bilibili replaces the chat container (SPA navigation, reconnect, etc.)
+  // and re-attach automatically.
+  if (!healthTimer) {
+    healthTimer = setInterval(() => {
+      if (attached && !attached.isConnected) {
+        console.log('[danmaku-stream] chat container detached, re-attaching...')
+        observer?.disconnect()
+        observer = null
+        attached = null
+        if (!tryAttach()) startPollTimer()
+      }
+    }, 2000)
+  }
+
   return () => {
     subscriptions.delete(sub)
     maybeDetach()

@@ -81,17 +81,28 @@ export async function getRoomId(url = window.location.href): Promise<number> {
   return roomData.data.room_id
 }
 
+// The URL slug (e.g. "12345") used to resolve the currently cached room ID.
+// If the user navigates to a different room without a full reload, the slug
+// changes and we invalidate the cache so the next call re-resolves.
+let cachedRoomSlug: string | null = null
+
 /**
  * Returns the cached room ID, fetching and caching it if needed.
+ * Invalidates the cache when window.location.href no longer matches the slug
+ * that was used to populate it, so SPA navigation picks up the new room.
  */
 export async function ensureRoomId(): Promise<number> {
-  let roomId = cachedRoomId.value
-  if (roomId === null) {
-    roomId = await getRoomId()
-    cachedRoomId.value = roomId
-    // Room-specific replacement rules depend on the resolved room id.
-    buildReplacementMap()
+  const currentSlug = extractRoomNumber(window.location.href) ?? null
+  if (cachedRoomId.value !== null && cachedRoomSlug === currentSlug) {
+    return cachedRoomId.value
   }
+  // URL changed or first call — reset and re-resolve.
+  cachedRoomId.value = null
+  cachedRoomSlug = currentSlug
+  const roomId = await getRoomId()
+  cachedRoomId.value = roomId
+  // Room-specific replacement rules depend on the resolved room id.
+  buildReplacementMap()
   return roomId
 }
 

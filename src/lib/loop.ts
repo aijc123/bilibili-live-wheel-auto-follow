@@ -4,7 +4,7 @@ import { ensureRoomId, fetchEmoticons, getCsrfToken, getSpmPrefix, setDanmakuMod
 import { BASE_URL } from './const'
 import { appendLog } from './log'
 import { applyReplacements, buildReplacementMap } from './replacement'
-import { enqueueDanmaku, SendPriority } from './send-queue'
+import { cancelPendingAuto, enqueueDanmaku, SendPriority } from './send-queue'
 import {
   activeTemplateIndex,
   availableDanmakuColors,
@@ -27,6 +27,9 @@ let currentAbort: AbortController | null = null
 export function cancelLoop(): void {
   currentAbort?.abort()
   currentAbort = null
+  // Drain any AUTO items already sitting in the global queue so they don't
+  // go out after the user clicks 停车.
+  cancelPendingAuto()
 }
 
 function abortableSleep(ms: number, signal: AbortSignal): Promise<boolean> {
@@ -114,10 +117,17 @@ export async function loop(): Promise<void> {
     }
   }
 
-  const csrfToken = getCsrfToken()
-
   while (true) {
     if (sendMsg.value) {
+      // Read the token fresh each round so login/logout changes are picked up
+      // without needing a page reload.
+      const csrfToken = getCsrfToken()
+      if (!csrfToken) {
+        appendLog('❌ 未找到登录信息，已自动停止运行，请先登录 Bilibili')
+        sendMsg.value = false
+        continue
+      }
+
       currentAbort = new AbortController()
       const { signal } = currentAbort
 
@@ -158,7 +168,7 @@ export async function loop(): Promise<void> {
           const wasReplaced = !isEmote && originalMessage !== processedMessage
 
           if (enableRandomColor) {
-            await setRandomDanmakuColor(roomId, csrfToken ?? '')
+            await setRandomDanmakuColor(roomId, csrfToken)
           }
 
           // Re-check abort after the async color call: the user may have
@@ -168,7 +178,7 @@ export async function loop(): Promise<void> {
             break
           }
 
-          const result = await enqueueDanmaku(processedMessage, roomId, csrfToken ?? '', SendPriority.AUTO)
+          const result = await enqueueDanmaku(processedMessage, roomId, csrfToken, SendPriority.AUTO)
           const displayMsg = wasReplaced ? `${originalMessage} → ${processedMessage}` : processedMessage
           const baseLabel = result.isEmoticon ? '自动表情' : '自动'
           const label = total > 1 ? `${baseLabel} [${i + 1}/${total}]` : baseLabel
