@@ -4,6 +4,7 @@ import { AutoBlendControls } from './auto-blend-controls'
 import { AutoSendControls } from './auto-send-controls'
 import { LogPanel } from './log-panel'
 import { MemesList } from './memes-list'
+import { NormalSendTab } from './normal-send-tab'
 import { SettingsTab } from './settings-tab'
 import { SttTab } from './stt-tab'
 import { Tabs } from './tabs'
@@ -35,6 +36,8 @@ export function Configurator() {
         }}
         className='cb-scroll'
       >
+        <NormalSendTab />
+
         <AutoSendControls />
 
         <div>

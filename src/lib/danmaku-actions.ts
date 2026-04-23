@@ -5,7 +5,16 @@ import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
 import { appendLog } from './log'
 import { applyReplacements } from './replacement'
 import { enqueueDanmaku, SendPriority } from './send-queue'
-import { activeTab, aiEvasion, dialogOpen, fasongText, isEmoticonUnique, maxLength, msgSendInterval } from './store'
+import {
+  activeTab,
+  aiEvasion,
+  customChatEnabled,
+  dialogOpen,
+  fasongText,
+  isEmoticonUnique,
+  maxLength,
+  msgSendInterval,
+} from './store'
 import { processMessages } from './utils'
 
 export async function copyText(text: string): Promise<boolean> {
@@ -36,6 +45,7 @@ export async function stealDanmaku(msg: string): Promise<void> {
 }
 
 function focusCustomChatComposer(): boolean {
+  if (!customChatEnabled.value) return false
   const input = document.querySelector<HTMLTextAreaElement>('#laplace-custom-chat textarea')
   if (!input) return false
 

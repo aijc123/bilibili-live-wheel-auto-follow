@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.21
+// @version      2.8.22
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -1143,7 +1143,7 @@
   const danmakuDirectMode = gmSignal("danmakuDirectMode", true);
   const danmakuDirectConfirm = gmSignal("danmakuDirectConfirm", false);
   const danmakuDirectAlwaysShow = gmSignal("danmakuDirectAlwaysShow", false);
-  gmSignal("customChatEnabled", true);
+  const customChatEnabled = gmSignal("customChatEnabled", true);
   const customChatHideNative = gmSignal("customChatHideNative", true);
   const customChatUseWs = gmSignal("customChatUseWs", true);
   const customChatTheme = gmSignal("customChatTheme", "laplace");
@@ -1164,6 +1164,7 @@
   const logPanelFocusRequest = y$1(0);
   const autoSendPanelOpen = gmSignal("autoSendPanelOpen", true);
   const autoBlendPanelOpen = gmSignal("autoBlendPanelOpen", true);
+  const normalSendPanelOpen = gmSignal("normalSendPanelOpen", true);
   const memesPanelOpen = gmSignal("memesPanelOpen", true);
   const dialogOpen = gmSignal("dialogOpen", false);
   const autoBlendWindowSec = gmSignal("autoBlendWindowSec", 20);
@@ -3369,6 +3370,7 @@ u$2(
     appendLog(copied ? `🥷 偷并复制: ${msg}` : `🥷 偷: ${msg}`);
   }
   function focusCustomChatComposer() {
+    if (!customChatEnabled.value) return false;
     const input = document.querySelector("#laplace-custom-chat textarea");
     if (!input) return false;
     input.value = fasongText.value;
@@ -9427,6 +9429,104 @@ u$2(
       ] })
     ] });
   }
+  function NormalSendTab() {
+    const focusChatterboxComposer = () => {
+      const input = document.querySelector("#laplace-custom-chat textarea");
+      input?.focus();
+    };
+    const sendMessage = async () => {
+      const sent = await sendManualDanmaku(fasongText.value);
+      if (sent) {
+        fasongText.value = "";
+      }
+    };
+    const body = u$2("div", { className: "cb-body cb-stack", children: [
+      customChatEnabled.value ? u$2("div", { className: "cb-panel cb-stack", children: [
+u$2("div", { className: "cb-note", children: "发送入口已合并到 Chatterbox Chat 底部，偷弹幕和这里的草稿会同步。" }),
+u$2("div", { className: "cb-row", children: [
+u$2("button", { type: "button", className: "cb-primary", onClick: focusChatterboxComposer, children: "聚焦 Chatterbox 输入框" }),
+u$2("span", { className: "cb-soft", children: [
+            "当前草稿 ",
+            fasongText.value.length,
+            " 字"
+          ] })
+        ] })
+      ] }) : u$2(S$1, { children: [
+u$2("div", { style: { position: "relative" }, children: [
+u$2(
+            "textarea",
+            {
+              value: fasongText.value,
+              onInput: (e2) => {
+                fasongText.value = e2.currentTarget.value;
+              },
+              onKeyDown: (e2) => {
+                if (e2.key === "Enter" && !e2.shiftKey && !e2.isComposing) {
+                  e2.preventDefault();
+                  void sendMessage();
+                }
+              },
+              placeholder: "输入弹幕内容... (Enter 发送)",
+              style: {
+                boxSizing: "border-box",
+                height: "50px",
+                minHeight: "40px",
+                width: "100%",
+                resize: "vertical"
+              }
+            }
+          ),
+u$2(
+            "div",
+            {
+              style: {
+                position: "absolute",
+                right: "8px",
+                bottom: "6px",
+                color: "#999",
+                pointerEvents: "none"
+              },
+              children: fasongText.value.length
+            }
+          )
+        ] }),
+u$2("div", { className: "cb-row", children: u$2("button", { type: "button", className: "cb-primary", onClick: () => void sendMessage(), children: "发送" }) })
+      ] }),
+u$2("div", { className: "cb-row", children: u$2("span", { className: "cb-row", children: [
+u$2(
+          "input",
+          {
+            id: "aiEvasion",
+            type: "checkbox",
+            checked: aiEvasion.value,
+            onInput: (e2) => {
+              aiEvasion.value = e2.currentTarget.checked;
+            }
+          }
+        ),
+u$2("label", { for: "aiEvasion", children: "AI规避（发送失败时自动检测敏感词并重试）" })
+      ] }) })
+    ] });
+    if (!customChatEnabled.value) {
+      return u$2("div", { className: "cb-section cb-stack", style: { marginBottom: ".5em" }, children: [
+u$2("div", { className: "cb-heading", style: { fontWeight: "bold", marginBottom: 0 }, children: "常规发送" }),
+        body
+      ] });
+    }
+    return u$2(
+      "details",
+      {
+        open: normalSendPanelOpen.value,
+        onToggle: (e2) => {
+          normalSendPanelOpen.value = e2.currentTarget.open;
+        },
+        children: [
+u$2("summary", { style: { cursor: "pointer", userSelect: "none", fontWeight: "bold" }, children: "常规发送" }),
+          body
+        ]
+      }
+    );
+  }
   const MILK_GREEN_IMESSAGE_CSS = `/* Chatterbox 奶绿 iMessage × Laplace 气泡 */
 @import url('https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&display=swap');
 
@@ -10763,7 +10863,7 @@ u$2("br", {}),
 u$2("details", { className: "cb-settings-accordion", children: [
 u$2("summary", { className: "cb-module-summary", children: [
 u$2("span", { className: "cb-accordion-title", children: "Chatterbox Chat" }),
-u$2("span", { className: "cb-module-state", "data-active": customChatHideNative.value ? "true" : "false", children: customChatHideNative.value ? "接管" : "并排" })
+u$2("span", { className: "cb-module-state", "data-active": customChatEnabled.value ? "true" : "false", children: customChatEnabled.value ? "接管" : "关闭" })
         ] }),
 u$2(
           "div",
@@ -10776,104 +10876,132 @@ u$2("div", { className: "cb-setting-block cb-setting-primary", children: u$2("sp
 u$2(
                   "input",
                   {
-                    id: "customChatHideNative",
+                    id: "customChatEnabled",
                     type: "checkbox",
-                    checked: customChatHideNative.value,
+                    checked: customChatEnabled.value,
                     onInput: (e2) => {
-                      customChatHideNative.value = e2.currentTarget.checked;
+                      customChatEnabled.value = e2.currentTarget.checked;
                     }
                   }
                 ),
-u$2("label", { htmlFor: "customChatHideNative", children: "接管 B 站评论区（隐藏原评论列表和原发送框）" })
+u$2("label", { htmlFor: "customChatEnabled", children: "接管 B 站聊天区（Chatterbox Chat）" })
               ] }) }),
-u$2("div", { className: "cb-setting-block cb-dependent-group", "data-enabled": "true", children: [
+u$2(
+                "div",
+                {
+                  className: "cb-setting-block cb-dependent-group",
+                  "data-enabled": customChatEnabled.value ? "true" : "false",
+                  "data-reason": "先开启 Chatterbox Chat",
+                  children: [
 u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
 u$2(
-                    "input",
-                    {
-                      id: "customChatUseWs",
-                      type: "checkbox",
-                      checked: customChatUseWs.value,
-                      onInput: (e2) => {
-                        customChatUseWs.value = e2.currentTarget.checked;
-                      }
-                    }
-                  ),
-u$2("label", { htmlFor: "customChatUseWs", children: "直连 WebSocket 获取礼物、醒目留言、进场等事件（DOM 兜底）" })
-                ] }),
+                        "input",
+                        {
+                          id: "customChatHideNative",
+                          type: "checkbox",
+                          checked: customChatHideNative.value,
+                          disabled: !customChatEnabled.value,
+                          onInput: (e2) => {
+                            customChatHideNative.value = e2.currentTarget.checked;
+                          }
+                        }
+                      ),
+u$2("label", { htmlFor: "customChatHideNative", style: { color: customChatEnabled.value ? void 0 : "#999" }, children: "隐藏 B 站原评论列表和原发送框" })
+                    ] }),
+u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
+u$2(
+                        "input",
+                        {
+                          id: "customChatUseWs",
+                          type: "checkbox",
+                          checked: customChatUseWs.value,
+                          disabled: !customChatEnabled.value,
+                          onInput: (e2) => {
+                            customChatUseWs.value = e2.currentTarget.checked;
+                          }
+                        }
+                      ),
+u$2("label", { htmlFor: "customChatUseWs", style: { color: customChatEnabled.value ? void 0 : "#999" }, children: "直连 WebSocket 获取礼物、醒目留言、进场等事件（DOM 兜底）" })
+                    ] }),
 u$2("div", { className: "cb-row cb-setting-row", children: [
 u$2("label", { htmlFor: "customChatTheme", children: "评论区主题" }),
 u$2(
-                    "select",
-                    {
-                      id: "customChatTheme",
-                      value: customChatTheme.value,
-                      onChange: (e2) => {
-                        customChatTheme.value = e2.currentTarget.value;
-                      },
-                      children: [
+                        "select",
+                        {
+                          id: "customChatTheme",
+                          value: customChatTheme.value,
+                          disabled: !customChatEnabled.value,
+                          onChange: (e2) => {
+                            customChatTheme.value = e2.currentTarget.value;
+                          },
+                          children: [
 u$2("option", { value: "laplace", children: "iMessage Dark" }),
 u$2("option", { value: "light", children: "iMessage Light" }),
 u$2("option", { value: "compact", children: "Compact Bubble" })
-                      ]
-                    }
-                  )
-                ] }),
+                          ]
+                        }
+                      )
+                    ] }),
 u$2("details", { className: "cb-subdetails", children: [
 u$2("summary", { children: "自定义评论区 CSS" }),
 u$2("div", { className: "cb-body cb-stack", children: [
 u$2("div", { className: "cb-row", children: [
 u$2(
-                        "button",
-                        {
-                          type: "button",
-                          onClick: () => {
-                            customChatCss.value = MILK_GREEN_IMESSAGE_CSS;
-                          },
-                          children: "奶绿 iMessage"
-                        }
-                      ),
+                            "button",
+                            {
+                              type: "button",
+                              disabled: !customChatEnabled.value,
+                              onClick: () => {
+                                customChatCss.value = MILK_GREEN_IMESSAGE_CSS;
+                              },
+                              children: "奶绿 iMessage"
+                            }
+                          ),
 u$2(
-                        "button",
-                        {
-                          type: "button",
-                          disabled: !customChatCss.value.trim(),
-                          onClick: () => {
-                            customChatCss.value = "";
-                          },
-                          children: "清空 CSS"
-                        }
-                      )
-                    ] }),
+                            "button",
+                            {
+                              type: "button",
+                              disabled: !customChatEnabled.value || !customChatCss.value.trim(),
+                              onClick: () => {
+                                customChatCss.value = "";
+                              },
+                              children: "清空 CSS"
+                            }
+                          )
+                        ] }),
 u$2(
-                      "textarea",
-                      {
-                        value: customChatCss.value,
-                        onInput: (e2) => {
-                          customChatCss.value = e2.currentTarget.value;
-                        },
-                        placeholder: "#laplace-custom-chat .lc-chat-message { ... }",
-                        style: { minHeight: "90px", resize: "vertical", width: "100%" }
-                      }
-                    ),
+                          "textarea",
+                          {
+                            value: customChatCss.value,
+                            disabled: !customChatEnabled.value,
+                            onInput: (e2) => {
+                              customChatCss.value = e2.currentTarget.value;
+                            },
+                            placeholder: "#laplace-custom-chat .lc-chat-message { ... }",
+                            style: { minHeight: "90px", resize: "vertical", width: "100%" }
+                          }
+                        ),
 u$2("div", { className: "cb-note", children: "可覆盖 #laplace-custom-chat 的 --lc-chat-* 变量，以及 .lc-chat-bubble、.lc-chat-medal、.lc-chat-name、.lc-chat-action、.lc-chat-card-event、[data-kind]、[data-card]、[data-guard] 等选择器。" })
-                  ] })
-                ] }),
+                      ] })
+                    ] }),
 u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
 u$2(
-                    "input",
-                    {
-                      id: "customChatPerfDebug",
-                      type: "checkbox",
-                      checked: customChatPerfDebug.value,
-                      onInput: (e2) => {
-                        customChatPerfDebug.value = e2.currentTarget.checked;
-                      }
-                    }
-                  ),
-u$2("label", { htmlFor: "customChatPerfDebug", children: "显示 Chatterbox 性能调试信息" })
-                ] })
-              ] })
+                        "input",
+                        {
+                          id: "customChatPerfDebug",
+                          type: "checkbox",
+                          checked: customChatPerfDebug.value,
+                          disabled: !customChatEnabled.value,
+                          onInput: (e2) => {
+                            customChatPerfDebug.value = e2.currentTarget.checked;
+                          }
+                        }
+                      ),
+u$2("label", { htmlFor: "customChatPerfDebug", style: { color: customChatEnabled.value ? void 0 : "#999" }, children: "显示 Chatterbox 性能调试信息" })
+                    ] })
+                  ]
+                }
+              )
             ]
           }
         )
@@ -11549,6 +11677,7 @@ u$2(
               },
               className: "cb-scroll",
               children: [
+u$2(NormalSendTab, {}),
 u$2(AutoSendControls, {}),
 u$2("div", { children: u$2(AutoBlendControls, {}) }),
 u$2(
@@ -12288,17 +12417,21 @@ u$2(
       return () => stopAutoBlend();
     }, [autoBlendEnabled.value]);
     y$2(() => {
-      startCustomChat();
+      if (customChatEnabled.value) {
+        startCustomChat();
+      } else {
+        stopCustomChat();
+      }
       return () => stopCustomChat();
-    }, []);
+    }, [customChatEnabled.value]);
     y$2(() => {
-      if (customChatUseWs.value) {
+      if (customChatEnabled.value && customChatUseWs.value) {
         startLiveWsSource();
       } else {
         stopLiveWsSource();
       }
       return () => stopLiveWsSource();
-    }, [customChatUseWs.value]);
+    }, [customChatEnabled.value, customChatUseWs.value]);
     y$2(() => {
       const el = document.querySelector(".app-body");
       if (!el) return;

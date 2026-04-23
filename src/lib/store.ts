@@ -39,6 +39,7 @@ export const logPanelOpen = gmSignal('logPanelOpen', false)
 export const logPanelFocusRequest = signal(0)
 export const autoSendPanelOpen = gmSignal('autoSendPanelOpen', true)
 export const autoBlendPanelOpen = gmSignal('autoBlendPanelOpen', true)
+export const normalSendPanelOpen = gmSignal('normalSendPanelOpen', true)
 export const memesPanelOpen = gmSignal('memesPanelOpen', true)
 export const dialogOpen = gmSignal('dialogOpen', false)
 
