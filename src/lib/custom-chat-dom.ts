@@ -988,9 +988,12 @@ let unsubscribeEvents: (() => void) | null = null
 let unsubscribeWsStatus: (() => void) | null = null
 let disposeSettings: (() => void) | null = null
 let disposeComposer: (() => void) | null = null
+let fallbackMountTimer: ReturnType<typeof setTimeout> | null = null
 let nativeEventObserver: MutationObserver | null = null
 let root: HTMLElement | null = null
 let rootOutsideHistory = false
+let rootUsesFallbackHost = false
+let fallbackHost: HTMLElement | null = null
 let listEl: HTMLElement | null = null
 let virtualTopSpacer: HTMLElement | null = null
 let virtualItemsEl: HTMLElement | null = null
@@ -2278,9 +2281,10 @@ function syncComposerFromStore(): void {
 
 function updateNativeVisibility(): void {
   const mounted = !!root?.isConnected && !!root.querySelector('.lc-chat-composer')
-  document.documentElement.classList.toggle('lc-custom-chat-mounted', mounted)
-  document.documentElement.classList.toggle('lc-custom-chat-root-outside-history', mounted && rootOutsideHistory)
-  document.documentElement.classList.toggle('lc-custom-chat-hide-native', mounted && customChatHideNative.value)
+  const nativeMounted = mounted && !rootUsesFallbackHost
+  document.documentElement.classList.toggle('lc-custom-chat-mounted', nativeMounted)
+  document.documentElement.classList.toggle('lc-custom-chat-root-outside-history', nativeMounted && rootOutsideHistory)
+  document.documentElement.classList.toggle('lc-custom-chat-hide-native', nativeMounted && customChatHideNative.value)
 }
 
 function appendDebugRow(parent: HTMLElement, key: string, value: string): void {
@@ -2540,7 +2544,11 @@ function ensureStyles(): void {
 function mount(container: HTMLElement): void {
   ensureStyles()
   abortRootEventListeners()
+  nativeEventObserver?.disconnect()
   root?.remove()
+  rootUsesFallbackHost = false
+  fallbackHost?.remove()
+  fallbackHost = null
   const historyPanel = container.closest<HTMLElement>('.chat-history-panel')
   const host = historyPanel?.parentElement ?? container.parentElement
   if (!host) return
@@ -2551,6 +2559,55 @@ function mount(container: HTMLElement): void {
   updateNativeVisibility()
   observeNativeEvents(container)
   rerenderMessages()
+}
+
+function ensureFallbackHost(): HTMLElement {
+  if (fallbackHost?.isConnected) return fallbackHost
+  const host = document.createElement('div')
+  host.id = 'laplace-custom-chat-fallback-host'
+  host.style.position = 'fixed'
+  host.style.right = '12px'
+  host.style.bottom = '52px'
+  host.style.zIndex = '2147483646'
+  host.style.width = 'min(360px, calc(100vw - 24px))'
+  host.style.height = 'min(62vh, 560px)'
+  host.style.minHeight = '340px'
+  host.style.overflow = 'hidden'
+  host.style.borderRadius = '18px'
+  host.style.border = '1px solid rgba(255, 255, 255, .08)'
+  host.style.boxShadow = '0 20px 48px rgba(0, 0, 0, .32)'
+  host.style.backdropFilter = 'blur(18px)'
+  host.style.webkitBackdropFilter = 'blur(18px)'
+  document.body.appendChild(host)
+  fallbackHost = host
+  return host
+}
+
+function mountFallback(): void {
+  if (root?.isConnected && rootUsesFallbackHost) return
+  ensureStyles()
+  abortRootEventListeners()
+  nativeEventObserver?.disconnect()
+  nativeEventObserver = null
+  pendingNativeNodes.clear()
+  root?.remove()
+  const host = ensureFallbackHost()
+  root = createRoot()
+  rootOutsideHistory = false
+  rootUsesFallbackHost = true
+  root.dataset.theme = customChatTheme.value
+  host.replaceChildren(root)
+  updateNativeVisibility()
+  rerenderMessages()
+}
+
+function scheduleFallbackMount(): void {
+  if (fallbackMountTimer !== null) return
+  fallbackMountTimer = setTimeout(() => {
+    fallbackMountTimer = null
+    if (root?.isConnected) return
+    mountFallback()
+  }, 2500)
 }
 
 function observeNativeEvents(container: HTMLElement): void {
@@ -2657,6 +2714,7 @@ export function startCustomChatDom(): void {
   if (unsubscribeDom) return
 
   ensureStyles()
+  scheduleFallbackMount()
   disposeSettings = signalEffect(() => {
     if (root) root.dataset.theme = customChatTheme.value
     if (root) root.dataset.debug = customChatPerfDebug.value ? 'true' : 'false'
@@ -2676,6 +2734,10 @@ export function startCustomChatDom(): void {
 }
 
 export function stopCustomChatDom(): void {
+  if (fallbackMountTimer) {
+    clearTimeout(fallbackMountTimer)
+    fallbackMountTimer = null
+  }
   if (unsubscribeDom) {
     unsubscribeDom()
     unsubscribeDom = null
@@ -2710,6 +2772,9 @@ export function stopCustomChatDom(): void {
   root?.remove()
   root = null
   rootOutsideHistory = false
+  rootUsesFallbackHost = false
+  fallbackHost?.remove()
+  fallbackHost = null
   styleEl?.remove()
   styleEl = null
   userStyleEl?.remove()

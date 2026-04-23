@@ -127,6 +127,38 @@ bun run verify:auto-blend-ui
 
 `verify:auto-blend-ui` 会启动浏览器访问 B 站直播页，注入构建后的脚本，并检查小面板是否过宽、过高或出现文字裁切。
 
+## 发版
+
+现在可以一条命令全自动发版：
+
+```bash
+bun run release:patch
+```
+
+也支持：
+
+```bash
+bun run release:minor
+bun run release:major
+```
+
+这条命令会自动完成这些步骤：
+
+- 把 `package.json` 版本号升到下一个补丁版、次版本或主版本。
+- 读取 `GREASYFORK_RELEASE_NOTES.md` 里的“当前发布说明”，同步生成新的版本小节。
+- 运行 `bun x biome ci .`、`bun test`、`bun run build`。
+- 自动 `git add -A`、提交 `Release x.y.z`、创建 `vX.Y.Z` tag 并推送到 `origin/master`。
+- 自动创建或更新 GitHub Release。
+- 自动触发 GitHub Pages 部署，并轮询线上 userscript 地址，确认 `@version` 已更新。
+
+如果你想直接指定版本号，也可以：
+
+```bash
+bun run release -- --version 2.9.0
+```
+
+发版前只需要先把 `GREASYFORK_RELEASE_NOTES.md` 里的“当前发布说明”改成这次版本要写给用户看的内容；剩下流程不用再手动敲。
+
 ## 说明
 
 这是民间自用/自制插件，不是 B 站官方功能。使用自动发送、自动跟车、+1 等功能时，建议控制频率，避免打扰主播和其他观众。

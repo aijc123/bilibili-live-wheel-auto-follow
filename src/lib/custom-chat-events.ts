@@ -106,6 +106,23 @@ export function clearRecentCustomChatDanmakuHistory(): void {
   recentDanmakuHistory.length = 0
 }
 
+export function emitLocalDanmakuEcho(text: string, uid: string | null, options?: { uname?: string }): void {
+  const trimmed = text.trim()
+  if (!trimmed) return
+  emitCustomChatEvent({
+    id: `local-${uid ?? 'anon'}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    kind: 'danmaku',
+    text: trimmed,
+    sendText: trimmed,
+    uname: options?.uname?.trim() || '我',
+    uid,
+    time: chatEventTime(),
+    isReply: false,
+    source: 'local',
+    badges: [],
+  })
+}
+
 function normalizeEventKind(event: CustomChatEvent): CustomChatKind {
   const signal = `${event.kind} ${event.text} ${event.badges.join(' ')} ${event.rawCmd ?? ''}`
   if (/SUPER_CHAT/i.test(signal)) return 'superchat'

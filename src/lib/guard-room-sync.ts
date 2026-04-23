@@ -14,6 +14,34 @@ type RiskEventKind =
 
 type RiskEventSource = 'manual' | 'auto-send' | 'auto-blend' | 'stt' | 'ai-evasion' | 'system'
 type RiskEventLevel = 'stop' | 'observe' | 'pass'
+type WatchlistSource = 'medal' | 'follow' | 'both'
+
+export interface GuardRoomWatchlistRoomInput {
+  roomId: number
+  anchorName: string
+  anchorUid?: number | null
+  medalName?: string | null
+  source: WatchlistSource
+  liveStatus: 'live' | 'offline' | 'unknown'
+}
+
+export interface GuardRoomControlProfile {
+  dryRunDefault: boolean
+  autoBlendEnabled: boolean
+  heartbeatSec: number
+  dwellSec: number
+  hotMessageThreshold: number
+  hotActiveUsersThreshold: number
+  recommendationThreshold: number
+  conservativeMode: 'safe' | 'normal' | 'hot'
+  updatedAt?: string
+}
+
+export interface GuardRoomControlProfileResponse {
+  profile: GuardRoomControlProfile
+  session: { id: string; status: 'active' | 'closed'; updatedAt: string } | null
+  watchlist: GuardRoomWatchlistRoomInput[]
+}
 
 interface RiskEventInput {
   kind: RiskEventKind
@@ -126,6 +154,39 @@ export async function syncGuardRoomLiveDeskHeartbeat(input: LiveDeskHeartbeatInp
       candidateText: input.candidateText?.slice(0, 120),
     }),
   }).catch(() => undefined)
+}
+
+export async function syncGuardRoomWatchlist(rooms: GuardRoomWatchlistRoomInput[]): Promise<void> {
+  const endpoint = normalizeGuardRoomEndpoint(guardRoomEndpoint.value)
+  const syncKey = guardRoomSyncKey.value.trim()
+  if (!endpoint || !syncKey) return
+
+  await fetch(`${endpoint}/api/watchlists/sync`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-sync-key': syncKey,
+    },
+    body: JSON.stringify({ rooms }),
+  }).then(response => {
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  })
+}
+
+export async function fetchGuardRoomControlProfile(): Promise<GuardRoomControlProfileResponse | null> {
+  const endpoint = normalizeGuardRoomEndpoint(guardRoomEndpoint.value)
+  const syncKey = guardRoomSyncKey.value.trim()
+  if (!endpoint || !syncKey) return null
+
+  const response = await fetch(`${endpoint}/api/control-profile/current`, {
+    method: 'GET',
+    headers: {
+      'x-sync-key': syncKey,
+    },
+  }).catch(() => null)
+
+  if (!response?.ok) return null
+  return (await response.json()) as GuardRoomControlProfileResponse
 }
 
 export function buildGuardRoomLiveDeskUrl(roomId: number, sessionId: string): string {

@@ -13,9 +13,16 @@ import {
 } from './custom-chat-events'
 import { type DanmakuEvent, subscribeDanmaku } from './danmaku-stream'
 import { classifyRiskEvent, syncGuardRoomRiskEvent } from './guard-room-sync'
+import { startLiveWsSource, stopLiveWsSource } from './live-ws-source'
 import { appendLog } from './log'
 import { clearMemeSession, recordMemeCandidate } from './meme-contributor'
-import { describeRestrictionDuration, isAccountRestrictedError, isMutedError, isRateLimitError } from './moderation'
+import {
+  classifyByCode,
+  describeRestrictionDuration,
+  isAccountRestrictedError,
+  isMutedError,
+  isRateLimitError,
+} from './moderation'
 import { applyReplacements } from './replacement'
 import { enqueueDanmaku, SendPriority } from './send-queue'
 import {
@@ -69,6 +76,7 @@ const trendMap = new Map<string, TrendEntry>()
 let cooldownUntil = 0
 
 let unsubscribe: (() => void) | null = null
+let unsubscribeWsDanmaku: (() => void) | null = null
 let cleanupTimer: ReturnType<typeof setInterval> | null = null
 let burstSettleTimer: ReturnType<typeof setTimeout> | null = null
 let pendingBurstText: string | null = null
@@ -131,8 +139,9 @@ function handleSendFailure(result: SendDanmakuResult, roomId?: number): boolean 
   const now = Date.now()
   const error = result.error
   const duration = describeRestrictionDuration(result.error, result.errorData)
+  const codeKind = classifyByCode(result.errorCode)
 
-  if (isMutedError(error)) {
+  if (codeKind === 'muted' || (codeKind === null && isMutedError(error))) {
     const risk = classifyRiskEvent(result.error, result.errorData)
     void syncGuardRoomRiskEvent({
       ...risk,
@@ -141,11 +150,11 @@ function handleSendFailure(result: SendDanmakuResult, roomId?: number): boolean 
       errorCode: result.errorCode,
       reason: result.error,
     })
-    stopAutoBlendAfterModeration(`自动跟车：检测到你在本房间被禁言，已自动关闭。禁言时长：${duration}。`)
+    stopAutoBlendAfterModeration(`🔴 自动跟车：检测到你在本房间被禁言，已自动关闭。禁言时长：${duration}。`)
     return true
   }
 
-  if (isAccountRestrictedError(error)) {
+  if (codeKind === 'account' || (codeKind === null && isAccountRestrictedError(error))) {
     const risk = classifyRiskEvent(result.error, result.errorData)
     void syncGuardRoomRiskEvent({
       ...risk,
@@ -154,11 +163,12 @@ function handleSendFailure(result: SendDanmakuResult, roomId?: number): boolean 
       errorCode: result.errorCode,
       reason: result.error,
     })
-    stopAutoBlendAfterModeration(`自动跟车：检测到账号级限制/风控，已自动关闭。限制时长：${duration}。`)
+    stopAutoBlendAfterModeration(`🔴 自动跟车：检测到账号级限制/风控，已自动关闭。限制时长：${duration}。`)
     return true
   }
 
-  if (!isRateLimitError(error)) {
+  const isRateLimit = codeKind === 'rate-limit' || (codeKind === null && isRateLimitError(error))
+  if (!isRateLimit) {
     const risk = classifyRiskEvent(result.error, result.errorData)
     void syncGuardRoomRiskEvent({
       ...risk,
@@ -187,7 +197,9 @@ function handleSendFailure(result: SendDanmakuResult, roomId?: number): boolean 
       reason: result.error,
       advice: `${windowLabel}多次触发频率限制，自动跟车已经停车，建议休息一阵再开。`,
     })
-    stopAutoBlendAfterModeration(`自动跟车：${windowLabel}多次触发发送频率限制，已自动关闭，避免继续被系统/房管盯上。`)
+    stopAutoBlendAfterModeration(
+      `⚠️ 自动跟车：${windowLabel}多次触发发送频率限制，已自动关闭，避免继续被系统/房管盯上。`
+    )
     return true
   }
 
@@ -661,6 +673,11 @@ export function startAutoBlend(): void {
   unsubscribe = subscribeDanmaku({
     onMessage: ev => recordDanmaku(ev.text, ev.uid, ev.isReply),
   })
+  startLiveWsSource()
+  unsubscribeWsDanmaku = subscribeCustomChatEvents(event => {
+    if (event.kind !== 'danmaku' || event.source !== 'ws') return
+    recordDanmaku(event.text, event.uid, event.isReply)
+  })
 
   if (cleanupTimer === null) {
     cleanupTimer = setInterval(() => {
@@ -693,6 +710,11 @@ export function stopAutoBlend(): void {
     unsubscribe()
     unsubscribe = null
   }
+  if (unsubscribeWsDanmaku) {
+    unsubscribeWsDanmaku()
+    unsubscribeWsDanmaku = null
+  }
+  stopLiveWsSource()
   trendMap.clear()
   recentDomDanmaku.length = 0
   clearMemeSession()

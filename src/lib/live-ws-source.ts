@@ -32,6 +32,7 @@ type UnknownRecord = Record<string, unknown>
 
 let liveConnection: LiveWS | null = null
 let started = false
+let consumerCount = 0
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let lastStartupFailure = ''
 let lastStartupFailureAt = 0
@@ -415,11 +416,14 @@ async function connect(): Promise<void> {
     emitCustomChatWsStatus('error')
     const message = err instanceof Error ? err.message : String(err)
     appendStartupFailure(message)
-    reconnectTimer = setTimeout(() => void connect(), 8000)
+    const delay = Math.min(30_000, 3000 + reconnectAttempt * 2000)
+    reconnectAttempt += 1
+    reconnectTimer = setTimeout(() => void connect(), delay)
   }
 }
 
 export function startLiveWsSource(): void {
+  consumerCount += 1
   if (started) return
   started = true
   emitCustomChatWsStatus('connecting')
@@ -427,6 +431,8 @@ export function startLiveWsSource(): void {
 }
 
 export function stopLiveWsSource(): void {
+  consumerCount = Math.max(0, consumerCount - 1)
+  if (consumerCount > 0) return
   started = false
   connectionSerial += 1
   emitCustomChatWsStatus('off')

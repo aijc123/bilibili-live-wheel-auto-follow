@@ -10,14 +10,12 @@ import { unlockForbidLive } from './store'
     const resp = await originalFetch.call(pageWindow, input, init)
 
     if (unlockForbidLive.value && url.includes('/xlive/web-room/v1/index/getInfoByUser')) {
-      console.log('[LAPLACE Chatterbox] Hijacking getInfoByUser fetch response:', url)
       const text = await resp.text()
       try {
         const data = JSON.parse(text)
         if (data?.data?.forbid_live) {
           data.data.forbid_live.is_forbid = false
           data.data.forbid_live.forbid_text = ''
-          console.log('[LAPLACE Chatterbox] Blacklist livestream block removed')
           return new Response(JSON.stringify(data), {
             status: resp.status,
             statusText: resp.statusText,

@@ -123,7 +123,6 @@ export async function loop(): Promise<void> {
               }
               if (colors.length > 0) {
                 availableDanmakuColors.value = colors
-                console.log('[LAPLACE Chatterbox] Available colors:', colors)
               }
             }
           } catch {

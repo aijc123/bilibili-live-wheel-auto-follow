@@ -27,7 +27,6 @@ async function detectSensitiveWords(text: string): Promise<DetectionResult> {
     const data: { completion?: DetectionResult } = await resp.json()
     return data.completion ?? { hasSensitiveContent: false }
   } catch (err) {
-    console.error('AI detection error:', err)
     const msg = err instanceof Error ? err.message : String(err)
     appendLog(`⚠️ AI检测服务出错：${msg}`)
     return { hasSensitiveContent: false }

@@ -1,9 +1,10 @@
-import { ensureRoomId, fetchMedalRooms } from './api'
+import { ensureRoomId } from './api'
 import { subscribeCustomChatEvents } from './custom-chat-events'
 import {
   guardRoomCurrentRiskLevel,
   guardRoomLiveDeskHeartbeatSec,
   guardRoomLiveDeskSessionId,
+  guardRoomWatchlistRooms,
 } from './guard-room-live-desk-state'
 import { syncGuardRoomLiveDeskHeartbeat } from './guard-room-sync'
 import { autoBlendCandidateText, guardRoomEndpoint, guardRoomSyncKey } from './store'
@@ -27,7 +28,7 @@ async function uploadSnapshot(): Promise<void> {
   if (!sessionId || !guardRoomEndpoint.value.trim() || !guardRoomSyncKey.value.trim()) return
 
   const roomId = await ensureRoomId()
-  const rooms = await fetchMedalRooms().catch(() => [])
+  const rooms = guardRoomWatchlistRooms.value
   const current = rooms.find(item => item.roomId === roomId)
   const now = Date.now()
   trimSeen(now)

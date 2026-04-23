@@ -36,6 +36,9 @@ export const BASE_URL = {
   /** All fan medals for a user. GET, param: target_id. */
   BILIBILI_MEDAL_WALL: 'https://api.live.bilibili.com/xlive/web-ucenter/user/MedalWall',
 
+  /** Followed anchors for the logged-in account. GET, params: vmid, pn, ps. */
+  BILIBILI_FOLLOWINGS: 'https://api.bilibili.com/x/relation/followings',
+
   /** Current viewer info in a live room. GET, param: room_id. */
   BILIBILI_ROOM_USER_INFO: 'https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByUser',
 

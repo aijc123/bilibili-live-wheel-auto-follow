@@ -3,12 +3,21 @@ import { useEffect } from 'preact/hooks'
 import { startAutoBlend, stopAutoBlend } from '../lib/auto-blend'
 import { startCustomChat, stopCustomChat } from '../lib/custom-chat'
 import { startDanmakuDirect, stopDanmakuDirect } from '../lib/danmaku-direct'
+import { startGuardRoomAgent, stopGuardRoomAgent } from '../lib/guard-room-agent'
 import { applyGuardRoomHandoff } from '../lib/guard-room-handoff'
 import { guardRoomLiveDeskSessionId } from '../lib/guard-room-live-desk-state'
 import { startLiveDeskSync, stopLiveDeskSync } from '../lib/live-desk-sync'
 import { startLiveWsSource, stopLiveWsSource } from '../lib/live-ws-source'
+import { appendLog } from '../lib/log'
 import { loop } from '../lib/loop'
-import { autoBlendEnabled, customChatEnabled, customChatUseWs, danmakuDirectMode, optimizeLayout } from '../lib/store'
+import {
+  autoBlendEnabled,
+  customChatEnabled,
+  customChatUseWs,
+  danmakuDirectMode,
+  hasSeenWelcome,
+  optimizeLayout,
+} from '../lib/store'
 import { Configurator } from './configurator'
 import { ToggleButton } from './toggle-button'
 import { AlertDialog } from './ui/alert-dialog'
@@ -17,6 +26,22 @@ import { UserNotice } from './user-notice'
 export function App() {
   useEffect(() => {
     applyGuardRoomHandoff()
+  }, [])
+
+  useEffect(() => {
+    if (!hasSeenWelcome.value) {
+      hasSeenWelcome.value = true
+      appendLog(
+        '👋 欢迎使用 B站独轮车 + 自动跟车！点击「弹幕助手」按钮打开面板，发送 Tab 可配置独轮车和自动跟车，设置 Tab 可管理替换规则和禁言巡检。'
+      )
+    }
+  }, [])
+
+  useEffect(() => {
+    startGuardRoomAgent()
+    return () => {
+      stopGuardRoomAgent()
+    }
   }, [])
 
   useEffect(() => {

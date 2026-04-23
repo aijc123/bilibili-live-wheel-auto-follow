@@ -109,6 +109,7 @@ export const remoteKeywords = gmSignal<{
 export const remoteKeywordsLastSync = gmSignal<number | null>('remoteKeywordsLastSync', null)
 
 export const persistSendState = gmSignal<Record<string, boolean>>('persistSendState', {})
+export const hasSeenWelcome = gmSignal('hasSeenWelcome', false)
 
 // Runtime state (not GM-persisted)
 export const sendMsg = signal(false)

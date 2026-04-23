@@ -35,23 +35,15 @@ function extractWbiKeys(data: { data?: { wbi_img?: { img_url?: string; sub_url?:
   XMLHttpRequest.prototype.send = function (body?: Document | XMLHttpRequestBodyInit | null) {
     const url = (this as XMLHttpRequest & { _url?: string })._url
     if (url?.includes('/x/web-interface/nav')) {
-      console.log('[LAPLACE Chatterbox] Intercepted request:', url)
-
       this.addEventListener('load', function () {
         try {
           const data: {
             data?: { wbi_img?: { img_url?: string; sub_url?: string } }
           } = JSON.parse(this.responseText)
           const keys = extractWbiKeys(data)
-          if (keys) {
-            console.log('[LAPLACE Chatterbox] wbi_img:', data.data.wbi_img)
-            setCachedWbiKeys(keys)
-            console.log('[LAPLACE Chatterbox] Extracted WBI keys:', cachedWbiKeys)
-          } else {
-            console.log('[LAPLACE Chatterbox] Response received but wbi_img not found:', data)
-          }
-        } catch (err) {
-          console.error('[LAPLACE Chatterbox] Error parsing response:', err)
+          if (keys) setCachedWbiKeys(keys)
+        } catch {
+          // Best-effort WBI key extraction; failures are silent.
         }
       })
     }

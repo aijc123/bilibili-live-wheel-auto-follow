@@ -1,6 +1,7 @@
 import type { BilibiliGetEmoticonsResponse } from '../types'
 
 import { BASE_URL } from './const'
+import { emitLocalDanmakuEcho } from './custom-chat-events'
 import { describeRestrictionDuration, type RestrictionSignal, scanRestrictionSignals } from './moderation'
 import { buildReplacementMap } from './replacement'
 import {
@@ -62,6 +63,21 @@ export function getCsrfToken(): string | undefined {
  */
 export function getDedeUid(): string | undefined {
   return getCookie('DedeUserID')
+}
+
+function getLiveLocalEchoName(): string {
+  const selectors = [
+    '.user-panel-ctnr .user-name',
+    '.right-ctnr .userinfo-ctnr .uname',
+    '.chat-control-panel-vm .user-name',
+    '[class*="user-panel"] [class*="user-name"]',
+    '[class*="user-info"] [class*="name"]',
+  ]
+  for (const selector of selectors) {
+    const text = document.querySelector<HTMLElement>(selector)?.textContent?.trim()
+    if (text) return text
+  }
+  return '我'
 }
 
 /**
@@ -153,6 +169,12 @@ export interface MedalRoom {
   anchorName: string
   anchorUid: number | null
   source: 'medal-link' | 'medal-room-id' | 'anchor-uid'
+}
+
+export interface FollowingRoom {
+  roomId: number
+  anchorName: string
+  anchorUid: number
 }
 
 export async function fetchRoomLiveStatus(roomId: number): Promise<'live' | 'offline' | 'unknown'> {
@@ -275,6 +297,40 @@ async function fetchRoomByAnchorUid(anchor: Omit<MedalRoom, 'roomId' | 'source'>
   return { ...anchor, roomId, source: 'anchor-uid' }
 }
 
+interface FollowingEntry {
+  anchorUid: number
+  anchorName: string
+}
+
+function followEntryToAnchor(entry: unknown): FollowingEntry | null {
+  if (typeof entry !== 'object' || entry === null) return null
+  const obj = entry as Record<string, unknown>
+  const anchorUid = toNumber(obj.mid) ?? toNumber(obj.uid)
+  if (anchorUid === null || anchorUid <= 0) return null
+  return {
+    anchorUid,
+    anchorName: firstString(obj.uname, obj.name, obj.nickname),
+  }
+}
+
+async function fetchFollowingPage(uid: string, page: number): Promise<FollowingEntry[]> {
+  const query = new URLSearchParams({
+    vmid: uid,
+    pn: String(page),
+    ps: '50',
+    order: 'desc',
+    order_type: 'attention',
+  })
+  const resp = await fetch(`${BASE_URL.BILIBILI_FOLLOWINGS}?${query.toString()}`, {
+    method: 'GET',
+    credentials: 'include',
+  })
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`)
+  const json: { code?: number; message?: string; msg?: string; data?: { list?: unknown[] } } = await resp.json()
+  if (json.code !== 0) throw new Error(json.message ?? json.msg ?? `code ${json.code}`)
+  return (json.data?.list ?? []).map(followEntryToAnchor).filter((entry): entry is FollowingEntry => entry !== null)
+}
+
 export async function fetchMedalRooms(): Promise<MedalRoom[]> {
   const uid = getDedeUid()
   if (!uid) throw new Error('未找到登录 UID，请先登录 Bilibili')
@@ -300,6 +356,35 @@ export async function fetchMedalRooms(): Promise<MedalRoom[]> {
   const deduped = new Map<number, MedalRoom>()
   for (const room of rooms) deduped.set(room.roomId, room)
   return [...deduped.values()]
+}
+
+export async function fetchFollowingRooms(maxPages = 4): Promise<FollowingRoom[]> {
+  const uid = getDedeUid()
+  if (!uid) throw new Error('未找到登录 UID，请先登录 Bilibili')
+
+  const anchors: FollowingEntry[] = []
+  for (let page = 1; page <= maxPages; page += 1) {
+    const items = await fetchFollowingPage(uid, page)
+    anchors.push(...items)
+    if (items.length < 50) break
+  }
+
+  const rooms = new Map<number, FollowingRoom>()
+  for (const anchor of anchors) {
+    const room = await fetchRoomByAnchorUid({
+      medalName: '',
+      anchorName: anchor.anchorName,
+      anchorUid: anchor.anchorUid,
+    })
+    if (!room) continue
+    rooms.set(room.roomId, {
+      roomId: room.roomId,
+      anchorName: room.anchorName,
+      anchorUid: room.anchorUid ?? anchor.anchorUid,
+    })
+  }
+
+  return [...rooms.values()]
 }
 
 async function fetchRoomUserInfoSignals(roomId: number): Promise<RestrictionSignal[]> {
@@ -457,6 +542,8 @@ export async function sendDanmaku(message: string, roomId: number, csrfToken: st
         errorData: json.data,
       }
     }
+
+    emitLocalDanmakuEcho(message, getDedeUid() ?? null, { uname: getLiveLocalEchoName() })
 
     return {
       success: true,

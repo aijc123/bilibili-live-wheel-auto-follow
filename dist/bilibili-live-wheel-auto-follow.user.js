@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.23
+// @version      2.8.25
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -1214,6 +1214,7 @@
   const remoteKeywords = gmSignal("remoteKeywords", null);
   const remoteKeywordsLastSync = gmSignal("remoteKeywordsLastSync", null);
   const persistSendState = gmSignal("persistSendState", {});
+  const hasSeenWelcome = gmSignal("hasSeenWelcome", false);
   const sendMsg = y$1(false);
   const sttRunning = y$1(false);
   const cachedRoomId = y$1(null);
@@ -1263,14 +1264,12 @@
       const url = input instanceof Request ? input.url : input.toString();
       const resp = await originalFetch.call(pageWindow, input, init);
       if (unlockForbidLive.value && url.includes("/xlive/web-room/v1/index/getInfoByUser")) {
-        console.log("[LAPLACE Chatterbox] Hijacking getInfoByUser fetch response:", url);
         const text = await resp.text();
         try {
           const data = JSON.parse(text);
           if (data?.data?.forbid_live) {
             data.data.forbid_live.is_forbid = false;
             data.data.forbid_live.forbid_text = "";
-            console.log("[LAPLACE Chatterbox] Blacklist livestream block removed");
             return new Response(JSON.stringify(data), {
               status: resp.status,
               statusText: resp.statusText,
@@ -1299,6 +1298,7 @@ BILIBILI_GET_DM_CONFIG: "https://api.live.bilibili.com/xlive/web-room/v1/dM/GetD
 BILIBILI_DANMU_INFO: "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo",
 BILIBILI_GET_EMOTICONS: "https://api.live.bilibili.com/xlive/web-ucenter/v2/emoticon/GetEmoticons",
 BILIBILI_MEDAL_WALL: "https://api.live.bilibili.com/xlive/web-ucenter/user/MedalWall",
+BILIBILI_FOLLOWINGS: "https://api.bilibili.com/x/relation/followings",
 BILIBILI_ROOM_USER_INFO: "https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByUser",
 BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/banned/GetSilentUserList",
     LAPLACE_CHAT_AUDIT: "https://edge-workers.laplace.cn/laplace/chat-audit",
@@ -1308,6 +1308,127 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     BILIBILI_AVATAR: "https://workers.vrp.moe/bilibili/avatar",
     BILIBILI_SUPERCHAT_ORDER: "https://workers.vrp.moe/bilibili/live-create-order"
   };
+  const handlers = new Set();
+  const wsStatusHandlers = new Set();
+  let currentWsStatus$1 = "off";
+  const recentDanmakuHistory = [];
+  const RECENT_DANMAKU_HISTORY_MS = 15e3;
+  const RECENT_DANMAKU_HISTORY_MAX = 240;
+  function subscribeCustomChatEvents(handler) {
+    handlers.add(handler);
+    return () => handlers.delete(handler);
+  }
+  function pruneRecentDanmakuHistory(now = Date.now()) {
+    while (recentDanmakuHistory.length > 0 && now - recentDanmakuHistory[0].observedAt > RECENT_DANMAKU_HISTORY_MS) {
+      recentDanmakuHistory.shift();
+    }
+    while (recentDanmakuHistory.length > RECENT_DANMAKU_HISTORY_MAX) {
+      recentDanmakuHistory.shift();
+    }
+  }
+  function rememberRecentDanmaku(event) {
+    if (event.kind !== "danmaku") return;
+    if (event.source !== "dom" && event.source !== "ws" && event.source !== "local") return;
+    const text = event.text.trim();
+    if (!text) return;
+    const now = Date.now();
+    pruneRecentDanmakuHistory(now);
+    recentDanmakuHistory.push({
+      text,
+      uid: event.uid,
+      source: event.source,
+      observedAt: now
+    });
+  }
+  function findRecentCustomChatDanmakuSource(text, uid, sinceTs) {
+    const target = text.trim();
+    if (!target) return null;
+    pruneRecentDanmakuHistory();
+    for (let i2 = recentDanmakuHistory.length - 1; i2 >= 0; i2--) {
+      const event = recentDanmakuHistory[i2];
+      if (event.observedAt < sinceTs) break;
+      if (event.text !== target) continue;
+      if (uid && event.uid && event.uid !== uid) continue;
+      return event.source;
+    }
+    return null;
+  }
+  function emitLocalDanmakuEcho(text, uid, options) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    emitCustomChatEvent({
+      id: `local-${uid ?? "anon"}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      kind: "danmaku",
+      text: trimmed,
+      sendText: trimmed,
+      uname: options?.uname?.trim() || "我",
+      uid,
+      time: chatEventTime(),
+      isReply: false,
+      source: "local",
+      badges: []
+    });
+  }
+  function normalizeEventKind(event) {
+    const signal = `${event.kind} ${event.text} ${event.badges.join(" ")} ${event.rawCmd ?? ""}`;
+    if (/SUPER_CHAT/i.test(signal)) return "superchat";
+    if (/GUARD|舰长|提督|总督|大航海|privilege/i.test(signal)) return "guard";
+    if (/红包|RED|ENVELOP/i.test(signal)) return "redpacket";
+    if (/天选|LOTTERY|ANCHOR_LOT/i.test(signal)) return "lottery";
+    if (/点赞|LIKE/i.test(signal)) return "like";
+    if (/分享|SHARE/i.test(signal)) return "share";
+    if (/关注|FOLLOW/i.test(signal)) return "follow";
+    return event.kind;
+  }
+  function normalizeCustomChatEvent(event) {
+    const kind = normalizeEventKind(event);
+    return {
+      ...event,
+      kind,
+      text: event.text.trim(),
+      uname: event.uname.trim() || "匿名",
+      badges: [...new Set(event.badges.map((item) => item.trim()).filter(Boolean))],
+      fields: event.fields?.map((field) => ({
+        ...field,
+        key: field.key.trim(),
+        label: field.label.trim(),
+        value: field.value.trim()
+      })).filter((field) => field.key && field.label && field.value)
+    };
+  }
+  function emitCustomChatEvent(event) {
+    const normalized = normalizeCustomChatEvent(event);
+    rememberRecentDanmaku(normalized);
+    for (const handler of handlers) {
+      handler(normalized);
+    }
+  }
+  function subscribeCustomChatWsStatus(handler) {
+    wsStatusHandlers.add(handler);
+    handler(currentWsStatus$1);
+    return () => wsStatusHandlers.delete(handler);
+  }
+  function emitCustomChatWsStatus(status) {
+    currentWsStatus$1 = status;
+    for (const handler of wsStatusHandlers) {
+      handler(status);
+    }
+  }
+  function chatEventTime(ts = Date.now()) {
+    return new Date(ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  }
+  const RATE_LIMIT_CODES = new Set([10030, 10031]);
+  const MUTED_CODES = new Set([10024, 11004]);
+  const BLOCKED_CODES = new Set([11002, 11003]);
+  const ACCOUNT_CODES = new Set([-101, -352, 10005, 10006, 10021]);
+  function classifyByCode(code) {
+    if (code === void 0) return null;
+    if (RATE_LIMIT_CODES.has(code)) return "rate-limit";
+    if (MUTED_CODES.has(code)) return "muted";
+    if (BLOCKED_CODES.has(code)) return "blocked";
+    if (ACCOUNT_CODES.has(code)) return "account";
+    return null;
+  }
   function isRateLimitError(error) {
     if (!error) return false;
     return error.includes("频率") || error.includes("过快") || error.toLowerCase().includes("rate");
@@ -1601,20 +1722,12 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     XMLHttpRequest.prototype.send = function(body) {
       const url = this._url;
       if (url?.includes("/x/web-interface/nav")) {
-        console.log("[LAPLACE Chatterbox] Intercepted request:", url);
         this.addEventListener("load", function() {
           try {
             const data = JSON.parse(this.responseText);
             const keys = extractWbiKeys(data);
-            if (keys) {
-              console.log("[LAPLACE Chatterbox] wbi_img:", data.data.wbi_img);
-              setCachedWbiKeys(keys);
-              console.log("[LAPLACE Chatterbox] Extracted WBI keys:", cachedWbiKeys);
-            } else {
-              console.log("[LAPLACE Chatterbox] Response received but wbi_img not found:", data);
-            }
-          } catch (err) {
-            console.error("[LAPLACE Chatterbox] Error parsing response:", err);
+            if (keys) setCachedWbiKeys(keys);
+          } catch {
           }
         });
       }
@@ -1762,6 +1875,20 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   function getDedeUid() {
     return getCookie$1("DedeUserID");
   }
+  function getLiveLocalEchoName() {
+    const selectors = [
+      ".user-panel-ctnr .user-name",
+      ".right-ctnr .userinfo-ctnr .uname",
+      ".chat-control-panel-vm .user-name",
+      '[class*="user-panel"] [class*="user-name"]',
+      '[class*="user-info"] [class*="name"]'
+    ];
+    for (const selector of selectors) {
+      const text = document.querySelector(selector)?.textContent?.trim();
+      if (text) return text;
+    }
+    return "我";
+  }
   async function getRoomId(url = window.location.href) {
     const shortUid = safeExtractRoomNumber(url);
     if (!shortUid) throw new Error("无法从当前页面 URL 解析直播间号");
@@ -1906,6 +2033,33 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     if (roomId === null || roomId <= 0) return null;
     return { ...anchor, roomId, source: "anchor-uid" };
   }
+  function followEntryToAnchor(entry) {
+    if (typeof entry !== "object" || entry === null) return null;
+    const obj = entry;
+    const anchorUid = toNumber(obj.mid) ?? toNumber(obj.uid);
+    if (anchorUid === null || anchorUid <= 0) return null;
+    return {
+      anchorUid,
+      anchorName: firstString(obj.uname, obj.name, obj.nickname)
+    };
+  }
+  async function fetchFollowingPage(uid, page) {
+    const query = new URLSearchParams({
+      vmid: uid,
+      pn: String(page),
+      ps: "50",
+      order: "desc",
+      order_type: "attention"
+    });
+    const resp = await fetch(`${BASE_URL.BILIBILI_FOLLOWINGS}?${query.toString()}`, {
+      method: "GET",
+      credentials: "include"
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+    const json = await resp.json();
+    if (json.code !== 0) throw new Error(json.message ?? json.msg ?? `code ${json.code}`);
+    return (json.data?.list ?? []).map(followEntryToAnchor).filter((entry) => entry !== null);
+  }
   async function fetchMedalRooms() {
     const uid = getDedeUid();
     if (!uid) throw new Error("未找到登录 UID，请先登录 Bilibili");
@@ -1926,6 +2080,31 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     const deduped = new Map();
     for (const room of rooms) deduped.set(room.roomId, room);
     return [...deduped.values()];
+  }
+  async function fetchFollowingRooms(maxPages = 4) {
+    const uid = getDedeUid();
+    if (!uid) throw new Error("未找到登录 UID，请先登录 Bilibili");
+    const anchors = [];
+    for (let page = 1; page <= maxPages; page += 1) {
+      const items = await fetchFollowingPage(uid, page);
+      anchors.push(...items);
+      if (items.length < 50) break;
+    }
+    const rooms = new Map();
+    for (const anchor of anchors) {
+      const room = await fetchRoomByAnchorUid({
+        medalName: "",
+        anchorName: anchor.anchorName,
+        anchorUid: anchor.anchorUid
+      });
+      if (!room) continue;
+      rooms.set(room.roomId, {
+        roomId: room.roomId,
+        anchorName: room.anchorName,
+        anchorUid: room.anchorUid ?? anchor.anchorUid
+      });
+    }
+    return [...rooms.values()];
   }
   async function fetchRoomUserInfoSignals(roomId) {
     const resp = await fetch(`${BASE_URL.BILIBILI_ROOM_USER_INFO}?room_id=${roomId}&from=0`, {
@@ -2060,6 +2239,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
           errorData: json.data
         };
       }
+      emitLocalDanmakuEcho(message, getDedeUid() ?? null, { uname: getLiveLocalEchoName() });
       return {
         success: true,
         message,
@@ -2157,99 +2337,6 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       text: winner?.text ?? null,
       candidates
     };
-  }
-  const handlers = new Set();
-  const wsStatusHandlers = new Set();
-  let currentWsStatus$1 = "off";
-  const recentDanmakuHistory = [];
-  const RECENT_DANMAKU_HISTORY_MS = 15e3;
-  const RECENT_DANMAKU_HISTORY_MAX = 240;
-  function subscribeCustomChatEvents(handler) {
-    handlers.add(handler);
-    return () => handlers.delete(handler);
-  }
-  function pruneRecentDanmakuHistory(now = Date.now()) {
-    while (recentDanmakuHistory.length > 0 && now - recentDanmakuHistory[0].observedAt > RECENT_DANMAKU_HISTORY_MS) {
-      recentDanmakuHistory.shift();
-    }
-    while (recentDanmakuHistory.length > RECENT_DANMAKU_HISTORY_MAX) {
-      recentDanmakuHistory.shift();
-    }
-  }
-  function rememberRecentDanmaku(event) {
-    if (event.kind !== "danmaku") return;
-    if (event.source !== "dom" && event.source !== "ws" && event.source !== "local") return;
-    const text = event.text.trim();
-    if (!text) return;
-    const now = Date.now();
-    pruneRecentDanmakuHistory(now);
-    recentDanmakuHistory.push({
-      text,
-      uid: event.uid,
-      source: event.source,
-      observedAt: now
-    });
-  }
-  function findRecentCustomChatDanmakuSource(text, uid, sinceTs) {
-    const target = text.trim();
-    if (!target) return null;
-    pruneRecentDanmakuHistory();
-    for (let i2 = recentDanmakuHistory.length - 1; i2 >= 0; i2--) {
-      const event = recentDanmakuHistory[i2];
-      if (event.observedAt < sinceTs) break;
-      if (event.text !== target) continue;
-      if (uid && event.uid && event.uid !== uid) continue;
-      return event.source;
-    }
-    return null;
-  }
-  function normalizeEventKind(event) {
-    const signal = `${event.kind} ${event.text} ${event.badges.join(" ")} ${event.rawCmd ?? ""}`;
-    if (/SUPER_CHAT/i.test(signal)) return "superchat";
-    if (/GUARD|舰长|提督|总督|大航海|privilege/i.test(signal)) return "guard";
-    if (/红包|RED|ENVELOP/i.test(signal)) return "redpacket";
-    if (/天选|LOTTERY|ANCHOR_LOT/i.test(signal)) return "lottery";
-    if (/点赞|LIKE/i.test(signal)) return "like";
-    if (/分享|SHARE/i.test(signal)) return "share";
-    if (/关注|FOLLOW/i.test(signal)) return "follow";
-    return event.kind;
-  }
-  function normalizeCustomChatEvent(event) {
-    const kind = normalizeEventKind(event);
-    return {
-      ...event,
-      kind,
-      text: event.text.trim(),
-      uname: event.uname.trim() || "匿名",
-      badges: [...new Set(event.badges.map((item) => item.trim()).filter(Boolean))],
-      fields: event.fields?.map((field) => ({
-        ...field,
-        key: field.key.trim(),
-        label: field.label.trim(),
-        value: field.value.trim()
-      })).filter((field) => field.key && field.label && field.value)
-    };
-  }
-  function emitCustomChatEvent(event) {
-    const normalized = normalizeCustomChatEvent(event);
-    rememberRecentDanmaku(normalized);
-    for (const handler of handlers) {
-      handler(normalized);
-    }
-  }
-  function subscribeCustomChatWsStatus(handler) {
-    wsStatusHandlers.add(handler);
-    handler(currentWsStatus$1);
-    return () => wsStatusHandlers.delete(handler);
-  }
-  function emitCustomChatWsStatus(status) {
-    currentWsStatus$1 = status;
-    for (const handler of wsStatusHandlers) {
-      handler(status);
-    }
-  }
-  function chatEventTime(ts = Date.now()) {
-    return new Date(ts).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
   }
   const subscriptions = new Set();
   let observer = null;
@@ -2362,8 +2449,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     if (sub.onAttach) {
       try {
         sub.onAttach(container);
-      } catch (err) {
-        console.error("[danmaku-stream] onAttach error:", err);
+      } catch {
       }
     }
     if (sub.emitExisting && sub.onMessage) {
@@ -2374,8 +2460,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
         if (!ev) continue;
         try {
           onMessage(ev);
-        } catch (err) {
-          console.error("[danmaku-stream] emitExisting error:", err);
+        } catch {
         }
       }
     }
@@ -2406,8 +2491,7 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
             if (!sub.onMessage) continue;
             try {
               sub.onMessage(ev);
-            } catch (err) {
-              console.error("[danmaku-stream] onMessage error:", err);
+            } catch {
             }
           }
         }
@@ -2452,7 +2536,6 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
     if (!healthTimer) {
       healthTimer = setInterval(() => {
         if (attached && !attached.isConnected) {
-          console.log("[danmaku-stream] chat container detached, re-attaching...");
           observer?.disconnect();
           observer = null;
           attached = null;
@@ -2468,6 +2551,13 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
   const guardRoomLiveDeskSessionId = gmSignal("guardRoomLiveDeskSessionId", "");
   const guardRoomLiveDeskHeartbeatSec = gmSignal("guardRoomLiveDeskHeartbeatSec", 30);
   const guardRoomCurrentRiskLevel = y$1("pass");
+  const guardRoomAgentConnected = y$1(false);
+  const guardRoomAgentStatusText = y$1("未连接");
+  const guardRoomAgentLastSyncAt = y$1(null);
+  const guardRoomAgentWatchlistCount = y$1(0);
+  const guardRoomAgentLiveCount = y$1(0);
+  const guardRoomWatchlistRooms = y$1([]);
+  const guardRoomAppliedProfile = y$1(null);
   function normalizeGuardRoomEndpoint$1(endpoint) {
     return endpoint.trim().replace(/\/+$/, "");
   }
@@ -2513,21 +2603,6 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       body: JSON.stringify(payload)
     }).catch(() => void 0);
   }
-  async function createGuardRoomLiveDeskSession(name = "老大爷值班台") {
-    const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
-    const syncKey = guardRoomSyncKey.value.trim();
-    if (!endpoint || !syncKey) return null;
-    const response = await fetch(`${endpoint}/api/live-desk/sessions`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-sync-key": syncKey
-      },
-      body: JSON.stringify({ name })
-    }).catch(() => null);
-    if (!response?.ok) return null;
-    return await response.json();
-  }
   async function syncGuardRoomLiveDeskHeartbeat(input) {
     const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
     const syncKey = guardRoomSyncKey.value.trim();
@@ -2545,1084 +2620,33 @@ BILIBILI_SILENT_USER_LIST: "https://api.live.bilibili.com/xlive/web-ucenter/v1/b
       })
     }).catch(() => void 0);
   }
-  function buildGuardRoomLiveDeskUrl(roomId, sessionId) {
-    const url = new URL(`https://live.bilibili.com/${roomId}`);
-    url.searchParams.set("guard_room_source", "guard-room");
-    url.searchParams.set("guard_room_mode", "dry-run");
-    url.searchParams.set("guard_room_autostart", "1");
-    url.searchParams.set("guard_room_session", sessionId);
-    return url.toString();
-  }
-  const MAX_PER_HOUR = 5;
-  const MAX_CANDIDATES = 15;
-  const MAX_SEEN = 200;
-  const MIN_RECURRENCE_GAP_MS = 10 * 60 * 1e3;
-  const SESSION_MAP_KEY = "memeSessionMap";
-  const SESSION_MAP_MAX_AGE_MS = 2 * 60 * 60 * 1e3;
-  function loadSessionMap() {
-    const raw = _GM_getValue(SESSION_MAP_KEY, {});
-    const now = Date.now();
-    const map = new Map();
-    for (const [text, timestamps] of Object.entries(raw)) {
-      const last = timestamps.at(-1);
-      if (last !== void 0 && now - last < SESSION_MAP_MAX_AGE_MS) {
-        map.set(text, timestamps);
-      }
-    }
-    return map;
-  }
-  function saveSessionMap(map) {
-    const raw = {};
-    for (const [text, timestamps] of map) raw[text] = timestamps;
-    _GM_setValue(SESSION_MAP_KEY, raw);
-  }
-  const sessionMap = loadSessionMap();
-  const nominationTimestamps = [];
-  function passesQualityFilter(text) {
-    const len = text.length;
-    if (len < 4 || len > 30) return false;
-    if (/^\d+$/.test(text)) return false;
-    if ([...text].every((c2) => c2 === text[0])) return false;
-    if (/^[\p{P}\p{S}\s]+$/u.test(text)) return false;
-    return true;
-  }
-  function recordMemeCandidate(text) {
-    if (!enableMemeContribution.value) return;
-    if (!passesQualityFilter(text)) return;
-    const now = Date.now();
-    const times = sessionMap.get(text) ?? [];
-    times.push(now);
-    sessionMap.set(text, times);
-    saveSessionMap(sessionMap);
-    if (times.length < 2) return;
-    if (now - times[0] < MIN_RECURRENCE_GAP_MS) return;
-    if (memeContributorSeenTexts.value.includes(text)) return;
-    if (memeContributorCandidates.value.includes(text)) return;
-    const oneHourAgo = now - 36e5;
-    const recentCount = nominationTimestamps.filter((t2) => t2 >= oneHourAgo).length;
-    if (recentCount >= MAX_PER_HOUR) return;
-    const candidates = [...memeContributorCandidates.value, text];
-    memeContributorCandidates.value = candidates.length > MAX_CANDIDATES ? candidates.slice(-MAX_CANDIDATES) : candidates;
-    const seen2 = [...memeContributorSeenTexts.value, text];
-    memeContributorSeenTexts.value = seen2.length > MAX_SEEN ? seen2.slice(-MAX_SEEN) : seen2;
-    nominationTimestamps.push(now);
-    appendLog(`[贡献者] 检测到高质量烂梗 "${text}"，已加入待贡献池`);
-  }
-  function ignoreMemeCandidate(text) {
-    memeContributorCandidates.value = memeContributorCandidates.value.filter((c2) => c2 !== text);
-    if (!memeContributorSeenTexts.value.includes(text)) {
-      const seen2 = [...memeContributorSeenTexts.value, text];
-      memeContributorSeenTexts.value = seen2.length > MAX_SEEN ? seen2.slice(-MAX_SEEN) : seen2;
-    }
-  }
-  function clearMemeSession() {
-    sessionMap.clear();
-    saveSessionMap(sessionMap);
-  }
-  const SendPriority = {
-    AUTO: 0,
-    STT: 1,
-    MANUAL: 2
-  };
-  const HARD_MIN_GAP_MS = 1010;
-  const queue = [];
-  let processing = false;
-  let lastSendCompletedAt = 0;
-  let inflight = null;
-  function cancelAutoItem(item, error) {
-    if (item.cancelled || item.priority !== SendPriority.AUTO) return;
-    item.cancelled = true;
-    item.resolve({ success: false, cancelled: true, message: item.message, isEmoticon: false, error });
-  }
-  function insertByPriority(item) {
-    let i2 = queue.length;
-    while (i2 > 0 && queue[i2 - 1].priority < item.priority) i2--;
-    queue.splice(i2, 0, item);
-  }
-  async function processQueue() {
-    if (processing) return;
-    processing = true;
-    try {
-      while (queue.length > 0) {
-        while (queue.length > 0 && queue[0].cancelled) queue.shift();
-        const item = queue.shift();
-        if (!item) break;
-        inflight = item;
-        if (lastSendCompletedAt > 0) {
-          const sinceLast = Date.now() - lastSendCompletedAt;
-          if (sinceLast < HARD_MIN_GAP_MS) {
-            await new Promise((r2) => setTimeout(r2, HARD_MIN_GAP_MS - sinceLast));
-          }
-        }
-        if (item.cancelled) {
-          inflight = null;
-          continue;
-        }
-        inflight = null;
-        try {
-          const result = await sendDanmaku(item.message, item.roomId, item.csrfToken);
-          lastSendCompletedAt = Date.now();
-          item.resolve(result);
-        } catch (err) {
-          lastSendCompletedAt = Date.now();
-          item.reject(err);
-        }
-      }
-    } finally {
-      processing = false;
-    }
-  }
-  function enqueueDanmaku(message, roomId, csrfToken, priority = SendPriority.AUTO) {
-    return new Promise((resolve, reject) => {
-      const item = { message, roomId, csrfToken, priority, resolve, reject, cancelled: false };
-      insertByPriority(item);
-      if (priority === SendPriority.MANUAL) {
-        if (inflight !== null) cancelAutoItem(inflight, "preempted");
-        for (const q2 of queue) {
-          if (q2 !== item) cancelAutoItem(q2, "preempted");
-        }
-      }
-      void processQueue();
+  async function syncGuardRoomWatchlist(rooms) {
+    const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
+    const syncKey = guardRoomSyncKey.value.trim();
+    if (!endpoint || !syncKey) return;
+    await fetch(`${endpoint}/api/watchlists/sync`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-sync-key": syncKey
+      },
+      body: JSON.stringify({ rooms })
+    }).then((response) => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
     });
   }
-  function cancelPendingAuto() {
-    if (inflight !== null) cancelAutoItem(inflight, "loop-stopped");
-    for (const q2 of queue) cancelAutoItem(q2, "loop-stopped");
-  }
-  const trendMap = new Map();
-  let cooldownUntil = 0;
-  let unsubscribe$2 = null;
-  let cleanupTimer = null;
-  let burstSettleTimer = null;
-  let pendingBurstText = null;
-  let routineTimeout = null;
-  let routineActive = false;
-  let myUid = null;
-  let isSending = false;
-  let rateLimitHitCount = 0;
-  let firstRateLimitHitAt = 0;
-  let moderationStopReason = null;
-  const recentDomDanmaku = [];
-  const RATE_LIMIT_BACKOFF_MS = 2 * 60 * 1e3;
-  const SEND_ECHO_TIMEOUT_MS = 4e3;
-  const RECENT_DOM_DANMAKU_HISTORY_MS = 15e3;
-  const RECENT_DOM_DANMAKU_HISTORY_MAX = 240;
-  function getBurstSettleMs() {
-    return Math.max(0, autoBlendBurstSettleMs.value);
-  }
-  function getRateLimitWindowMs() {
-    return Math.max(1, autoBlendRateLimitWindowMin.value) * 60 * 1e3;
-  }
-  function getRateLimitStopThreshold() {
-    return Math.max(1, autoBlendRateLimitStopThreshold.value);
-  }
-  function getRateLimitWindowLabel() {
-    return `${Math.max(1, autoBlendRateLimitWindowMin.value)} 分钟内`;
-  }
-  function clearPendingAutoBlend(reason) {
-    if (burstSettleTimer) {
-      clearTimeout(burstSettleTimer);
-      burstSettleTimer = null;
-    }
-    pendingBurstText = null;
-    trendMap.clear();
-    updateCandidateText();
-    autoBlendLastActionText.value = reason;
-  }
-  function stopAutoBlendAfterModeration(reason) {
-    moderationStopReason = reason;
-    clearPendingAutoBlend(reason);
-    autoBlendEnabled.value = false;
-    appendLog(reason);
-  }
-  function handleSendFailure(result, roomId) {
-    const now = Date.now();
-    const error = result.error;
-    const duration = describeRestrictionDuration(result.error, result.errorData);
-    if (isMutedError(error)) {
-      const risk = classifyRiskEvent(result.error, result.errorData);
-      void syncGuardRoomRiskEvent({
-        ...risk,
-        source: "auto-blend",
-        roomId,
-        errorCode: result.errorCode,
-        reason: result.error
-      });
-      stopAutoBlendAfterModeration(`自动跟车：检测到你在本房间被禁言，已自动关闭。禁言时长：${duration}。`);
-      return true;
-    }
-    if (isAccountRestrictedError(error)) {
-      const risk = classifyRiskEvent(result.error, result.errorData);
-      void syncGuardRoomRiskEvent({
-        ...risk,
-        source: "auto-blend",
-        roomId,
-        errorCode: result.errorCode,
-        reason: result.error
-      });
-      stopAutoBlendAfterModeration(`自动跟车：检测到账号级限制/风控，已自动关闭。限制时长：${duration}。`);
-      return true;
-    }
-    if (!isRateLimitError(error)) {
-      const risk = classifyRiskEvent(result.error, result.errorData);
-      void syncGuardRoomRiskEvent({
-        ...risk,
-        source: "auto-blend",
-        roomId,
-        errorCode: result.errorCode,
-        reason: result.error
-      });
-      return false;
-    }
-    if (now - firstRateLimitHitAt > getRateLimitWindowMs()) {
-      firstRateLimitHitAt = now;
-      rateLimitHitCount = 0;
-    }
-    rateLimitHitCount += 1;
-    if (rateLimitHitCount >= getRateLimitStopThreshold()) {
-      const windowLabel = getRateLimitWindowLabel();
-      void syncGuardRoomRiskEvent({
-        kind: "rate_limited",
-        source: "auto-blend",
-        level: "stop",
-        roomId,
-        errorCode: result.errorCode,
-        reason: result.error,
-        advice: `${windowLabel}多次触发频率限制，自动跟车已经停车，建议休息一阵再开。`
-      });
-      stopAutoBlendAfterModeration(`自动跟车：${windowLabel}多次触发发送频率限制，已自动关闭，避免继续被系统/房管盯上。`);
-      return true;
-    }
-    void syncGuardRoomRiskEvent({
-      kind: "rate_limited",
-      source: "auto-blend",
-      level: "observe",
-      roomId,
-      errorCode: result.errorCode,
-      reason: result.error,
-      advice: "触发发送频率限制，自动跟车会先歇 2 分钟。"
-    });
-    cooldownUntil = Math.max(cooldownUntil, now + RATE_LIMIT_BACKOFF_MS);
-    clearPendingAutoBlend(
-      `自动跟车：触发发送频率限制，已暂停 ${Math.round(RATE_LIMIT_BACKOFF_MS / 6e4)} 分钟并清空本轮候选。`
-    );
-    updateStatusText();
-    return true;
-  }
-  function countUniqueUids(events) {
-    const s2 = new Set();
-    for (const e2 of events) if (e2.uid) s2.add(e2.uid);
-    return s2.size;
-  }
-  function updateCandidateText() {
-    autoBlendCandidateText.value = formatAutoBlendCandidate(
-      Array.from(trendMap, ([text, entry]) => ({
-        text,
-        totalCount: entry.events.length,
-        uniqueUsers: countUniqueUids(entry.events)
-      }))
-    );
-  }
-  function updateStatusText() {
-    autoBlendStatusText.value = formatAutoBlendStatus({
-      enabled: autoBlendEnabled.value,
-      dryRun: autoBlendDryRun.value,
-      isSending,
-      cooldownUntil,
-      now: Date.now()
-    });
-  }
-  function pruneRecentDomDanmaku(now = Date.now()) {
-    while (recentDomDanmaku.length > 0 && now - recentDomDanmaku[0].observedAt > RECENT_DOM_DANMAKU_HISTORY_MS) {
-      recentDomDanmaku.shift();
-    }
-    while (recentDomDanmaku.length > RECENT_DOM_DANMAKU_HISTORY_MAX) {
-      recentDomDanmaku.shift();
-    }
-  }
-  function rememberRecentDomDanmaku(text, uid, observedAt) {
-    if (!text) return;
-    pruneRecentDomDanmaku(observedAt);
-    recentDomDanmaku.push({ text, uid, observedAt });
-  }
-  function findRecentDomDanmakuSource(text, uid, sinceTs) {
-    const target = text.trim();
-    if (!target) return null;
-    pruneRecentDomDanmaku();
-    for (let i2 = recentDomDanmaku.length - 1; i2 >= 0; i2--) {
-      const event = recentDomDanmaku[i2];
-      if (event.observedAt < sinceTs) break;
-      if (event.text !== target) continue;
-      if (uid && event.uid && event.uid !== uid) continue;
-      return "dom";
-    }
-    return null;
-  }
-  function matchesCustomChatEchoEvent(event, target, uid) {
-    return event.kind === "danmaku" && event.text.trim() === target && (!uid || !event.uid || event.uid === uid);
-  }
-  function matchesDomEchoEvent(event, target, uid) {
-    return event.text.trim() === target && (!uid || !event.uid || event.uid === uid);
-  }
-  function waitForSentEcho(text, uid, sinceTs, timeoutMs = SEND_ECHO_TIMEOUT_MS) {
-    const target = text.trim();
-    if (!target) return Promise.resolve(null);
-    const recentCustomSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs);
-    if (recentCustomSource) return Promise.resolve(recentCustomSource);
-    const recentDomSource = findRecentDomDanmakuSource(target, uid, sinceTs);
-    if (recentDomSource) return Promise.resolve(recentDomSource);
-    return new Promise((resolve) => {
-      let done = false;
-      let unsubscribeEvents2 = () => {
-      };
-      let unsubscribeDom2 = () => {
-      };
-      const finish = (source) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer2);
-        unsubscribeEvents2();
-        unsubscribeDom2();
-        resolve(source);
-      };
-      const timer2 = setTimeout(() => finish(null), timeoutMs);
-      unsubscribeEvents2 = subscribeCustomChatEvents((event) => {
-        if (!matchesCustomChatEchoEvent(event, target, uid)) return;
-        finish(event.source);
-      });
-      unsubscribeDom2 = subscribeDanmaku({
-        onMessage: (event) => {
-          if (!matchesDomEchoEvent(event, target, uid)) return;
-          finish("dom");
-        }
-      });
-      const lateSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs) ?? findRecentDomDanmakuSource(target, uid, sinceTs);
-      if (lateSource) finish(lateSource);
-    });
-  }
-  function pruneExpired(now) {
-    const windowMs = autoBlendWindowSec.value * 1e3;
-    for (const [k2, entry] of trendMap) {
-      entry.events = entry.events.filter((e2) => now - e2.ts <= windowMs);
-      if (entry.events.length === 0) trendMap.delete(k2);
-    }
-    updateCandidateText();
-  }
-  function getAutoBlendRepeatGapMs() {
-    return Math.max(autoBlendCooldownSec.value * 1e3, msgSendInterval.value * 1e3, 1010);
-  }
-  function getAutoBlendBurstGapMs() {
-    return Math.max(msgSendInterval.value * 1e3, 1010);
-  }
-  function meetsThreshold(entry) {
-    if (entry.events.length < autoBlendThreshold.value) return false;
-    if (autoBlendRequireDistinctUsers.value) {
-      const uniqueUids = countUniqueUids(entry.events);
-      const effectiveUnique = uniqueUids > 0 ? uniqueUids : entry.events.length;
-      if (effectiveUnique < autoBlendMinDistinctUsers.value) return false;
-    }
-    return true;
-  }
-  function pickBestTrendingText(preferredText) {
-    const windowMs = autoBlendWindowSec.value * 1e3;
-    const events = [];
-    for (const [text, entry] of trendMap) {
-      if (!meetsThreshold(entry)) continue;
-      for (const event of entry.events) events.push({ ...event, text });
-    }
-    const result = detectTrend(events, windowMs, autoBlendThreshold.value);
-    if (!result.shouldSend) return null;
-    if (preferredText && result.candidates.some((candidate) => candidate.text === preferredText)) return preferredText;
-    return result.text;
-  }
-  function scheduleBurstSend(text) {
-    pendingBurstText ??= text;
-    if (burstSettleTimer !== null) return;
-    burstSettleTimer = setTimeout(() => {
-      burstSettleTimer = null;
-      const preferredText = pendingBurstText;
-      pendingBurstText = null;
-      if (!autoBlendEnabled.value || isSending || Date.now() < cooldownUntil) {
-        updateStatusText();
-        return;
+  async function fetchGuardRoomControlProfile() {
+    const endpoint = normalizeGuardRoomEndpoint$1(guardRoomEndpoint.value);
+    const syncKey = guardRoomSyncKey.value.trim();
+    if (!endpoint || !syncKey) return null;
+    const response = await fetch(`${endpoint}/api/control-profile/current`, {
+      method: "GET",
+      headers: {
+        "x-sync-key": syncKey
       }
-      pruneExpired(Date.now());
-      const chosen = pickBestTrendingText(preferredText);
-      if (chosen !== null) void triggerSend(chosen, "burst");
-    }, getBurstSettleMs());
-  }
-  function maybeScheduleBurstFromCurrentTrends() {
-    if (!autoBlendEnabled.value || isSending || Date.now() < cooldownUntil || burstSettleTimer !== null) return;
-    const chosen = pickBestTrendingText(pendingBurstText);
-    if (chosen !== null) scheduleBurstSend(chosen);
-  }
-  function recordDanmaku(rawText, uid, isReply) {
-    if (!autoBlendEnabled.value) return;
-    const now = Date.now();
-    updateStatusText();
-    const text = rawText.trim();
-    if (!text) return;
-    rememberRecentDomDanmaku(text, uid, now);
-    if (isReply && !autoBlendIncludeReply.value) return;
-    if (uid && myUid && uid === myUid) return;
-    pruneExpired(now);
-    let entry = trendMap.get(text);
-    if (!entry) {
-      entry = { events: [] };
-      trendMap.set(text, entry);
-    }
-    entry.events.push({ ts: now, uid });
-    updateCandidateText();
-    if (now < cooldownUntil || isSending) return;
-    if (meetsThreshold(entry)) scheduleBurstSend(text);
-  }
-  function scheduleNextRoutine() {
-    routineTimeout = setTimeout(() => {
-      routineTimerTick();
-      if (routineActive) scheduleNextRoutine();
-    }, autoBlendRoutineIntervalSec.value * 1e3);
-  }
-  function routineTimerTick() {
-    if (!autoBlendEnabled.value) return;
-    const now = Date.now();
-    if (now < cooldownUntil) {
-      updateStatusText();
-      return;
-    }
-    updateStatusText();
-    pruneExpired(now);
-    const candidates = [];
-    for (const [text, entry] of trendMap) {
-      if (meetsThreshold(entry)) {
-        candidates.push([text, entry.events.length]);
-      }
-    }
-    if (candidates.length === 0) return;
-    const totalWeight = candidates.reduce((s2, [, c2]) => s2 + c2, 0);
-    let r2 = Math.random() * totalWeight;
-    let chosen = candidates[candidates.length - 1][0];
-    for (const [text, count] of candidates) {
-      r2 -= count;
-      if (r2 <= 0) {
-        chosen = text;
-        break;
-      }
-    }
-    void triggerSend(chosen, "routine");
-  }
-  function collectBurst(triggeredText, reason) {
-    if (reason !== "burst" || !autoBlendSendAllTrending.value) {
-      const entry = trendMap.get(triggeredText);
-      const uniqueUsers = entry ? countUniqueUids(entry.events) : 0;
-      const totalCount = entry ? entry.events.length : 0;
-      return [{ text: triggeredText, uniqueUsers, totalCount }];
-    }
-    const all = [];
-    for (const [text, entry] of trendMap) {
-      if (meetsThreshold(entry)) {
-        all.push({ text, uniqueUsers: countUniqueUids(entry.events), totalCount: entry.events.length });
-      }
-    }
-    all.sort((a2, b2) => {
-      if (b2.totalCount !== a2.totalCount) return b2.totalCount - a2.totalCount;
-      return a2.text === triggeredText ? -1 : 1;
-    });
-    return all.length > 0 ? all : [{ text: triggeredText, uniqueUsers: 0, totalCount: 0 }];
-  }
-  async function triggerSend(triggeredText, reason) {
-    if (isSending) {
-      if (reason === "routine") {
-        const text = shortAutoBlendText(triggeredText);
-        autoBlendLastActionText.value = `还在发，先跳过：${text}`;
-        appendLog(`自动跟车：还在发，先跳过补跟：${text}`);
-      }
-      return;
-    }
-    isSending = true;
-    updateStatusText();
-    pruneExpired(Date.now());
-    const targets = collectBurst(triggeredText, reason);
-    cooldownUntil = Date.now() + autoBlendCooldownSec.value * 1e3;
-    for (const { text } of targets) trendMap.delete(text);
-    updateCandidateText();
-    updateStatusText();
-    try {
-      const csrfToken = getCsrfToken();
-      if (!csrfToken) {
-        autoBlendLastActionText.value = "未登录，跳过";
-        appendLog("自动跟车：没检测到登录态，先跳过");
-        return;
-      }
-      const roomId = await ensureRoomId();
-      const reasonLabel = reason === "burst" ? "刚刷起来" : "补跟";
-      const isMulti = targets.length > 1;
-      if (isMulti) {
-        appendLog(`自动跟车：同一波有 ${targets.length} 句话达标，开始依次跟`);
-      }
-      let memeRecorded = false;
-      for (let ti = 0; ti < targets.length; ti++) {
-        const { text: originalText, uniqueUsers, totalCount } = targets[ti];
-        const isEmote = isEmoticonUnique(originalText);
-        const useReplacements = autoBlendUseReplacements.value && !isEmote;
-        const replaced = useReplacements ? applyReplacements(originalText) : originalText;
-        const wasReplaced = useReplacements && originalText !== replaced;
-        if (isMulti) {
-          appendLog(`  - ${shortAutoBlendText(originalText)}（${formatAutoBlendSenderInfo(uniqueUsers, totalCount)}）`);
-        }
-        const repeatCount = reason === "burst" && autoBlendSendAllTrending.value ? 1 : Math.max(1, autoBlendSendCount.value);
-        for (let i2 = 0; i2 < repeatCount; i2++) {
-          let toSend = replaced;
-          if (!isEmote && randomChar.value) toSend = addRandomCharacter(toSend);
-          if (!isEmote) toSend = trimText(toSend, maxLength.value)[0] ?? toSend;
-          if (!isEmote && randomColor.value) {
-            await setRandomDanmakuColor(roomId, csrfToken);
-          }
-          const display = wasReplaced || toSend !== originalText ? `${originalText} → ${toSend}` : toSend;
-          if (autoBlendDryRun.value) {
-            autoBlendLastActionText.value = `试运行命中：${shortAutoBlendText(display)}`;
-            appendLog(`自动跟车试运行（未发送）：${display}`);
-            continue;
-          }
-          const result = await enqueueDanmaku(toSend, roomId, csrfToken, SendPriority.AUTO);
-          if (isMulti) {
-            const label = repeatCount > 1 ? `自动跟车 [${i2 + 1}/${repeatCount}]` : "自动跟车";
-            appendLog(result, label, display);
-            if (result.success && !result.cancelled) {
-              autoBlendLastActionText.value = `已跟车：${shortAutoBlendText(display)}`;
-            } else if (result.cancelled) {
-              autoBlendLastActionText.value = `被手动发送打断：${shortAutoBlendText(display)}`;
-            } else {
-              autoBlendLastActionText.value = `没发出去：${shortAutoBlendText(display)}`;
-            }
-          } else {
-            const info = `${reasonLabel}，${formatAutoBlendSenderInfo(uniqueUsers, totalCount)}`;
-            const repeatSuffix = repeatCount > 1 ? ` [${i2 + 1}/${repeatCount}]` : "";
-            if (result.cancelled) {
-              autoBlendLastActionText.value = `被手动发送打断：${shortAutoBlendText(display)}`;
-              appendLog(`自动跟车${repeatSuffix}：被手动发送打断：${display}`);
-            } else if (result.success) {
-              autoBlendLastActionText.value = `已跟车：${shortAutoBlendText(display)}`;
-              appendLog(`已跟车${repeatSuffix}（${info}）：${display}`);
-            } else {
-              const error = formatDanmakuError(result.error);
-              autoBlendLastActionText.value = `没发出去：${shortAutoBlendText(display)}`;
-              appendLog(`自动跟车没发出去${repeatSuffix}（${info}）：${display}，原因：${error}`);
-            }
-          }
-          if (result.success && !result.cancelled) {
-            autoBlendLastActionText.value = `已提交，等待回显：${shortAutoBlendText(display)}`;
-            const echoSource = await waitForSentEcho(toSend, myUid, result.startedAt ?? Date.now());
-            if (echoSource) {
-              const sourceLabel = echoSource === "ws" ? "WS" : echoSource === "dom" ? "DOM" : "本地";
-              autoBlendLastActionText.value = `已${sourceLabel}回显：${shortAutoBlendText(display)}`;
-            } else {
-              autoBlendLastActionText.value = `接口成功但未看到回显：${shortAutoBlendText(display)}`;
-              appendLog(
-                `自动跟车接口成功，但 ${Math.round(SEND_ECHO_TIMEOUT_MS / 1e3)}s 内没有在聊天区看到回显：${display}`
-              );
-            }
-          }
-          if (!result.success && !result.cancelled && handleSendFailure(result, roomId)) return;
-          if (result.success && !result.cancelled && !isEmote && !memeRecorded) {
-            memeRecorded = true;
-            recordMemeCandidate(originalText);
-          }
-          cooldownUntil = Math.max(cooldownUntil, Date.now() + autoBlendCooldownSec.value * 1e3);
-          updateStatusText();
-          if (i2 < repeatCount - 1) {
-            const interval = getAutoBlendRepeatGapMs();
-            const offset = randomInterval.value ? Math.floor(Math.random() * 500) : 0;
-            await new Promise((r2) => setTimeout(r2, interval + offset));
-          }
-        }
-        if (isMulti && ti < targets.length - 1) {
-          await new Promise((r2) => setTimeout(r2, getAutoBlendBurstGapMs()));
-        }
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      autoBlendLastActionText.value = `出错：${msg}`;
-      appendLog(`自动跟车出错：${msg}`);
-    } finally {
-      isSending = false;
-      updateStatusText();
-    }
-  }
-  function startAutoBlend() {
-    if (unsubscribe$2) return;
-    myUid = getDedeUid() ?? null;
-    rateLimitHitCount = 0;
-    firstRateLimitHitAt = 0;
-    moderationStopReason = null;
-    recentDomDanmaku.length = 0;
-    autoBlendStatusText.value = "观察中";
-    autoBlendCandidateText.value = "暂无";
-    autoBlendLastActionText.value = "暂无";
-    unsubscribe$2 = subscribeDanmaku({
-      onMessage: (ev) => recordDanmaku(ev.text, ev.uid, ev.isReply)
-    });
-    if (cleanupTimer === null) {
-      cleanupTimer = setInterval(() => {
-        pruneExpired(Date.now());
-        updateStatusText();
-        maybeScheduleBurstFromCurrentTrends();
-      }, 1e3);
-    }
-    routineActive = true;
-    scheduleNextRoutine();
-  }
-  function stopAutoBlend() {
-    if (cleanupTimer) {
-      clearInterval(cleanupTimer);
-      cleanupTimer = null;
-    }
-    routineActive = false;
-    if (routineTimeout) {
-      clearTimeout(routineTimeout);
-      routineTimeout = null;
-    }
-    if (burstSettleTimer) {
-      clearTimeout(burstSettleTimer);
-      burstSettleTimer = null;
-    }
-    pendingBurstText = null;
-    if (unsubscribe$2) {
-      unsubscribe$2();
-      unsubscribe$2 = null;
-    }
-    trendMap.clear();
-    recentDomDanmaku.length = 0;
-    clearMemeSession();
-    cooldownUntil = 0;
-    autoBlendStatusText.value = "已关闭";
-    autoBlendCandidateText.value = "暂无";
-    autoBlendLastActionText.value = moderationStopReason ?? "暂无";
-    moderationStopReason = null;
-  }
-  function formatMilliyuanAmount(amount, symbol = "¥") {
-    if (!amount || !Number.isFinite(amount) || amount <= 0) return "";
-    const yuan = amount / 1e3;
-    if (yuan < 1) return `${symbol}${(Math.round(yuan * 10) / 10).toFixed(1)}`;
-    const rounded = Math.round(yuan * 10) / 10;
-    return Number.isInteger(rounded) ? `${symbol}${rounded}` : `${symbol}${rounded.toFixed(1)}`;
-  }
-  function formatMilliyuanBadgeAmount(amount) {
-    const formatted = formatMilliyuanAmount(amount, "");
-    return formatted ? `${formatted}元` : "";
-  }
-  const CUSTOM_CHAT_MAX_MESSAGES = 220;
-  const CUSTOM_CHAT_MAX_RENDER_BATCH = 36;
-  const CUSTOM_CHAT_MAX_RENDER_QUEUE = CUSTOM_CHAT_MAX_MESSAGES;
-  function trimRenderQueue(queue2) {
-    while (queue2.length > CUSTOM_CHAT_MAX_RENDER_QUEUE) queue2.shift();
-  }
-  function takeRenderBatch(queue2) {
-    return queue2.splice(0, CUSTOM_CHAT_MAX_RENDER_BATCH);
-  }
-  function shouldAnimateRenderBatch(batchSize) {
-    return batchSize <= 12;
-  }
-  function customChatBadgeType(raw) {
-    const value = raw.trim();
-    if (!value) return "other";
-    if (/GUARD|privilege|guard/i.test(value) || /[\u603b\u63d0\u8230][\u7763\u957f]|\u8230\u961f/.test(value))
-      return "guard";
-    if (/^\s*(?:UL|LV)\s*\d+/i.test(value)) return "ul";
-    if (/[\u623f\u7ba1]/.test(value) || /admin|moderator/i.test(value)) return "admin";
-    if (/[\u699c]\s*[123]|top\s*[123]|rank\s*[123]/i.test(value)) return "rank";
-    if (/[\u8363\u8000]/.test(value) || /honou?r/i.test(value)) return "honor";
-    if (/SC\s*\d+|^\d+(?:\.\d+)?\s*[\u5143]|[¥$]\s*\d+(?:\.\d+)?/i.test(value)) return "price";
-    if (/[^\s]\s+\d{1,3}$/.test(value)) return "medal";
-    return "other";
-  }
-  function shouldSuppressCustomChatEvent(event) {
-    return event.kind === "enter";
-  }
-  function customChatPriority(event) {
-    if (event.kind === "superchat" || event.kind === "guard") return "critical";
-    if (event.kind === "gift" || event.kind === "redpacket" || event.kind === "lottery") return "card";
-    if (event.kind === "enter" || event.kind === "follow" || event.kind === "like" || event.kind === "share")
-      return "lite";
-    if (event.kind === "notice" || event.kind === "system") return "lite";
-    if (event.badges.some((badge) => customChatBadgeType(badge) !== "other")) return "identity";
-    return "message";
-  }
-  function visibleRenderMessages(messages2, matches) {
-    return messages2.filter(matches).slice(-CUSTOM_CHAT_MAX_MESSAGES);
-  }
-  const CUSTOM_CHAT_SEARCH_KEYS = new Set(["user", "name", "from", "uid", "text", "msg", "kind", "type", "source", "is"]);
-  const CUSTOM_CHAT_SEARCH_KINDS = [
-    "danmaku",
-    "gift",
-    "superchat",
-    "guard",
-    "redpacket",
-    "lottery",
-    "enter",
-    "follow",
-    "like",
-    "share",
-    "notice",
-    "system"
-  ];
-  function kindLabel(kind) {
-    if (kind === "danmaku") return "弹幕";
-    if (kind === "gift") return "礼物";
-    if (kind === "superchat") return "SC";
-    if (kind === "guard") return "舰队";
-    if (kind === "redpacket") return "红包";
-    if (kind === "lottery") return "天选";
-    if (kind === "enter") return "进场";
-    if (kind === "follow") return "关注";
-    if (kind === "like") return "点赞";
-    if (kind === "share") return "分享";
-    if (kind === "notice") return "通知";
-    if (kind === "system") return "系统";
-    return kind;
-  }
-  function customChatSearchHint(query) {
-    for (const token of splitQuery(query)) {
-      const normalized = token.startsWith("-") ? token.slice(1).trim() : token.trim();
-      const colon = normalized.indexOf(":");
-      if (colon <= 0 || normalized.includes("://")) continue;
-      const key = normalized.slice(0, colon).toLowerCase();
-      const value = normalized.slice(colon + 1).trim().toLowerCase();
-      if (!isSearchFilterKey(key)) {
-        const suggestion = closestSearchSuggestion(key, [...CUSTOM_CHAT_SEARCH_KEYS]);
-        return suggestion ? `不认识 ${key}: 条件，试试 ${suggestion}:` : "不认识这个搜索条件";
-      }
-      if ((key === "kind" || key === "type") && value && !matchesKnownKind(value)) {
-        const suggestion = closestSearchSuggestion(value, CUSTOM_CHAT_SEARCH_KINDS);
-        return suggestion ? `没有这种类型，试试 kind:${suggestion}` : "没有这种消息类型";
-      }
-    }
-    return "";
-  }
-  function messageMatchesCustomChatSearch(message, query, isKindVisible) {
-    if (!isKindVisible(message.kind)) return false;
-    const tokens = splitQuery(query);
-    for (const rawToken of tokens) {
-      const negative = rawToken.startsWith("-");
-      const token = negative ? rawToken.slice(1) : rawToken;
-      const matched = tokenMatches(message, token);
-      if (negative ? matched : !matched) return false;
-    }
-    return true;
-  }
-  function splitQuery(query) {
-    return query.match(/(?:[^\s"]+|"[^"]*")+/g)?.map((token) => token.replace(/^"|"$/g, "").trim()).filter(Boolean) ?? [];
-  }
-  function isSearchFilterKey(key) {
-    return /^[a-z][a-z-]*$/i.test(key) && CUSTOM_CHAT_SEARCH_KEYS.has(key);
-  }
-  function includesFolded(value, needle) {
-    return value.toLowerCase().includes(needle.toLowerCase());
-  }
-  function matchesKnownKind(value) {
-    return CUSTOM_CHAT_SEARCH_KINDS.some((kind) => includesFolded(kind, value) || includesFolded(kindLabel(kind), value));
-  }
-  function levenshteinDistance(a2, b2) {
-    const previous = Array.from({ length: b2.length + 1 }, (_2, index) => index);
-    const current = Array.from({ length: b2.length + 1 }, () => 0);
-    for (let i2 = 1; i2 <= a2.length; i2++) {
-      current[0] = i2;
-      for (let j2 = 1; j2 <= b2.length; j2++) {
-        current[j2] = a2[i2 - 1] === b2[j2 - 1] ? previous[j2 - 1] : Math.min(previous[j2 - 1] + 1, previous[j2] + 1, current[j2 - 1] + 1);
-      }
-      previous.splice(0, previous.length, ...current);
-    }
-    return previous[b2.length];
-  }
-  function closestSearchSuggestion(value, candidates) {
-    const suggestion = candidates.map((candidate) => ({ value: candidate, distance: levenshteinDistance(value, candidate.toLowerCase()) })).sort((a2, b2) => a2.distance - b2.distance)[0];
-    return suggestion && suggestion.distance <= 3 ? suggestion.value : null;
-  }
-  function tokenMatches(message, token) {
-    const normalized = token.trim();
-    if (!normalized) return true;
-    const colon = normalized.indexOf(":");
-    if (colon > 0) {
-      const key = normalized.slice(0, colon).toLowerCase();
-      const value = normalized.slice(colon + 1);
-      if (key === "user" || key === "name" || key === "from") return includesFolded(message.uname, value);
-      if (key === "uid") return includesFolded(message.uid ?? "", value);
-      if (key === "text" || key === "msg") return includesFolded(message.text, value);
-      if (key === "kind" || key === "type")
-        return includesFolded(message.kind, value) || includesFolded(kindLabel(message.kind), value);
-      if (key === "source") return includesFolded(message.source, value);
-      if (key === "is") return value.toLowerCase() === "reply" ? message.isReply : false;
-    }
-    return includesFolded(message.text, normalized) || includesFolded(message.uname, normalized);
-  }
-  const pending = y$1(null);
-  function showConfirm(opts) {
-    return new Promise((resolve) => {
-      pending.value = { ...opts, resolve };
-    });
-  }
-  function AlertDialog() {
-    const ref = A(null);
-    const p2 = pending.value;
-    y$2(() => {
-      const dialog = ref.current;
-      if (!dialog) return;
-      if (p2) {
-        dialog.showModal();
-        if (p2.anchor) {
-          const rect = dialog.getBoundingClientRect();
-          const x2 = Math.max(0, Math.min(p2.anchor.x - rect.width / 2, window.innerWidth - rect.width));
-          const y2 = Math.max(0, Math.min(p2.anchor.y - rect.height - 8, window.innerHeight - rect.height));
-          dialog.style.margin = "0";
-          dialog.style.position = "fixed";
-          dialog.style.left = `${x2}px`;
-          dialog.style.top = `${y2}px`;
-        } else {
-          dialog.style.margin = "";
-          dialog.style.position = "";
-          dialog.style.left = "";
-          dialog.style.top = "";
-        }
-      } else {
-        dialog.close();
-      }
-    }, [p2]);
-    if (!p2) return null;
-    const close = (confirmed) => {
-      p2.resolve(confirmed);
-      pending.value = null;
-    };
-    return u$2(
-      "dialog",
-      {
-        ref,
-        onCancel: (e2) => {
-          e2.preventDefault();
-          close(false);
-        },
-        onClick: (e2) => {
-          if (p2.anchor && e2.target === ref.current) close(false);
-        },
-        onKeyDown: (e2) => {
-          if (p2.anchor && e2.key === "Escape") close(false);
-        },
-        style: {
-          border: "1px solid rgba(0, 0, 0, .08)",
-          borderRadius: "8px",
-          padding: "14px",
-          maxWidth: "320px",
-          fontSize: "12px",
-          color: "#1d1d1f",
-          background: "rgba(248, 248, 250, .92)",
-          boxShadow: "0 22px 60px rgba(0,0,0,.24)",
-          backdropFilter: "blur(26px) saturate(1.5)"
-        },
-        children: [
-          p2.title && u$2("p", { style: { margin: "0 0 .75em", wordBreak: "break-all" }, children: p2.title }),
-          p2.body && u$2("div", { style: { margin: "0 0 .75em", wordBreak: "break-all" }, children: p2.body }),
-u$2("div", { style: { display: "flex", justifyContent: "flex-end", gap: ".5em" }, children: [
-u$2(
-              "button",
-              {
-                type: "button",
-                onClick: () => close(false),
-                style: {
-                  border: "1px solid rgba(0,0,0,.08)",
-                  borderRadius: "8px",
-                  background: "#fff",
-                  padding: "5px 10px"
-                },
-                children: p2.cancelText ?? "取消"
-              }
-            ),
-u$2(
-              "button",
-              {
-                type: "button",
-                onClick: () => close(true),
-                style: {
-                  border: "1px solid #007aff",
-                  borderRadius: "8px",
-                  background: "#007aff",
-                  color: "#fff",
-                  padding: "5px 10px"
-                },
-                children: p2.confirmText ?? "确认"
-              }
-            )
-          ] })
-        ]
-      }
-    );
-  }
-  async function detectSensitiveWords(text) {
-    try {
-      const resp = await fetch(BASE_URL.LAPLACE_CHAT_AUDIT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          completionMetadata: { input: text }
-        })
-      });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
-      return data.completion ?? { hasSensitiveContent: false };
-    } catch (err) {
-      console.error("AI detection error:", err);
-      const msg = err instanceof Error ? err.message : String(err);
-      appendLog(`⚠️ AI检测服务出错：${msg}`);
-      return { hasSensitiveContent: false };
-    }
-  }
-  function insertInvisibleChars(word) {
-    const graphemes = getGraphemes(word);
-    return graphemes.join("­");
-  }
-  function processText(text) {
-    return insertInvisibleChars(text);
-  }
-  function replaceSensitiveWords(text, sensitiveWords) {
-    let result = text;
-    for (const word of sensitiveWords) {
-      result = result.split(word).join(processText(word));
-    }
-    return result;
-  }
-  async function tryAiEvasion(message, roomId, csrfToken, logPrefix) {
-    if (!aiEvasion.value) return { success: false };
-    appendLog(`🤖 ${logPrefix}AI规避：正在检测敏感词…`);
-    const detection = await detectSensitiveWords(message);
-    if (detection.hasSensitiveContent && detection.sensitiveWords && detection.sensitiveWords.length > 0) {
-      appendLog(`🤖 ${logPrefix}检测到敏感词：${detection.sensitiveWords.join(", ")}，正在尝试规避…`);
-      const evadedMessage = replaceSensitiveWords(message, detection.sensitiveWords);
-      const retryResult = await enqueueDanmaku(evadedMessage, roomId, csrfToken, SendPriority.MANUAL);
-      if (retryResult.success) {
-        appendLog(`✅ ${logPrefix}AI规避成功: ${evadedMessage}`);
-        return { success: true, evadedMessage };
-      }
-      appendLog(`❌ ${logPrefix}AI规避失败: ${evadedMessage}，原因：${retryResult.error}`);
-      return { success: false, evadedMessage, error: retryResult.error };
-    }
-    appendLog(`⚠️ ${logPrefix}无法检测到敏感词，请手动检查`);
-    return { success: false };
-  }
-  async function copyText(text) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      const textarea2 = document.createElement("textarea");
-      textarea2.value = text;
-      textarea2.style.position = "fixed";
-      textarea2.style.opacity = "0";
-      document.body.appendChild(textarea2);
-      textarea2.select();
-      const ok = document.execCommand("copy");
-      textarea2.remove();
-      return ok;
-    }
-  }
-  async function stealDanmaku(msg) {
-    const copied = await copyText(msg);
-    fasongText.value = msg;
-    if (!focusCustomChatComposer()) {
-      activeTab.value = "fasong";
-      dialogOpen.value = true;
-    }
-    appendLog(copied ? `🥷 偷并复制: ${msg}` : `🥷 偷: ${msg}`);
-  }
-  function focusCustomChatComposer() {
-    if (!customChatEnabled.value) return false;
-    const input = document.querySelector("#laplace-custom-chat textarea");
-    if (!input) return false;
-    input.value = fasongText.value;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
-    return true;
-  }
-  async function repeatDanmaku(msg, options = {}) {
-    if (options.confirm) {
-      const confirmed = await showConfirm({
-        title: "确认发送以下弹幕？",
-        body: msg,
-        confirmText: "发送",
-        anchor: options.anchor
-      });
-      if (!confirmed) return;
-    }
-    try {
-      const roomId = await ensureRoomId();
-      const csrfToken = getCsrfToken();
-      if (!csrfToken) {
-        appendLog("❌ 未找到登录信息，请先登录 Bilibili");
-        return;
-      }
-      const processed = applyReplacements(msg);
-      const result = await enqueueDanmaku(processed, roomId, csrfToken, SendPriority.MANUAL);
-      const display = msg !== processed ? `${msg} → ${processed}` : processed;
-      appendLog(result, "+1", display);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      appendLog(`🔴 +1 出错：${message}`);
-    }
-  }
-  async function sendManualDanmaku(originalMessage) {
-    const trimmed = originalMessage.trim();
-    if (!trimmed) {
-      appendLog("⚠️ 消息内容不能为空");
-      return false;
-    }
-    const isEmote = isEmoticonUnique(trimmed);
-    const processedMessage = isEmote ? trimmed : applyReplacements(trimmed);
-    const wasReplaced = !isEmote && trimmed !== processedMessage;
-    try {
-      const roomId = await ensureRoomId();
-      const csrfToken = getCsrfToken();
-      if (!csrfToken) {
-        appendLog("❌ 未找到登录信息，请先登录 Bilibili");
-        void syncGuardRoomRiskEvent({
-          kind: "login_missing",
-          source: "manual",
-          level: "observe",
-          roomId,
-          reason: "未找到登录信息",
-          advice: "先登录 Bilibili，再发送弹幕。"
-        });
-        return false;
-      }
-      const segments = isEmote ? [processedMessage] : processMessages(processedMessage, maxLength.value);
-      let allSuccess = true;
-      for (let i2 = 0; i2 < segments.length; i2++) {
-        const segment = segments[i2];
-        const result = await enqueueDanmaku(segment, roomId, csrfToken, SendPriority.MANUAL);
-        const baseLabel = result.isEmoticon ? "手动表情" : "手动";
-        const label = segments.length > 1 ? `${baseLabel} [${i2 + 1}/${segments.length}]` : baseLabel;
-        const displayMsg = wasReplaced && segments.length === 1 ? `${trimmed} → ${segment}` : segment;
-        appendLog(result, label, displayMsg);
-        if (!result.success) {
-          allSuccess = false;
-          const risk = classifyRiskEvent(result.error);
-          void syncGuardRoomRiskEvent({
-            ...risk,
-            source: "manual",
-            roomId,
-            errorCode: result.errorCode,
-            reason: result.error
-          });
-          if (aiEvasion.value) {
-            await tryAiEvasion(segment, roomId, csrfToken, "");
-          }
-        }
-        if (i2 < segments.length - 1) {
-          await new Promise((r2) => setTimeout(r2, msgSendInterval.value * 1e3));
-        }
-      }
-      return allSuccess;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      appendLog(`🔴 发送出错：${msg}`);
-      return false;
-    }
+    }).catch(() => null);
+    if (!response?.ok) return null;
+    return await response.json();
   }
   var LaplaceRawEvent = class extends Event {
     data;
@@ -5440,8 +4464,20 @@ ws;
       super(inflates, roomid, opts);
     }
   };
+  function formatMilliyuanAmount(amount, symbol = "¥") {
+    if (!amount || !Number.isFinite(amount) || amount <= 0) return "";
+    const yuan = amount / 1e3;
+    if (yuan < 1) return `${symbol}${(Math.round(yuan * 10) / 10).toFixed(1)}`;
+    const rounded = Math.round(yuan * 10) / 10;
+    return Number.isInteger(rounded) ? `${symbol}${rounded}` : `${symbol}${rounded.toFixed(1)}`;
+  }
+  function formatMilliyuanBadgeAmount(amount) {
+    const formatted = formatMilliyuanAmount(amount, "");
+    return formatted ? `${formatted}元` : "";
+  }
   let liveConnection = null;
   let started = false;
+  let consumerCount = 0;
   let reconnectTimer = null;
   let lastStartupFailure = "";
   let lastStartupFailureAt = 0;
@@ -5785,16 +4821,21 @@ ws;
       emitCustomChatWsStatus("error");
       const message = err instanceof Error ? err.message : String(err);
       appendStartupFailure(message);
-      reconnectTimer = setTimeout(() => void connect(), 8e3);
+      const delay = Math.min(3e4, 3e3 + reconnectAttempt * 2e3);
+      reconnectAttempt += 1;
+      reconnectTimer = setTimeout(() => void connect(), delay);
     }
   }
   function startLiveWsSource() {
+    consumerCount += 1;
     if (started) return;
     started = true;
     emitCustomChatWsStatus("connecting");
     void connect();
   }
   function stopLiveWsSource() {
+    consumerCount = Math.max(0, consumerCount - 1);
+    if (consumerCount > 0) return;
     started = false;
     connectionSerial += 1;
     emitCustomChatWsStatus("off");
@@ -5804,6 +4845,1080 @@ ws;
     }
     liveConnection?.close();
     liveConnection = null;
+  }
+  const MAX_PER_HOUR = 5;
+  const MAX_CANDIDATES = 15;
+  const MAX_SEEN = 200;
+  const MIN_RECURRENCE_GAP_MS = 10 * 60 * 1e3;
+  const SESSION_MAP_KEY = "memeSessionMap";
+  const SESSION_MAP_MAX_AGE_MS = 2 * 60 * 60 * 1e3;
+  function loadSessionMap() {
+    const raw = _GM_getValue(SESSION_MAP_KEY, {});
+    const now = Date.now();
+    const map = new Map();
+    for (const [text, timestamps] of Object.entries(raw)) {
+      const last = timestamps.at(-1);
+      if (last !== void 0 && now - last < SESSION_MAP_MAX_AGE_MS) {
+        map.set(text, timestamps);
+      }
+    }
+    return map;
+  }
+  function saveSessionMap(map) {
+    const raw = {};
+    for (const [text, timestamps] of map) raw[text] = timestamps;
+    _GM_setValue(SESSION_MAP_KEY, raw);
+  }
+  const sessionMap = loadSessionMap();
+  const nominationTimestamps = [];
+  function passesQualityFilter(text) {
+    const len = text.length;
+    if (len < 4 || len > 30) return false;
+    if (/^\d+$/.test(text)) return false;
+    if ([...text].every((c2) => c2 === text[0])) return false;
+    if (/^[\p{P}\p{S}\s]+$/u.test(text)) return false;
+    return true;
+  }
+  function recordMemeCandidate(text) {
+    if (!enableMemeContribution.value) return;
+    if (!passesQualityFilter(text)) return;
+    const now = Date.now();
+    const times = sessionMap.get(text) ?? [];
+    times.push(now);
+    sessionMap.set(text, times);
+    saveSessionMap(sessionMap);
+    if (times.length < 2) return;
+    if (now - times[0] < MIN_RECURRENCE_GAP_MS) return;
+    if (memeContributorSeenTexts.value.includes(text)) return;
+    if (memeContributorCandidates.value.includes(text)) return;
+    const oneHourAgo = now - 36e5;
+    const recentCount = nominationTimestamps.filter((t2) => t2 >= oneHourAgo).length;
+    if (recentCount >= MAX_PER_HOUR) return;
+    const candidates = [...memeContributorCandidates.value, text];
+    memeContributorCandidates.value = candidates.length > MAX_CANDIDATES ? candidates.slice(-MAX_CANDIDATES) : candidates;
+    const seen2 = [...memeContributorSeenTexts.value, text];
+    memeContributorSeenTexts.value = seen2.length > MAX_SEEN ? seen2.slice(-MAX_SEEN) : seen2;
+    nominationTimestamps.push(now);
+    appendLog(`[贡献者] 检测到高质量烂梗 "${text}"，已加入待贡献池`);
+  }
+  function ignoreMemeCandidate(text) {
+    memeContributorCandidates.value = memeContributorCandidates.value.filter((c2) => c2 !== text);
+    if (!memeContributorSeenTexts.value.includes(text)) {
+      const seen2 = [...memeContributorSeenTexts.value, text];
+      memeContributorSeenTexts.value = seen2.length > MAX_SEEN ? seen2.slice(-MAX_SEEN) : seen2;
+    }
+  }
+  function clearMemeSession() {
+    sessionMap.clear();
+    saveSessionMap(sessionMap);
+  }
+  const SendPriority = {
+    AUTO: 0,
+    STT: 1,
+    MANUAL: 2
+  };
+  const HARD_MIN_GAP_MS = 1010;
+  const queue = [];
+  let processing = false;
+  let lastSendCompletedAt = 0;
+  let inflight = null;
+  function cancelAutoItem(item, error) {
+    if (item.cancelled || item.priority !== SendPriority.AUTO) return;
+    item.cancelled = true;
+    item.resolve({ success: false, cancelled: true, message: item.message, isEmoticon: false, error });
+  }
+  function insertByPriority(item) {
+    let i2 = queue.length;
+    while (i2 > 0 && queue[i2 - 1].priority < item.priority) i2--;
+    queue.splice(i2, 0, item);
+  }
+  async function processQueue() {
+    if (processing) return;
+    processing = true;
+    try {
+      while (queue.length > 0) {
+        while (queue.length > 0 && queue[0].cancelled) queue.shift();
+        const item = queue.shift();
+        if (!item) break;
+        inflight = item;
+        if (lastSendCompletedAt > 0) {
+          const sinceLast = Date.now() - lastSendCompletedAt;
+          if (sinceLast < HARD_MIN_GAP_MS) {
+            await new Promise((r2) => setTimeout(r2, HARD_MIN_GAP_MS - sinceLast));
+          }
+        }
+        if (item.cancelled) {
+          inflight = null;
+          continue;
+        }
+        inflight = null;
+        try {
+          const result = await sendDanmaku(item.message, item.roomId, item.csrfToken);
+          lastSendCompletedAt = Date.now();
+          item.resolve(result);
+        } catch (err) {
+          lastSendCompletedAt = Date.now();
+          item.reject(err);
+        }
+      }
+    } finally {
+      processing = false;
+    }
+  }
+  function enqueueDanmaku(message, roomId, csrfToken, priority = SendPriority.AUTO) {
+    return new Promise((resolve, reject) => {
+      const item = { message, roomId, csrfToken, priority, resolve, reject, cancelled: false };
+      insertByPriority(item);
+      if (priority === SendPriority.MANUAL) {
+        if (inflight !== null) cancelAutoItem(inflight, "preempted");
+        for (const q2 of queue) {
+          if (q2 !== item) cancelAutoItem(q2, "preempted");
+        }
+      }
+      void processQueue();
+    });
+  }
+  function cancelPendingAuto() {
+    if (inflight !== null) cancelAutoItem(inflight, "loop-stopped");
+    for (const q2 of queue) cancelAutoItem(q2, "loop-stopped");
+  }
+  const trendMap = new Map();
+  let cooldownUntil = 0;
+  let unsubscribe$2 = null;
+  let unsubscribeWsDanmaku = null;
+  let cleanupTimer = null;
+  let burstSettleTimer = null;
+  let pendingBurstText = null;
+  let routineTimeout = null;
+  let routineActive = false;
+  let myUid = null;
+  let isSending = false;
+  let rateLimitHitCount = 0;
+  let firstRateLimitHitAt = 0;
+  let moderationStopReason = null;
+  const recentDomDanmaku = [];
+  const RATE_LIMIT_BACKOFF_MS = 2 * 60 * 1e3;
+  const SEND_ECHO_TIMEOUT_MS = 4e3;
+  const RECENT_DOM_DANMAKU_HISTORY_MS = 15e3;
+  const RECENT_DOM_DANMAKU_HISTORY_MAX = 240;
+  function getBurstSettleMs() {
+    return Math.max(0, autoBlendBurstSettleMs.value);
+  }
+  function getRateLimitWindowMs() {
+    return Math.max(1, autoBlendRateLimitWindowMin.value) * 60 * 1e3;
+  }
+  function getRateLimitStopThreshold() {
+    return Math.max(1, autoBlendRateLimitStopThreshold.value);
+  }
+  function getRateLimitWindowLabel() {
+    return `${Math.max(1, autoBlendRateLimitWindowMin.value)} 分钟内`;
+  }
+  function clearPendingAutoBlend(reason) {
+    if (burstSettleTimer) {
+      clearTimeout(burstSettleTimer);
+      burstSettleTimer = null;
+    }
+    pendingBurstText = null;
+    trendMap.clear();
+    updateCandidateText();
+    autoBlendLastActionText.value = reason;
+  }
+  function stopAutoBlendAfterModeration(reason) {
+    moderationStopReason = reason;
+    clearPendingAutoBlend(reason);
+    autoBlendEnabled.value = false;
+    appendLog(reason);
+  }
+  function handleSendFailure(result, roomId) {
+    const now = Date.now();
+    const error = result.error;
+    const duration = describeRestrictionDuration(result.error, result.errorData);
+    const codeKind = classifyByCode(result.errorCode);
+    if (codeKind === "muted" || codeKind === null && isMutedError(error)) {
+      const risk = classifyRiskEvent(result.error, result.errorData);
+      void syncGuardRoomRiskEvent({
+        ...risk,
+        source: "auto-blend",
+        roomId,
+        errorCode: result.errorCode,
+        reason: result.error
+      });
+      stopAutoBlendAfterModeration(`🔴 自动跟车：检测到你在本房间被禁言，已自动关闭。禁言时长：${duration}。`);
+      return true;
+    }
+    if (codeKind === "account" || codeKind === null && isAccountRestrictedError(error)) {
+      const risk = classifyRiskEvent(result.error, result.errorData);
+      void syncGuardRoomRiskEvent({
+        ...risk,
+        source: "auto-blend",
+        roomId,
+        errorCode: result.errorCode,
+        reason: result.error
+      });
+      stopAutoBlendAfterModeration(`🔴 自动跟车：检测到账号级限制/风控，已自动关闭。限制时长：${duration}。`);
+      return true;
+    }
+    const isRateLimit = codeKind === "rate-limit" || codeKind === null && isRateLimitError(error);
+    if (!isRateLimit) {
+      const risk = classifyRiskEvent(result.error, result.errorData);
+      void syncGuardRoomRiskEvent({
+        ...risk,
+        source: "auto-blend",
+        roomId,
+        errorCode: result.errorCode,
+        reason: result.error
+      });
+      return false;
+    }
+    if (now - firstRateLimitHitAt > getRateLimitWindowMs()) {
+      firstRateLimitHitAt = now;
+      rateLimitHitCount = 0;
+    }
+    rateLimitHitCount += 1;
+    if (rateLimitHitCount >= getRateLimitStopThreshold()) {
+      const windowLabel = getRateLimitWindowLabel();
+      void syncGuardRoomRiskEvent({
+        kind: "rate_limited",
+        source: "auto-blend",
+        level: "stop",
+        roomId,
+        errorCode: result.errorCode,
+        reason: result.error,
+        advice: `${windowLabel}多次触发频率限制，自动跟车已经停车，建议休息一阵再开。`
+      });
+      stopAutoBlendAfterModeration(
+        `⚠️ 自动跟车：${windowLabel}多次触发发送频率限制，已自动关闭，避免继续被系统/房管盯上。`
+      );
+      return true;
+    }
+    void syncGuardRoomRiskEvent({
+      kind: "rate_limited",
+      source: "auto-blend",
+      level: "observe",
+      roomId,
+      errorCode: result.errorCode,
+      reason: result.error,
+      advice: "触发发送频率限制，自动跟车会先歇 2 分钟。"
+    });
+    cooldownUntil = Math.max(cooldownUntil, now + RATE_LIMIT_BACKOFF_MS);
+    clearPendingAutoBlend(
+      `自动跟车：触发发送频率限制，已暂停 ${Math.round(RATE_LIMIT_BACKOFF_MS / 6e4)} 分钟并清空本轮候选。`
+    );
+    updateStatusText();
+    return true;
+  }
+  function countUniqueUids(events) {
+    const s2 = new Set();
+    for (const e2 of events) if (e2.uid) s2.add(e2.uid);
+    return s2.size;
+  }
+  function updateCandidateText() {
+    autoBlendCandidateText.value = formatAutoBlendCandidate(
+      Array.from(trendMap, ([text, entry]) => ({
+        text,
+        totalCount: entry.events.length,
+        uniqueUsers: countUniqueUids(entry.events)
+      }))
+    );
+  }
+  function updateStatusText() {
+    autoBlendStatusText.value = formatAutoBlendStatus({
+      enabled: autoBlendEnabled.value,
+      dryRun: autoBlendDryRun.value,
+      isSending,
+      cooldownUntil,
+      now: Date.now()
+    });
+  }
+  function pruneRecentDomDanmaku(now = Date.now()) {
+    while (recentDomDanmaku.length > 0 && now - recentDomDanmaku[0].observedAt > RECENT_DOM_DANMAKU_HISTORY_MS) {
+      recentDomDanmaku.shift();
+    }
+    while (recentDomDanmaku.length > RECENT_DOM_DANMAKU_HISTORY_MAX) {
+      recentDomDanmaku.shift();
+    }
+  }
+  function rememberRecentDomDanmaku(text, uid, observedAt) {
+    if (!text) return;
+    pruneRecentDomDanmaku(observedAt);
+    recentDomDanmaku.push({ text, uid, observedAt });
+  }
+  function findRecentDomDanmakuSource(text, uid, sinceTs) {
+    const target = text.trim();
+    if (!target) return null;
+    pruneRecentDomDanmaku();
+    for (let i2 = recentDomDanmaku.length - 1; i2 >= 0; i2--) {
+      const event = recentDomDanmaku[i2];
+      if (event.observedAt < sinceTs) break;
+      if (event.text !== target) continue;
+      if (uid && event.uid && event.uid !== uid) continue;
+      return "dom";
+    }
+    return null;
+  }
+  function matchesCustomChatEchoEvent(event, target, uid) {
+    return event.kind === "danmaku" && event.text.trim() === target && (!uid || !event.uid || event.uid === uid);
+  }
+  function matchesDomEchoEvent(event, target, uid) {
+    return event.text.trim() === target && (!uid || !event.uid || event.uid === uid);
+  }
+  function waitForSentEcho(text, uid, sinceTs, timeoutMs = SEND_ECHO_TIMEOUT_MS) {
+    const target = text.trim();
+    if (!target) return Promise.resolve(null);
+    const recentCustomSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs);
+    if (recentCustomSource) return Promise.resolve(recentCustomSource);
+    const recentDomSource = findRecentDomDanmakuSource(target, uid, sinceTs);
+    if (recentDomSource) return Promise.resolve(recentDomSource);
+    return new Promise((resolve) => {
+      let done = false;
+      let unsubscribeEvents2 = () => {
+      };
+      let unsubscribeDom2 = () => {
+      };
+      const finish = (source) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer2);
+        unsubscribeEvents2();
+        unsubscribeDom2();
+        resolve(source);
+      };
+      const timer2 = setTimeout(() => finish(null), timeoutMs);
+      unsubscribeEvents2 = subscribeCustomChatEvents((event) => {
+        if (!matchesCustomChatEchoEvent(event, target, uid)) return;
+        finish(event.source);
+      });
+      unsubscribeDom2 = subscribeDanmaku({
+        onMessage: (event) => {
+          if (!matchesDomEchoEvent(event, target, uid)) return;
+          finish("dom");
+        }
+      });
+      const lateSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs) ?? findRecentDomDanmakuSource(target, uid, sinceTs);
+      if (lateSource) finish(lateSource);
+    });
+  }
+  function pruneExpired(now) {
+    const windowMs = autoBlendWindowSec.value * 1e3;
+    for (const [k2, entry] of trendMap) {
+      entry.events = entry.events.filter((e2) => now - e2.ts <= windowMs);
+      if (entry.events.length === 0) trendMap.delete(k2);
+    }
+    updateCandidateText();
+  }
+  function getAutoBlendRepeatGapMs() {
+    return Math.max(autoBlendCooldownSec.value * 1e3, msgSendInterval.value * 1e3, 1010);
+  }
+  function getAutoBlendBurstGapMs() {
+    return Math.max(msgSendInterval.value * 1e3, 1010);
+  }
+  function meetsThreshold(entry) {
+    if (entry.events.length < autoBlendThreshold.value) return false;
+    if (autoBlendRequireDistinctUsers.value) {
+      const uniqueUids = countUniqueUids(entry.events);
+      const effectiveUnique = uniqueUids > 0 ? uniqueUids : entry.events.length;
+      if (effectiveUnique < autoBlendMinDistinctUsers.value) return false;
+    }
+    return true;
+  }
+  function pickBestTrendingText(preferredText) {
+    const windowMs = autoBlendWindowSec.value * 1e3;
+    const events = [];
+    for (const [text, entry] of trendMap) {
+      if (!meetsThreshold(entry)) continue;
+      for (const event of entry.events) events.push({ ...event, text });
+    }
+    const result = detectTrend(events, windowMs, autoBlendThreshold.value);
+    if (!result.shouldSend) return null;
+    if (preferredText && result.candidates.some((candidate) => candidate.text === preferredText)) return preferredText;
+    return result.text;
+  }
+  function scheduleBurstSend(text) {
+    pendingBurstText ??= text;
+    if (burstSettleTimer !== null) return;
+    burstSettleTimer = setTimeout(() => {
+      burstSettleTimer = null;
+      const preferredText = pendingBurstText;
+      pendingBurstText = null;
+      if (!autoBlendEnabled.value || isSending || Date.now() < cooldownUntil) {
+        updateStatusText();
+        return;
+      }
+      pruneExpired(Date.now());
+      const chosen = pickBestTrendingText(preferredText);
+      if (chosen !== null) void triggerSend(chosen, "burst");
+    }, getBurstSettleMs());
+  }
+  function maybeScheduleBurstFromCurrentTrends() {
+    if (!autoBlendEnabled.value || isSending || Date.now() < cooldownUntil || burstSettleTimer !== null) return;
+    const chosen = pickBestTrendingText(pendingBurstText);
+    if (chosen !== null) scheduleBurstSend(chosen);
+  }
+  function recordDanmaku(rawText, uid, isReply) {
+    if (!autoBlendEnabled.value) return;
+    const now = Date.now();
+    updateStatusText();
+    const text = rawText.trim();
+    if (!text) return;
+    rememberRecentDomDanmaku(text, uid, now);
+    if (isReply && !autoBlendIncludeReply.value) return;
+    if (uid && myUid && uid === myUid) return;
+    pruneExpired(now);
+    let entry = trendMap.get(text);
+    if (!entry) {
+      entry = { events: [] };
+      trendMap.set(text, entry);
+    }
+    entry.events.push({ ts: now, uid });
+    updateCandidateText();
+    if (now < cooldownUntil || isSending) return;
+    if (meetsThreshold(entry)) scheduleBurstSend(text);
+  }
+  function scheduleNextRoutine() {
+    routineTimeout = setTimeout(() => {
+      routineTimerTick();
+      if (routineActive) scheduleNextRoutine();
+    }, autoBlendRoutineIntervalSec.value * 1e3);
+  }
+  function routineTimerTick() {
+    if (!autoBlendEnabled.value) return;
+    const now = Date.now();
+    if (now < cooldownUntil) {
+      updateStatusText();
+      return;
+    }
+    updateStatusText();
+    pruneExpired(now);
+    const candidates = [];
+    for (const [text, entry] of trendMap) {
+      if (meetsThreshold(entry)) {
+        candidates.push([text, entry.events.length]);
+      }
+    }
+    if (candidates.length === 0) return;
+    const totalWeight = candidates.reduce((s2, [, c2]) => s2 + c2, 0);
+    let r2 = Math.random() * totalWeight;
+    let chosen = candidates[candidates.length - 1][0];
+    for (const [text, count] of candidates) {
+      r2 -= count;
+      if (r2 <= 0) {
+        chosen = text;
+        break;
+      }
+    }
+    void triggerSend(chosen, "routine");
+  }
+  function collectBurst(triggeredText, reason) {
+    if (reason !== "burst" || !autoBlendSendAllTrending.value) {
+      const entry = trendMap.get(triggeredText);
+      const uniqueUsers = entry ? countUniqueUids(entry.events) : 0;
+      const totalCount = entry ? entry.events.length : 0;
+      return [{ text: triggeredText, uniqueUsers, totalCount }];
+    }
+    const all = [];
+    for (const [text, entry] of trendMap) {
+      if (meetsThreshold(entry)) {
+        all.push({ text, uniqueUsers: countUniqueUids(entry.events), totalCount: entry.events.length });
+      }
+    }
+    all.sort((a2, b2) => {
+      if (b2.totalCount !== a2.totalCount) return b2.totalCount - a2.totalCount;
+      return a2.text === triggeredText ? -1 : 1;
+    });
+    return all.length > 0 ? all : [{ text: triggeredText, uniqueUsers: 0, totalCount: 0 }];
+  }
+  async function triggerSend(triggeredText, reason) {
+    if (isSending) {
+      if (reason === "routine") {
+        const text = shortAutoBlendText(triggeredText);
+        autoBlendLastActionText.value = `还在发，先跳过：${text}`;
+        appendLog(`自动跟车：还在发，先跳过补跟：${text}`);
+      }
+      return;
+    }
+    isSending = true;
+    updateStatusText();
+    pruneExpired(Date.now());
+    const targets = collectBurst(triggeredText, reason);
+    cooldownUntil = Date.now() + autoBlendCooldownSec.value * 1e3;
+    for (const { text } of targets) trendMap.delete(text);
+    updateCandidateText();
+    updateStatusText();
+    try {
+      const csrfToken = getCsrfToken();
+      if (!csrfToken) {
+        autoBlendLastActionText.value = "未登录，跳过";
+        appendLog("自动跟车：没检测到登录态，先跳过");
+        return;
+      }
+      const roomId = await ensureRoomId();
+      const reasonLabel = reason === "burst" ? "刚刷起来" : "补跟";
+      const isMulti = targets.length > 1;
+      if (isMulti) {
+        appendLog(`自动跟车：同一波有 ${targets.length} 句话达标，开始依次跟`);
+      }
+      let memeRecorded = false;
+      for (let ti = 0; ti < targets.length; ti++) {
+        const { text: originalText, uniqueUsers, totalCount } = targets[ti];
+        const isEmote = isEmoticonUnique(originalText);
+        const useReplacements = autoBlendUseReplacements.value && !isEmote;
+        const replaced = useReplacements ? applyReplacements(originalText) : originalText;
+        const wasReplaced = useReplacements && originalText !== replaced;
+        if (isMulti) {
+          appendLog(`  - ${shortAutoBlendText(originalText)}（${formatAutoBlendSenderInfo(uniqueUsers, totalCount)}）`);
+        }
+        const repeatCount = reason === "burst" && autoBlendSendAllTrending.value ? 1 : Math.max(1, autoBlendSendCount.value);
+        for (let i2 = 0; i2 < repeatCount; i2++) {
+          let toSend = replaced;
+          if (!isEmote && randomChar.value) toSend = addRandomCharacter(toSend);
+          if (!isEmote) toSend = trimText(toSend, maxLength.value)[0] ?? toSend;
+          if (!isEmote && randomColor.value) {
+            await setRandomDanmakuColor(roomId, csrfToken);
+          }
+          const display = wasReplaced || toSend !== originalText ? `${originalText} → ${toSend}` : toSend;
+          if (autoBlendDryRun.value) {
+            autoBlendLastActionText.value = `试运行命中：${shortAutoBlendText(display)}`;
+            appendLog(`自动跟车试运行（未发送）：${display}`);
+            continue;
+          }
+          const result = await enqueueDanmaku(toSend, roomId, csrfToken, SendPriority.AUTO);
+          if (isMulti) {
+            const label = repeatCount > 1 ? `自动跟车 [${i2 + 1}/${repeatCount}]` : "自动跟车";
+            appendLog(result, label, display);
+            if (result.success && !result.cancelled) {
+              autoBlendLastActionText.value = `已跟车：${shortAutoBlendText(display)}`;
+            } else if (result.cancelled) {
+              autoBlendLastActionText.value = `被手动发送打断：${shortAutoBlendText(display)}`;
+            } else {
+              autoBlendLastActionText.value = `没发出去：${shortAutoBlendText(display)}`;
+            }
+          } else {
+            const info = `${reasonLabel}，${formatAutoBlendSenderInfo(uniqueUsers, totalCount)}`;
+            const repeatSuffix = repeatCount > 1 ? ` [${i2 + 1}/${repeatCount}]` : "";
+            if (result.cancelled) {
+              autoBlendLastActionText.value = `被手动发送打断：${shortAutoBlendText(display)}`;
+              appendLog(`自动跟车${repeatSuffix}：被手动发送打断：${display}`);
+            } else if (result.success) {
+              autoBlendLastActionText.value = `已跟车：${shortAutoBlendText(display)}`;
+              appendLog(`已跟车${repeatSuffix}（${info}）：${display}`);
+            } else {
+              const error = formatDanmakuError(result.error);
+              autoBlendLastActionText.value = `没发出去：${shortAutoBlendText(display)}`;
+              appendLog(`自动跟车没发出去${repeatSuffix}（${info}）：${display}，原因：${error}`);
+            }
+          }
+          if (result.success && !result.cancelled) {
+            autoBlendLastActionText.value = `已提交，等待回显：${shortAutoBlendText(display)}`;
+            const echoSource = await waitForSentEcho(toSend, myUid, result.startedAt ?? Date.now());
+            if (echoSource) {
+              const sourceLabel = echoSource === "ws" ? "WS" : echoSource === "dom" ? "DOM" : "本地";
+              autoBlendLastActionText.value = `已${sourceLabel}回显：${shortAutoBlendText(display)}`;
+            } else {
+              autoBlendLastActionText.value = `接口成功但未看到回显：${shortAutoBlendText(display)}`;
+              appendLog(
+                `自动跟车接口成功，但 ${Math.round(SEND_ECHO_TIMEOUT_MS / 1e3)}s 内没有在聊天区看到回显：${display}`
+              );
+            }
+          }
+          if (!result.success && !result.cancelled && handleSendFailure(result, roomId)) return;
+          if (result.success && !result.cancelled && !isEmote && !memeRecorded) {
+            memeRecorded = true;
+            recordMemeCandidate(originalText);
+          }
+          cooldownUntil = Math.max(cooldownUntil, Date.now() + autoBlendCooldownSec.value * 1e3);
+          updateStatusText();
+          if (i2 < repeatCount - 1) {
+            const interval = getAutoBlendRepeatGapMs();
+            const offset = randomInterval.value ? Math.floor(Math.random() * 500) : 0;
+            await new Promise((r2) => setTimeout(r2, interval + offset));
+          }
+        }
+        if (isMulti && ti < targets.length - 1) {
+          await new Promise((r2) => setTimeout(r2, getAutoBlendBurstGapMs()));
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      autoBlendLastActionText.value = `出错：${msg}`;
+      appendLog(`自动跟车出错：${msg}`);
+    } finally {
+      isSending = false;
+      updateStatusText();
+    }
+  }
+  function startAutoBlend() {
+    if (unsubscribe$2) return;
+    myUid = getDedeUid() ?? null;
+    rateLimitHitCount = 0;
+    firstRateLimitHitAt = 0;
+    moderationStopReason = null;
+    recentDomDanmaku.length = 0;
+    autoBlendStatusText.value = "观察中";
+    autoBlendCandidateText.value = "暂无";
+    autoBlendLastActionText.value = "暂无";
+    unsubscribe$2 = subscribeDanmaku({
+      onMessage: (ev) => recordDanmaku(ev.text, ev.uid, ev.isReply)
+    });
+    startLiveWsSource();
+    unsubscribeWsDanmaku = subscribeCustomChatEvents((event) => {
+      if (event.kind !== "danmaku" || event.source !== "ws") return;
+      recordDanmaku(event.text, event.uid, event.isReply);
+    });
+    if (cleanupTimer === null) {
+      cleanupTimer = setInterval(() => {
+        pruneExpired(Date.now());
+        updateStatusText();
+        maybeScheduleBurstFromCurrentTrends();
+      }, 1e3);
+    }
+    routineActive = true;
+    scheduleNextRoutine();
+  }
+  function stopAutoBlend() {
+    if (cleanupTimer) {
+      clearInterval(cleanupTimer);
+      cleanupTimer = null;
+    }
+    routineActive = false;
+    if (routineTimeout) {
+      clearTimeout(routineTimeout);
+      routineTimeout = null;
+    }
+    if (burstSettleTimer) {
+      clearTimeout(burstSettleTimer);
+      burstSettleTimer = null;
+    }
+    pendingBurstText = null;
+    if (unsubscribe$2) {
+      unsubscribe$2();
+      unsubscribe$2 = null;
+    }
+    if (unsubscribeWsDanmaku) {
+      unsubscribeWsDanmaku();
+      unsubscribeWsDanmaku = null;
+    }
+    stopLiveWsSource();
+    trendMap.clear();
+    recentDomDanmaku.length = 0;
+    clearMemeSession();
+    cooldownUntil = 0;
+    autoBlendStatusText.value = "已关闭";
+    autoBlendCandidateText.value = "暂无";
+    autoBlendLastActionText.value = moderationStopReason ?? "暂无";
+    moderationStopReason = null;
+  }
+  const CUSTOM_CHAT_MAX_MESSAGES = 220;
+  const CUSTOM_CHAT_MAX_RENDER_BATCH = 36;
+  const CUSTOM_CHAT_MAX_RENDER_QUEUE = CUSTOM_CHAT_MAX_MESSAGES;
+  function trimRenderQueue(queue2) {
+    while (queue2.length > CUSTOM_CHAT_MAX_RENDER_QUEUE) queue2.shift();
+  }
+  function takeRenderBatch(queue2) {
+    return queue2.splice(0, CUSTOM_CHAT_MAX_RENDER_BATCH);
+  }
+  function shouldAnimateRenderBatch(batchSize) {
+    return batchSize <= 12;
+  }
+  function customChatBadgeType(raw) {
+    const value = raw.trim();
+    if (!value) return "other";
+    if (/GUARD|privilege|guard/i.test(value) || /[\u603b\u63d0\u8230][\u7763\u957f]|\u8230\u961f/.test(value))
+      return "guard";
+    if (/^\s*(?:UL|LV)\s*\d+/i.test(value)) return "ul";
+    if (/[\u623f\u7ba1]/.test(value) || /admin|moderator/i.test(value)) return "admin";
+    if (/[\u699c]\s*[123]|top\s*[123]|rank\s*[123]/i.test(value)) return "rank";
+    if (/[\u8363\u8000]/.test(value) || /honou?r/i.test(value)) return "honor";
+    if (/SC\s*\d+|^\d+(?:\.\d+)?\s*[\u5143]|[¥$]\s*\d+(?:\.\d+)?/i.test(value)) return "price";
+    if (/[^\s]\s+\d{1,3}$/.test(value)) return "medal";
+    return "other";
+  }
+  function shouldSuppressCustomChatEvent(event) {
+    return event.kind === "enter";
+  }
+  function customChatPriority(event) {
+    if (event.kind === "superchat" || event.kind === "guard") return "critical";
+    if (event.kind === "gift" || event.kind === "redpacket" || event.kind === "lottery") return "card";
+    if (event.kind === "enter" || event.kind === "follow" || event.kind === "like" || event.kind === "share")
+      return "lite";
+    if (event.kind === "notice" || event.kind === "system") return "lite";
+    if (event.badges.some((badge) => customChatBadgeType(badge) !== "other")) return "identity";
+    return "message";
+  }
+  function visibleRenderMessages(messages2, matches) {
+    return messages2.filter(matches).slice(-CUSTOM_CHAT_MAX_MESSAGES);
+  }
+  const CUSTOM_CHAT_SEARCH_KEYS = new Set(["user", "name", "from", "uid", "text", "msg", "kind", "type", "source", "is"]);
+  const CUSTOM_CHAT_SEARCH_KINDS = [
+    "danmaku",
+    "gift",
+    "superchat",
+    "guard",
+    "redpacket",
+    "lottery",
+    "enter",
+    "follow",
+    "like",
+    "share",
+    "notice",
+    "system"
+  ];
+  function kindLabel(kind) {
+    if (kind === "danmaku") return "弹幕";
+    if (kind === "gift") return "礼物";
+    if (kind === "superchat") return "SC";
+    if (kind === "guard") return "舰队";
+    if (kind === "redpacket") return "红包";
+    if (kind === "lottery") return "天选";
+    if (kind === "enter") return "进场";
+    if (kind === "follow") return "关注";
+    if (kind === "like") return "点赞";
+    if (kind === "share") return "分享";
+    if (kind === "notice") return "通知";
+    if (kind === "system") return "系统";
+    return kind;
+  }
+  function customChatSearchHint(query) {
+    for (const token of splitQuery(query)) {
+      const normalized = token.startsWith("-") ? token.slice(1).trim() : token.trim();
+      const colon = normalized.indexOf(":");
+      if (colon <= 0 || normalized.includes("://")) continue;
+      const key = normalized.slice(0, colon).toLowerCase();
+      const value = normalized.slice(colon + 1).trim().toLowerCase();
+      if (!isSearchFilterKey(key)) {
+        const suggestion = closestSearchSuggestion(key, [...CUSTOM_CHAT_SEARCH_KEYS]);
+        return suggestion ? `不认识 ${key}: 条件，试试 ${suggestion}:` : "不认识这个搜索条件";
+      }
+      if ((key === "kind" || key === "type") && value && !matchesKnownKind(value)) {
+        const suggestion = closestSearchSuggestion(value, CUSTOM_CHAT_SEARCH_KINDS);
+        return suggestion ? `没有这种类型，试试 kind:${suggestion}` : "没有这种消息类型";
+      }
+    }
+    return "";
+  }
+  function messageMatchesCustomChatSearch(message, query, isKindVisible) {
+    if (!isKindVisible(message.kind)) return false;
+    const tokens = splitQuery(query);
+    for (const rawToken of tokens) {
+      const negative = rawToken.startsWith("-");
+      const token = negative ? rawToken.slice(1) : rawToken;
+      const matched = tokenMatches(message, token);
+      if (negative ? matched : !matched) return false;
+    }
+    return true;
+  }
+  function splitQuery(query) {
+    return query.match(/(?:[^\s"]+|"[^"]*")+/g)?.map((token) => token.replace(/^"|"$/g, "").trim()).filter(Boolean) ?? [];
+  }
+  function isSearchFilterKey(key) {
+    return /^[a-z][a-z-]*$/i.test(key) && CUSTOM_CHAT_SEARCH_KEYS.has(key);
+  }
+  function includesFolded(value, needle) {
+    return value.toLowerCase().includes(needle.toLowerCase());
+  }
+  function matchesKnownKind(value) {
+    return CUSTOM_CHAT_SEARCH_KINDS.some((kind) => includesFolded(kind, value) || includesFolded(kindLabel(kind), value));
+  }
+  function levenshteinDistance(a2, b2) {
+    const previous = Array.from({ length: b2.length + 1 }, (_2, index) => index);
+    const current = Array.from({ length: b2.length + 1 }, () => 0);
+    for (let i2 = 1; i2 <= a2.length; i2++) {
+      current[0] = i2;
+      for (let j2 = 1; j2 <= b2.length; j2++) {
+        current[j2] = a2[i2 - 1] === b2[j2 - 1] ? previous[j2 - 1] : Math.min(previous[j2 - 1] + 1, previous[j2] + 1, current[j2 - 1] + 1);
+      }
+      previous.splice(0, previous.length, ...current);
+    }
+    return previous[b2.length];
+  }
+  function closestSearchSuggestion(value, candidates) {
+    const suggestion = candidates.map((candidate) => ({ value: candidate, distance: levenshteinDistance(value, candidate.toLowerCase()) })).sort((a2, b2) => a2.distance - b2.distance)[0];
+    return suggestion && suggestion.distance <= 3 ? suggestion.value : null;
+  }
+  function tokenMatches(message, token) {
+    const normalized = token.trim();
+    if (!normalized) return true;
+    const colon = normalized.indexOf(":");
+    if (colon > 0) {
+      const key = normalized.slice(0, colon).toLowerCase();
+      const value = normalized.slice(colon + 1);
+      if (key === "user" || key === "name" || key === "from") return includesFolded(message.uname, value);
+      if (key === "uid") return includesFolded(message.uid ?? "", value);
+      if (key === "text" || key === "msg") return includesFolded(message.text, value);
+      if (key === "kind" || key === "type")
+        return includesFolded(message.kind, value) || includesFolded(kindLabel(message.kind), value);
+      if (key === "source") return includesFolded(message.source, value);
+      if (key === "is") return value.toLowerCase() === "reply" ? message.isReply : false;
+    }
+    return includesFolded(message.text, normalized) || includesFolded(message.uname, normalized);
+  }
+  const pending = y$1(null);
+  function showConfirm(opts) {
+    return new Promise((resolve) => {
+      pending.value = { ...opts, resolve };
+    });
+  }
+  function AlertDialog() {
+    const ref = A(null);
+    const p2 = pending.value;
+    y$2(() => {
+      const dialog = ref.current;
+      if (!dialog) return;
+      if (p2) {
+        dialog.showModal();
+        if (p2.anchor) {
+          const rect = dialog.getBoundingClientRect();
+          const x2 = Math.max(0, Math.min(p2.anchor.x - rect.width / 2, window.innerWidth - rect.width));
+          const y2 = Math.max(0, Math.min(p2.anchor.y - rect.height - 8, window.innerHeight - rect.height));
+          dialog.style.margin = "0";
+          dialog.style.position = "fixed";
+          dialog.style.left = `${x2}px`;
+          dialog.style.top = `${y2}px`;
+        } else {
+          dialog.style.margin = "";
+          dialog.style.position = "";
+          dialog.style.left = "";
+          dialog.style.top = "";
+        }
+      } else {
+        dialog.close();
+      }
+    }, [p2]);
+    if (!p2) return null;
+    const close = (confirmed) => {
+      p2.resolve(confirmed);
+      pending.value = null;
+    };
+    return u$2(
+      "dialog",
+      {
+        ref,
+        onCancel: (e2) => {
+          e2.preventDefault();
+          close(false);
+        },
+        onClick: (e2) => {
+          if (p2.anchor && e2.target === ref.current) close(false);
+        },
+        onKeyDown: (e2) => {
+          if (p2.anchor && e2.key === "Escape") close(false);
+        },
+        style: {
+          border: "1px solid rgba(0, 0, 0, .08)",
+          borderRadius: "8px",
+          padding: "14px",
+          maxWidth: "320px",
+          fontSize: "12px",
+          color: "#1d1d1f",
+          background: "rgba(248, 248, 250, .92)",
+          boxShadow: "0 22px 60px rgba(0,0,0,.24)",
+          backdropFilter: "blur(26px) saturate(1.5)"
+        },
+        children: [
+          p2.title && u$2("p", { style: { margin: "0 0 .75em", wordBreak: "break-all" }, children: p2.title }),
+          p2.body && u$2("div", { style: { margin: "0 0 .75em", wordBreak: "break-all" }, children: p2.body }),
+u$2("div", { style: { display: "flex", justifyContent: "flex-end", gap: ".5em" }, children: [
+u$2(
+              "button",
+              {
+                type: "button",
+                onClick: () => close(false),
+                style: {
+                  border: "1px solid rgba(0,0,0,.08)",
+                  borderRadius: "8px",
+                  background: "#fff",
+                  padding: "5px 10px"
+                },
+                children: p2.cancelText ?? "取消"
+              }
+            ),
+u$2(
+              "button",
+              {
+                type: "button",
+                onClick: () => close(true),
+                style: {
+                  border: "1px solid #007aff",
+                  borderRadius: "8px",
+                  background: "#007aff",
+                  color: "#fff",
+                  padding: "5px 10px"
+                },
+                children: p2.confirmText ?? "确认"
+              }
+            )
+          ] })
+        ]
+      }
+    );
+  }
+  async function detectSensitiveWords(text) {
+    try {
+      const resp = await fetch(BASE_URL.LAPLACE_CHAT_AUDIT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          completionMetadata: { input: text }
+        })
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      return data.completion ?? { hasSensitiveContent: false };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLog(`⚠️ AI检测服务出错：${msg}`);
+      return { hasSensitiveContent: false };
+    }
+  }
+  function insertInvisibleChars(word) {
+    const graphemes = getGraphemes(word);
+    return graphemes.join("­");
+  }
+  function processText(text) {
+    return insertInvisibleChars(text);
+  }
+  function replaceSensitiveWords(text, sensitiveWords) {
+    let result = text;
+    for (const word of sensitiveWords) {
+      result = result.split(word).join(processText(word));
+    }
+    return result;
+  }
+  async function tryAiEvasion(message, roomId, csrfToken, logPrefix) {
+    if (!aiEvasion.value) return { success: false };
+    appendLog(`🤖 ${logPrefix}AI规避：正在检测敏感词…`);
+    const detection = await detectSensitiveWords(message);
+    if (detection.hasSensitiveContent && detection.sensitiveWords && detection.sensitiveWords.length > 0) {
+      appendLog(`🤖 ${logPrefix}检测到敏感词：${detection.sensitiveWords.join(", ")}，正在尝试规避…`);
+      const evadedMessage = replaceSensitiveWords(message, detection.sensitiveWords);
+      const retryResult = await enqueueDanmaku(evadedMessage, roomId, csrfToken, SendPriority.MANUAL);
+      if (retryResult.success) {
+        appendLog(`✅ ${logPrefix}AI规避成功: ${evadedMessage}`);
+        return { success: true, evadedMessage };
+      }
+      appendLog(`❌ ${logPrefix}AI规避失败: ${evadedMessage}，原因：${retryResult.error}`);
+      return { success: false, evadedMessage, error: retryResult.error };
+    }
+    appendLog(`⚠️ ${logPrefix}无法检测到敏感词，请手动检查`);
+    return { success: false };
+  }
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      const textarea2 = document.createElement("textarea");
+      textarea2.value = text;
+      textarea2.style.position = "fixed";
+      textarea2.style.opacity = "0";
+      document.body.appendChild(textarea2);
+      textarea2.select();
+      const ok = document.execCommand("copy");
+      textarea2.remove();
+      return ok;
+    }
+  }
+  async function stealDanmaku(msg) {
+    const copied = await copyText(msg);
+    fasongText.value = msg;
+    if (!focusCustomChatComposer()) {
+      activeTab.value = "fasong";
+      dialogOpen.value = true;
+    }
+    appendLog(copied ? `🥷 偷并复制: ${msg}` : `🥷 偷: ${msg}`);
+  }
+  function focusCustomChatComposer() {
+    if (!customChatEnabled.value) return false;
+    const input = document.querySelector("#laplace-custom-chat textarea");
+    if (!input) return false;
+    input.value = fasongText.value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+    return true;
+  }
+  async function repeatDanmaku(msg, options = {}) {
+    if (options.confirm) {
+      const confirmed = await showConfirm({
+        title: "确认发送以下弹幕？",
+        body: msg,
+        confirmText: "发送",
+        anchor: options.anchor
+      });
+      if (!confirmed) return;
+    }
+    try {
+      const roomId = await ensureRoomId();
+      const csrfToken = getCsrfToken();
+      if (!csrfToken) {
+        appendLog("❌ 未找到登录信息，请先登录 Bilibili");
+        return;
+      }
+      const processed = applyReplacements(msg);
+      const result = await enqueueDanmaku(processed, roomId, csrfToken, SendPriority.MANUAL);
+      const display = msg !== processed ? `${msg} → ${processed}` : processed;
+      appendLog(result, "+1", display);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      appendLog(`🔴 +1 出错：${message}`);
+    }
+  }
+  async function sendManualDanmaku(originalMessage) {
+    const trimmed = originalMessage.trim();
+    if (!trimmed) {
+      appendLog("⚠️ 消息内容不能为空");
+      return false;
+    }
+    const isEmote = isEmoticonUnique(trimmed);
+    const processedMessage = isEmote ? trimmed : applyReplacements(trimmed);
+    const wasReplaced = !isEmote && trimmed !== processedMessage;
+    try {
+      const roomId = await ensureRoomId();
+      const csrfToken = getCsrfToken();
+      if (!csrfToken) {
+        appendLog("❌ 未找到登录信息，请先登录 Bilibili");
+        void syncGuardRoomRiskEvent({
+          kind: "login_missing",
+          source: "manual",
+          level: "observe",
+          roomId,
+          reason: "未找到登录信息",
+          advice: "先登录 Bilibili，再发送弹幕。"
+        });
+        return false;
+      }
+      const segments = isEmote ? [processedMessage] : processMessages(processedMessage, maxLength.value);
+      let allSuccess = true;
+      for (let i2 = 0; i2 < segments.length; i2++) {
+        const segment = segments[i2];
+        const result = await enqueueDanmaku(segment, roomId, csrfToken, SendPriority.MANUAL);
+        const baseLabel = result.isEmoticon ? "手动表情" : "手动";
+        const label = segments.length > 1 ? `${baseLabel} [${i2 + 1}/${segments.length}]` : baseLabel;
+        const displayMsg = wasReplaced && segments.length === 1 ? `${trimmed} → ${segment}` : segment;
+        appendLog(result, label, displayMsg);
+        if (!result.success) {
+          allSuccess = false;
+          const risk = classifyRiskEvent(result.error);
+          void syncGuardRoomRiskEvent({
+            ...risk,
+            source: "manual",
+            roomId,
+            errorCode: result.errorCode,
+            reason: result.error
+          });
+          if (aiEvasion.value) {
+            await tryAiEvasion(segment, roomId, csrfToken, "");
+          }
+        }
+        if (i2 < segments.length - 1) {
+          await new Promise((r2) => setTimeout(r2, msgSendInterval.value * 1e3));
+        }
+      }
+      return allSuccess;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLog(`🔴 发送出错：${msg}`);
+      return false;
+    }
   }
   const ROOT_ID = "laplace-custom-chat";
   const STYLE_ID$1 = "laplace-custom-chat-style";
@@ -6740,9 +6855,12 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   let unsubscribeWsStatus = null;
   let disposeSettings = null;
   let disposeComposer = null;
+  let fallbackMountTimer = null;
   let nativeEventObserver = null;
   let root = null;
   let rootOutsideHistory = false;
+  let rootUsesFallbackHost = false;
+  let fallbackHost = null;
   let listEl = null;
   let virtualTopSpacer = null;
   let virtualItemsEl = null;
@@ -7851,9 +7969,10 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   }
   function updateNativeVisibility() {
     const mounted = !!root?.isConnected && !!root.querySelector(".lc-chat-composer");
-    document.documentElement.classList.toggle("lc-custom-chat-mounted", mounted);
-    document.documentElement.classList.toggle("lc-custom-chat-root-outside-history", mounted && rootOutsideHistory);
-    document.documentElement.classList.toggle("lc-custom-chat-hide-native", mounted && customChatHideNative.value);
+    const nativeMounted = mounted && !rootUsesFallbackHost;
+    document.documentElement.classList.toggle("lc-custom-chat-mounted", nativeMounted);
+    document.documentElement.classList.toggle("lc-custom-chat-root-outside-history", nativeMounted && rootOutsideHistory);
+    document.documentElement.classList.toggle("lc-custom-chat-hide-native", nativeMounted && customChatHideNative.value);
   }
   function appendDebugRow(parent, key, value) {
     const row = document.createElement("div");
@@ -8073,7 +8192,11 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   function mount$1(container) {
     ensureStyles();
     abortRootEventListeners();
+    nativeEventObserver?.disconnect();
     root?.remove();
+    rootUsesFallbackHost = false;
+    fallbackHost?.remove();
+    fallbackHost = null;
     const historyPanel = container.closest(".chat-history-panel");
     const host = historyPanel?.parentElement ?? container.parentElement;
     if (!host) return;
@@ -8084,6 +8207,52 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     updateNativeVisibility();
     observeNativeEvents(container);
     rerenderMessages();
+  }
+  function ensureFallbackHost() {
+    if (fallbackHost?.isConnected) return fallbackHost;
+    const host = document.createElement("div");
+    host.id = "laplace-custom-chat-fallback-host";
+    host.style.position = "fixed";
+    host.style.right = "12px";
+    host.style.bottom = "52px";
+    host.style.zIndex = "2147483646";
+    host.style.width = "min(360px, calc(100vw - 24px))";
+    host.style.height = "min(62vh, 560px)";
+    host.style.minHeight = "340px";
+    host.style.overflow = "hidden";
+    host.style.borderRadius = "18px";
+    host.style.border = "1px solid rgba(255, 255, 255, .08)";
+    host.style.boxShadow = "0 20px 48px rgba(0, 0, 0, .32)";
+    host.style.backdropFilter = "blur(18px)";
+    host.style.webkitBackdropFilter = "blur(18px)";
+    document.body.appendChild(host);
+    fallbackHost = host;
+    return host;
+  }
+  function mountFallback() {
+    if (root?.isConnected && rootUsesFallbackHost) return;
+    ensureStyles();
+    abortRootEventListeners();
+    nativeEventObserver?.disconnect();
+    nativeEventObserver = null;
+    pendingNativeNodes.clear();
+    root?.remove();
+    const host = ensureFallbackHost();
+    root = createRoot();
+    rootOutsideHistory = false;
+    rootUsesFallbackHost = true;
+    root.dataset.theme = customChatTheme.value;
+    host.replaceChildren(root);
+    updateNativeVisibility();
+    rerenderMessages();
+  }
+  function scheduleFallbackMount() {
+    if (fallbackMountTimer !== null) return;
+    fallbackMountTimer = setTimeout(() => {
+      fallbackMountTimer = null;
+      if (root?.isConnected) return;
+      mountFallback();
+    }, 2500);
   }
   function observeNativeEvents(container) {
     nativeEventObserver?.disconnect();
@@ -8183,6 +8352,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   function startCustomChatDom() {
     if (unsubscribeDom) return;
     ensureStyles();
+    scheduleFallbackMount();
     disposeSettings = j(() => {
       if (root) root.dataset.theme = customChatTheme.value;
       if (root) root.dataset.debug = customChatPerfDebug.value ? "true" : "false";
@@ -8200,6 +8370,10 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     });
   }
   function stopCustomChatDom() {
+    if (fallbackMountTimer) {
+      clearTimeout(fallbackMountTimer);
+      fallbackMountTimer = null;
+    }
     if (unsubscribeDom) {
       unsubscribeDom();
       unsubscribeDom = null;
@@ -8234,6 +8408,9 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     root?.remove();
     root = null;
     rootOutsideHistory = false;
+    rootUsesFallbackHost = false;
+    fallbackHost?.remove();
+    fallbackHost = null;
     styleEl$1?.remove();
     styleEl$1 = null;
     userStyleEl?.remove();
@@ -8482,6 +8659,220 @@ html.lc-dm-direct-always .${MARKER} {
       el.remove();
     }
   }
+  const AUTO_BLEND_PRESETS = {
+    safe: {
+      label: "稳一点",
+      hint: "少跟，适合挂机",
+      windowSec: 25,
+      threshold: 5,
+      cooldownSec: 45,
+      routineIntervalSec: 75,
+      minDistinctUsers: 3,
+      burstSettleMs: 1800,
+      rateLimitWindowMin: 10,
+      rateLimitStopThreshold: 3
+    },
+    normal: {
+      label: "正常",
+      hint: "推荐，比较克制",
+      windowSec: 20,
+      threshold: 4,
+      cooldownSec: 35,
+      routineIntervalSec: 60,
+      minDistinctUsers: 3,
+      burstSettleMs: 1500,
+      rateLimitWindowMin: 10,
+      rateLimitStopThreshold: 3
+    },
+    hot: {
+      label: "热闹",
+      hint: "跟得更快，但会自动刹车",
+      windowSec: 15,
+      threshold: 3,
+      cooldownSec: 20,
+      routineIntervalSec: 40,
+      minDistinctUsers: 2,
+      burstSettleMs: 1200,
+      rateLimitWindowMin: 10,
+      rateLimitStopThreshold: 2
+    }
+  };
+  function getAutoBlendPresetValues(preset) {
+    return {
+      ...AUTO_BLEND_PRESETS[preset],
+      includeReply: false,
+      requireDistinctUsers: true,
+      sendCount: 1,
+      sendAllTrending: false,
+      useReplacements: true
+    };
+  }
+  function applyAutoBlendPreset(preset) {
+    const p2 = getAutoBlendPresetValues(preset);
+    autoBlendPreset.value = preset;
+    autoBlendWindowSec.value = p2.windowSec;
+    autoBlendThreshold.value = p2.threshold;
+    autoBlendCooldownSec.value = p2.cooldownSec;
+    autoBlendRoutineIntervalSec.value = p2.routineIntervalSec;
+    autoBlendBurstSettleMs.value = p2.burstSettleMs;
+    autoBlendRateLimitWindowMin.value = p2.rateLimitWindowMin;
+    autoBlendRateLimitStopThreshold.value = p2.rateLimitStopThreshold;
+    autoBlendIncludeReply.value = p2.includeReply;
+    autoBlendRequireDistinctUsers.value = p2.requireDistinctUsers;
+    autoBlendMinDistinctUsers.value = p2.minDistinctUsers;
+    autoBlendSendCount.value = p2.sendCount;
+    autoBlendSendAllTrending.value = p2.sendAllTrending;
+    autoBlendUseReplacements.value = p2.useReplacements;
+  }
+  const MIN_SYNC_INTERVAL_MS = 3e4;
+  const FOLLOWING_PAGE_LIMIT = 4;
+  const LIVE_STATUS_BATCH = 8;
+  let timer$1 = null;
+  let running = false;
+  let lastSessionId = "";
+  let lastFailure = "";
+  function setDisconnected(message) {
+    guardRoomAgentConnected.value = false;
+    guardRoomAgentStatusText.value = message;
+    guardRoomAgentLastSyncAt.value = null;
+    guardRoomAgentWatchlistCount.value = 0;
+    guardRoomAgentLiveCount.value = 0;
+    guardRoomLiveDeskSessionId.value = "";
+    guardRoomWatchlistRooms.value = [];
+  }
+  function mergeWatchlistRooms(medals, follows) {
+    const rooms = new Map();
+    for (const room of medals) {
+      rooms.set(room.roomId, {
+        roomId: room.roomId,
+        anchorName: room.anchorName,
+        anchorUid: room.anchorUid,
+        medalName: room.medalName,
+        source: "medal"
+      });
+    }
+    for (const room of follows) {
+      const existing = rooms.get(room.roomId);
+      if (existing) {
+        rooms.set(room.roomId, {
+          ...existing,
+          anchorName: existing.anchorName || room.anchorName,
+          anchorUid: existing.anchorUid ?? room.anchorUid,
+          source: existing.source === "medal" ? "both" : existing.source
+        });
+        continue;
+      }
+      rooms.set(room.roomId, {
+        roomId: room.roomId,
+        anchorName: room.anchorName,
+        anchorUid: room.anchorUid,
+        medalName: null,
+        source: "follow"
+      });
+    }
+    return [...rooms.values()].sort((a2, b2) => a2.anchorName.localeCompare(b2.anchorName));
+  }
+  async function attachLiveStatus(rooms) {
+    const results = [];
+    for (let index = 0; index < rooms.length; index += LIVE_STATUS_BATCH) {
+      const batch = rooms.slice(index, index + LIVE_STATUS_BATCH);
+      const resolved = await Promise.all(
+        batch.map(async (room) => ({
+          ...room,
+          liveStatus: await fetchRoomLiveStatus(room.roomId).catch(() => "unknown")
+        }))
+      );
+      results.push(...resolved);
+    }
+    return results;
+  }
+  async function collectWatchlist() {
+    const medals = await fetchMedalRooms();
+    let follows = [];
+    try {
+      follows = await fetchFollowingRooms(FOLLOWING_PAGE_LIMIT);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendLog(`直播间保安室：拉关注列表失败，先只同步粉丝牌房。${message}`);
+    }
+    const merged = mergeWatchlistRooms(medals, follows);
+    return attachLiveStatus(merged);
+  }
+  function applyControlProfile(profile) {
+    guardRoomAppliedProfile.value = profile;
+    guardRoomLiveDeskHeartbeatSec.value = profile.heartbeatSec;
+    autoBlendDryRun.value = profile.dryRunDefault;
+    applyAutoBlendPreset(profile.conservativeMode);
+  }
+  function markSuccess(watchlist) {
+    const now = Date.now();
+    guardRoomAgentConnected.value = true;
+    guardRoomAgentStatusText.value = "监控室代理已连接";
+    guardRoomAgentLastSyncAt.value = now;
+    guardRoomAgentWatchlistCount.value = watchlist.length;
+    guardRoomAgentLiveCount.value = watchlist.filter((room) => room.liveStatus === "live").length;
+    guardRoomWatchlistRooms.value = watchlist;
+    lastFailure = "";
+  }
+  async function syncOnce() {
+    const endpoint = guardRoomEndpoint.value.trim();
+    const syncKey = guardRoomSyncKey.value.trim();
+    if (!endpoint || !syncKey) {
+      setDisconnected("未配置监控室地址或同步密钥");
+      return;
+    }
+    guardRoomAgentStatusText.value = "监控室代理同步中…";
+    const watchlist = await collectWatchlist();
+    await syncGuardRoomWatchlist(watchlist);
+    const control = await fetchGuardRoomControlProfile();
+    if (!control) {
+      throw new Error("监控室没有返回统一配置");
+    }
+    applyControlProfile(control.profile);
+    guardRoomLiveDeskSessionId.value = control.session?.status === "active" ? control.session.id : "";
+    if (control.session?.id && control.session.id !== lastSessionId) {
+      appendLog(`直播间保安室：监控会话已切到 ${control.session.id}`);
+    }
+    lastSessionId = control.session?.id ?? "";
+    markSuccess(
+      watchlist.map((room) => ({
+        ...room,
+        medalName: room.medalName ?? null
+      }))
+    );
+  }
+  async function tick() {
+    try {
+      await syncOnce();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      guardRoomAgentConnected.value = false;
+      guardRoomAgentStatusText.value = `监控室代理掉线：${message}`;
+      if (message !== lastFailure) {
+        appendLog(`直播间保安室：监控室代理同步失败：${message}`);
+        lastFailure = message;
+      }
+    } finally {
+      if (running) {
+        const intervalMs = Math.max(MIN_SYNC_INTERVAL_MS, guardRoomLiveDeskHeartbeatSec.value * 1e3);
+        timer$1 = setTimeout(() => {
+          void tick();
+        }, intervalMs);
+      }
+    }
+  }
+  function startGuardRoomAgent() {
+    if (running) return;
+    running = true;
+    void tick();
+  }
+  function stopGuardRoomAgent() {
+    running = false;
+    if (timer$1) {
+      clearTimeout(timer$1);
+      timer$1 = null;
+    }
+  }
   let applied = false;
   function applyGuardRoomHandoff() {
     if (applied) return;
@@ -8513,7 +8904,7 @@ html.lc-dm-direct-always .${MARKER} {
     const sessionId = guardRoomLiveDeskSessionId.value.trim();
     if (!sessionId || !guardRoomEndpoint.value.trim() || !guardRoomSyncKey.value.trim()) return;
     const roomId = await ensureRoomId();
-    const rooms = await fetchMedalRooms().catch(() => []);
+    const rooms = guardRoomWatchlistRooms.value;
     const current = rooms.find((item) => item.roomId === roomId);
     const now = Date.now();
     trimSeen(now);
@@ -8634,7 +9025,6 @@ html.lc-dm-direct-always .${MARKER} {
                 }
                 if (colors.length > 0) {
                   availableDanmakuColors.value = colors;
-                  console.log("[LAPLACE Chatterbox] Available colors:", colors);
                 }
               }
             } catch {
@@ -8843,71 +9233,6 @@ u$2("div", { style: { fontSize: ".9em", color: "#555" }, children: service.descr
         )) })
       ] })
     ] });
-  }
-  const AUTO_BLEND_PRESETS = {
-    safe: {
-      label: "稳一点",
-      hint: "少跟，适合挂机",
-      windowSec: 25,
-      threshold: 5,
-      cooldownSec: 45,
-      routineIntervalSec: 75,
-      minDistinctUsers: 3,
-      burstSettleMs: 1800,
-      rateLimitWindowMin: 10,
-      rateLimitStopThreshold: 3
-    },
-    normal: {
-      label: "正常",
-      hint: "推荐，比较克制",
-      windowSec: 20,
-      threshold: 4,
-      cooldownSec: 35,
-      routineIntervalSec: 60,
-      minDistinctUsers: 3,
-      burstSettleMs: 1500,
-      rateLimitWindowMin: 10,
-      rateLimitStopThreshold: 3
-    },
-    hot: {
-      label: "热闹",
-      hint: "跟得更快，但会自动刹车",
-      windowSec: 15,
-      threshold: 3,
-      cooldownSec: 20,
-      routineIntervalSec: 40,
-      minDistinctUsers: 2,
-      burstSettleMs: 1200,
-      rateLimitWindowMin: 10,
-      rateLimitStopThreshold: 2
-    }
-  };
-  function getAutoBlendPresetValues(preset) {
-    return {
-      ...AUTO_BLEND_PRESETS[preset],
-      includeReply: false,
-      requireDistinctUsers: true,
-      sendCount: 1,
-      sendAllTrending: false,
-      useReplacements: true
-    };
-  }
-  function applyAutoBlendPreset(preset) {
-    const p2 = getAutoBlendPresetValues(preset);
-    autoBlendPreset.value = preset;
-    autoBlendWindowSec.value = p2.windowSec;
-    autoBlendThreshold.value = p2.threshold;
-    autoBlendCooldownSec.value = p2.cooldownSec;
-    autoBlendRoutineIntervalSec.value = p2.routineIntervalSec;
-    autoBlendBurstSettleMs.value = p2.burstSettleMs;
-    autoBlendRateLimitWindowMin.value = p2.rateLimitWindowMin;
-    autoBlendRateLimitStopThreshold.value = p2.rateLimitStopThreshold;
-    autoBlendIncludeReply.value = p2.includeReply;
-    autoBlendRequireDistinctUsers.value = p2.requireDistinctUsers;
-    autoBlendMinDistinctUsers.value = p2.minDistinctUsers;
-    autoBlendSendCount.value = p2.sendCount;
-    autoBlendSendAllTrending.value = p2.sendAllTrending;
-    autoBlendUseReplacements.value = p2.useReplacements;
   }
   function NumberInput({
     value,
@@ -10536,8 +10861,6 @@ ${details}`;
     const medalCheckCopyStatus = useSignal("");
     const guardRoomSyncing = useSignal(false);
     const guardRoomSyncStatus = useSignal("");
-    const liveDeskLaunching = useSignal(false);
-    const liveDeskStatus = useSignal("");
     const globalReplaceFrom = useSignal("");
     const globalReplaceTo = useSignal("");
     const roomReplaceFrom = useSignal("");
@@ -10819,42 +11142,6 @@ ${details}`;
         guardRoomSyncing.value = false;
       }
     };
-    const launchLiveDesk = async () => {
-      const syncKey = guardRoomSyncKey.value.trim();
-      if (!syncKey) {
-        liveDeskStatus.value = "先填保安室同步密钥";
-        return;
-      }
-      liveDeskLaunching.value = true;
-      liveDeskStatus.value = "正在拉起值班台…";
-      try {
-        const session = await createGuardRoomLiveDeskSession();
-        if (!session?.id) throw new Error("没有拿到值班会话");
-        guardRoomLiveDeskSessionId.value = session.id;
-        const rooms = await fetchMedalRooms();
-        const liveRooms = [];
-        for (const room of rooms) {
-          const status = await fetchRoomLiveStatus(room.roomId);
-          if (status === "live") liveRooms.push(room);
-        }
-        if (liveRooms.length === 0) {
-          liveDeskStatus.value = "当前没有已开播粉丝牌房";
-          appendLog("直播间保安室：值班台已创建，但当前没有已开播粉丝牌房。");
-          return;
-        }
-        for (const room of liveRooms) {
-          window.open(buildGuardRoomLiveDeskUrl(room.roomId, session.id), "_blank", "noopener,noreferrer");
-        }
-        liveDeskStatus.value = `已打开 ${liveRooms.length} 个值班房间，都会自动进入试运行`;
-        appendLog(`直播间保安室：已打开 ${liveRooms.length} 个已开播粉丝牌房，进入值班试运行。`);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        liveDeskStatus.value = `值班台启动失败：${msg}`;
-        appendLog(`直播间保安室：值班台启动失败：${msg}`);
-      } finally {
-        liveDeskLaunching.value = false;
-      }
-    };
     const copyMedalCheckResults = async () => {
       const results = medalCheckResults.value;
       if (results.length === 0) {
@@ -10872,6 +11159,27 @@ ${details}`;
       } catch {
         medalCheckCopyStatus.value = "复制失败，请检查浏览器剪贴板权限";
       }
+    };
+    const downloadMedalCheckResults = () => {
+      const results = medalCheckResults.value;
+      if (results.length === 0) {
+        medalCheckCopyStatus.value = "还没有巡检结果";
+        return;
+      }
+      const report = formatMedalCheckReport(results, medalCheckStatus.value, "all");
+      const blob = new Blob([report], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a2 = document.createElement("a");
+      a2.href = url;
+      a2.download = `禁言巡检_${( new Date()).toISOString().slice(0, 10)}.txt`;
+      document.body.appendChild(a2);
+      a2.click();
+      document.body.removeChild(a2);
+      URL.revokeObjectURL(url);
+      medalCheckCopyStatus.value = "已下载报告";
+      setTimeout(() => {
+        medalCheckCopyStatus.value = "";
+      }, 1800);
     };
     const addGlobalRule = () => {
       if (!globalReplaceFrom.value) {
@@ -11201,34 +11509,57 @@ u$2(
                 ] })
               ] }),
 u$2("div", { className: "cb-panel cb-stack", style: { marginBottom: ".5em" }, children: [
-u$2("div", { className: "cb-heading", style: { marginBottom: 0 }, children: "老大爷值班台" }),
-u$2("div", { className: "cb-note", children: "会为当前已开播的粉丝牌房间新开标签页，并让每个房间自动进入跟车试运行，同时把现场摘要同步到保安室的 Live Desk。" }),
-u$2("div", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap" }, children: [
-u$2("label", { className: "cb-note", style: { display: "inline-flex", alignItems: "center", gap: ".4em" }, children: [
-                    "心跳间隔",
+u$2("div", { className: "cb-heading", style: { marginBottom: 0 }, children: "监控室代理状态" }),
+u$2("div", { className: "cb-note", children: "监控、推荐、跳转和统一跟车配置现在都以网站为准。脚本这边只负责同步牌子房/关注房清单、拉取网站配置，并在当前直播页执行试运行。" }),
+u$2("div", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap" }, children: u$2("label", { className: "cb-note", style: { display: "inline-flex", alignItems: "center", gap: ".4em" }, children: [
+                  "心跳间隔",
 u$2(
-                      "input",
-                      {
-                        type: "number",
-                        min: "10",
-                        max: "120",
-                        value: guardRoomLiveDeskHeartbeatSec.value,
-                        onInput: (e2) => {
-                          const value = Number(e2.currentTarget.value);
-                          guardRoomLiveDeskHeartbeatSec.value = Number.isFinite(value) ? Math.max(10, Math.min(120, value)) : 30;
-                        },
-                        style: { width: "64px" }
-                      }
-                    ),
-                    "秒"
-                  ] }),
-u$2("button", { type: "button", disabled: liveDeskLaunching.value, onClick: () => void launchLiveDesk(), children: liveDeskLaunching.value ? "值班台启动中…" : "开始值班（打开已开播粉丝牌房）" })
+                    "input",
+                    {
+                      type: "number",
+                      min: "10",
+                      max: "120",
+                      value: guardRoomLiveDeskHeartbeatSec.value,
+                      onInput: (e2) => {
+                        const value = Number(e2.currentTarget.value);
+                        guardRoomLiveDeskHeartbeatSec.value = Number.isFinite(value) ? Math.max(10, Math.min(120, value)) : 30;
+                      },
+                      style: { width: "64px" }
+                    }
+                  ),
+                  "秒"
+                ] }) }),
+u$2("div", { className: "cb-note", children: [
+                  "连接状态：",
+                  guardRoomAgentConnected.value ? "已连接" : "未连接",
+                  " · ",
+                  guardRoomAgentStatusText.value
                 ] }),
 u$2("div", { className: "cb-note", children: [
                   "当前会话：",
-                  guardRoomLiveDeskSessionId.value || "暂无"
+                  guardRoomLiveDeskSessionId.value || "暂无活动监控会话"
                 ] }),
-                liveDeskStatus.value && u$2("div", { className: "cb-note", children: liveDeskStatus.value })
+u$2("div", { className: "cb-note", children: [
+                  "最近同步：",
+                  guardRoomAgentLastSyncAt.value ? new Date(guardRoomAgentLastSyncAt.value).toLocaleString("zh-CN", {
+                    month: "2-digit",
+                    day: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit"
+                  }) : "暂无"
+                ] }),
+u$2("div", { className: "cb-note", children: [
+                  "当前监控清单：",
+                  guardRoomAgentWatchlistCount.value,
+                  " 间 · 开播 ",
+                  guardRoomAgentLiveCount.value,
+                  " 间"
+                ] }),
+u$2("div", { className: "cb-note", children: [
+                  "网站下发配置：",
+                  guardRoomAppliedProfile.value ? `${guardRoomAppliedProfile.value.dryRunDefault ? "默认试运行" : "默认真发"} / ${guardRoomAppliedProfile.value.autoBlendEnabled ? "允许自动跟车" : "只观察"} / ${guardRoomAppliedProfile.value.conservativeMode} 档` : "尚未收到"
+                ] })
               ] }),
 u$2(
                 "div",
@@ -11246,6 +11577,7 @@ u$2(
                         children: "复制巡检结果"
                       }
                     ),
+u$2("button", { type: "button", disabled: medalCheckResults.value.length === 0, onClick: downloadMedalCheckResults, children: "下载报告" }),
 u$2("span", { style: { color: medalCheckStatus.value.includes("发现限制") ? "#a15c00" : "#666" }, children: medalCheckStatus.value }),
                     medalCheckCopyStatus.value && u$2("span", { className: "cb-note", children: medalCheckCopyStatus.value })
                   ]
@@ -11899,7 +12231,6 @@ u$2("span", { style: { color: "#999", fontSize: "0.9em" }, children: "(1-1000)" 
               resetState();
             },
             onError: (_status, message) => {
-              console.error("Soniox error:", message);
               appendLog(`🔴 Soniox 错误：${message}`);
               if (state.value !== "stopping" && state.value !== "stopped") resetState(`错误: ${message}`, "#f44");
             }
@@ -11909,7 +12240,6 @@ u$2("span", { style: { color: "#999", fontSize: "0.9em" }, children: "(1-1000)" 
           }
           client.start(startConfig);
         } catch (err) {
-          console.error("Soniox startup error:", err);
           const message = err instanceof Error ? err.message : String(err);
           if (err instanceof Error && (err.name === "NotAllowedError" || err.name === "PermissionDeniedError")) {
             appendLog("❌ 麦克风权限被拒绝，请在浏览器设置中允许使用麦克风");
@@ -12219,7 +12549,7 @@ u$2("span", { style: { color: "#999" }, children: nonFinalText.value })
           display: visible ? "block" : "none",
           maxHeight: "50vh",
           overflowY: "auto",
-          width: "360px",
+          width: "320px",
           maxWidth: "calc(100vw - 16px)"
         },
         children: [
@@ -12372,6 +12702,20 @@ u$2(
   function App() {
     y$2(() => {
       applyGuardRoomHandoff();
+    }, []);
+    y$2(() => {
+      if (!hasSeenWelcome.value) {
+        hasSeenWelcome.value = true;
+        appendLog(
+          "👋 欢迎使用 B站独轮车 + 自动跟车！点击「弹幕助手」按钮打开面板，发送 Tab 可配置独轮车和自动跟车，设置 Tab 可管理替换规则和禁言巡检。"
+        );
+      }
+    }, []);
+    y$2(() => {
+      startGuardRoomAgent();
+      return () => {
+        stopGuardRoomAgent();
+      };
     }, []);
     y$2(() => {
       const style = document.createElement("style");

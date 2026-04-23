@@ -5,7 +5,6 @@ import {
   checkMedalRoomRestriction,
   ensureRoomId,
   fetchMedalRooms,
-  fetchRoomLiveStatus,
   getCsrfToken,
   type MedalRestrictionCheck,
   sendDanmaku,
@@ -13,8 +12,16 @@ import {
 import { BASE_URL, VERSION } from '../lib/const'
 import { MILK_GREEN_IMESSAGE_CSS } from '../lib/custom-chat-presets'
 import { gmSignal } from '../lib/gm-signal'
-import { guardRoomLiveDeskHeartbeatSec, guardRoomLiveDeskSessionId } from '../lib/guard-room-live-desk-state'
-import { buildGuardRoomLiveDeskUrl, createGuardRoomLiveDeskSession } from '../lib/guard-room-sync'
+import {
+  guardRoomAgentConnected,
+  guardRoomAgentLastSyncAt,
+  guardRoomAgentLiveCount,
+  guardRoomAgentStatusText,
+  guardRoomAgentWatchlistCount,
+  guardRoomAppliedProfile,
+  guardRoomLiveDeskHeartbeatSec,
+  guardRoomLiveDeskSessionId,
+} from '../lib/guard-room-live-desk-state'
 import { appendLog, maxLogLines } from '../lib/log'
 import { buildReplacementMap } from '../lib/replacement'
 import {
@@ -292,8 +299,6 @@ export function SettingsTab() {
   const medalCheckCopyStatus = useSignal('')
   const guardRoomSyncing = useSignal(false)
   const guardRoomSyncStatus = useSignal('')
-  const liveDeskLaunching = useSignal(false)
-  const liveDeskStatus = useSignal('')
 
   const globalReplaceFrom = useSignal('')
   const globalReplaceTo = useSignal('')
@@ -617,48 +622,6 @@ export function SettingsTab() {
     }
   }
 
-  const launchLiveDesk = async () => {
-    const syncKey = guardRoomSyncKey.value.trim()
-    if (!syncKey) {
-      liveDeskStatus.value = '先填保安室同步密钥'
-      return
-    }
-
-    liveDeskLaunching.value = true
-    liveDeskStatus.value = '正在拉起值班台…'
-    try {
-      const session = await createGuardRoomLiveDeskSession()
-      if (!session?.id) throw new Error('没有拿到值班会话')
-      guardRoomLiveDeskSessionId.value = session.id
-
-      const rooms = await fetchMedalRooms()
-      const liveRooms: typeof rooms = []
-      for (const room of rooms) {
-        const status = await fetchRoomLiveStatus(room.roomId)
-        if (status === 'live') liveRooms.push(room)
-      }
-
-      if (liveRooms.length === 0) {
-        liveDeskStatus.value = '当前没有已开播粉丝牌房'
-        appendLog('直播间保安室：值班台已创建，但当前没有已开播粉丝牌房。')
-        return
-      }
-
-      for (const room of liveRooms) {
-        window.open(buildGuardRoomLiveDeskUrl(room.roomId, session.id), '_blank', 'noopener,noreferrer')
-      }
-
-      liveDeskStatus.value = `已打开 ${liveRooms.length} 个值班房间，都会自动进入试运行`
-      appendLog(`直播间保安室：已打开 ${liveRooms.length} 个已开播粉丝牌房，进入值班试运行。`)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      liveDeskStatus.value = `值班台启动失败：${msg}`
-      appendLog(`直播间保安室：值班台启动失败：${msg}`)
-    } finally {
-      liveDeskLaunching.value = false
-    }
-  }
-
   const copyMedalCheckResults = async () => {
     const results = medalCheckResults.value
     if (results.length === 0) {
@@ -676,6 +639,28 @@ export function SettingsTab() {
     } catch {
       medalCheckCopyStatus.value = '复制失败，请检查浏览器剪贴板权限'
     }
+  }
+
+  const downloadMedalCheckResults = () => {
+    const results = medalCheckResults.value
+    if (results.length === 0) {
+      medalCheckCopyStatus.value = '还没有巡检结果'
+      return
+    }
+    const report = formatMedalCheckReport(results, medalCheckStatus.value, 'all')
+    const blob = new Blob([report], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `禁言巡检_${new Date().toISOString().slice(0, 10)}.txt`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    medalCheckCopyStatus.value = '已下载报告'
+    setTimeout(() => {
+      medalCheckCopyStatus.value = ''
+    }, 1800)
   }
 
   const addGlobalRule = () => {
@@ -1011,11 +996,10 @@ export function SettingsTab() {
           </div>
           <div className='cb-panel cb-stack' style={{ marginBottom: '.5em' }}>
             <div className='cb-heading' style={{ marginBottom: 0 }}>
-              老大爷值班台
+              监控室代理状态
             </div>
             <div className='cb-note'>
-              会为当前已开播的粉丝牌房间新开标签页，并让每个房间自动进入跟车试运行，同时把现场摘要同步到保安室的 Live
-              Desk。
+              监控、推荐、跳转和统一跟车配置现在都以网站为准。脚本这边只负责同步牌子房/关注房清单、拉取网站配置，并在当前直播页执行试运行。
             </div>
             <div className='cb-row' style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap' }}>
               <label className='cb-note' style={{ display: 'inline-flex', alignItems: 'center', gap: '.4em' }}>
@@ -1035,12 +1019,32 @@ export function SettingsTab() {
                 />
                 秒
               </label>
-              <button type='button' disabled={liveDeskLaunching.value} onClick={() => void launchLiveDesk()}>
-                {liveDeskLaunching.value ? '值班台启动中…' : '开始值班（打开已开播粉丝牌房）'}
-              </button>
             </div>
-            <div className='cb-note'>当前会话：{guardRoomLiveDeskSessionId.value || '暂无'}</div>
-            {liveDeskStatus.value && <div className='cb-note'>{liveDeskStatus.value}</div>}
+            <div className='cb-note'>
+              连接状态：{guardRoomAgentConnected.value ? '已连接' : '未连接'} · {guardRoomAgentStatusText.value}
+            </div>
+            <div className='cb-note'>当前会话：{guardRoomLiveDeskSessionId.value || '暂无活动监控会话'}</div>
+            <div className='cb-note'>
+              最近同步：
+              {guardRoomAgentLastSyncAt.value
+                ? new Date(guardRoomAgentLastSyncAt.value).toLocaleString('zh-CN', {
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                  })
+                : '暂无'}
+            </div>
+            <div className='cb-note'>
+              当前监控清单：{guardRoomAgentWatchlistCount.value} 间 · 开播 {guardRoomAgentLiveCount.value} 间
+            </div>
+            <div className='cb-note'>
+              网站下发配置：
+              {guardRoomAppliedProfile.value
+                ? `${guardRoomAppliedProfile.value.dryRunDefault ? '默认试运行' : '默认真发'} / ${guardRoomAppliedProfile.value.autoBlendEnabled ? '允许自动跟车' : '只观察'} / ${guardRoomAppliedProfile.value.conservativeMode} 档`
+                : '尚未收到'}
+            </div>
           </div>
           <div
             className='cb-row'
@@ -1055,6 +1059,9 @@ export function SettingsTab() {
               onClick={() => void copyMedalCheckResults()}
             >
               复制巡检结果
+            </button>
+            <button type='button' disabled={medalCheckResults.value.length === 0} onClick={downloadMedalCheckResults}>
+              下载报告
             </button>
             <span style={{ color: medalCheckStatus.value.includes('发现限制') ? '#a15c00' : '#666' }}>
               {medalCheckStatus.value}

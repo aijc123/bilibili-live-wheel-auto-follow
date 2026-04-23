@@ -24,7 +24,7 @@ export function Configurator() {
         display: visible ? 'block' : 'none',
         maxHeight: '50vh',
         overflowY: 'auto',
-        width: '360px',
+        width: '320px',
         maxWidth: 'calc(100vw - 16px)',
       }}
     >

@@ -202,7 +202,6 @@ export function SttTab() {
             resetState()
           },
           onError: (_status, message) => {
-            console.error('Soniox error:', message)
             appendLog(`🔴 Soniox 错误：${message}`)
             if (state.value !== 'stopping' && state.value !== 'stopped') resetState(`错误: ${message}`, '#f44')
           },
@@ -212,7 +211,6 @@ export function SttTab() {
         }
         client.start(startConfig)
       } catch (err) {
-        console.error('Soniox startup error:', err)
         const message = err instanceof Error ? err.message : String(err)
         if (err instanceof Error && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
           appendLog('❌ 麦克风权限被拒绝，请在浏览器设置中允许使用麦克风')

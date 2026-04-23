@@ -1,5 +1,21 @@
 export type RestrictionKind = 'muted' | 'account' | 'rate-limit' | 'blocked' | 'deactivated' | 'unknown'
 
+/** Known Bilibili live API error codes, checked before string matching. */
+const RATE_LIMIT_CODES = new Set([10030, 10031])
+const MUTED_CODES = new Set([10024, 11004])
+const BLOCKED_CODES = new Set([11002, 11003])
+const ACCOUNT_CODES = new Set([-101, -352, 10005, 10006, 10021])
+
+/** Classifies by numeric error code first; faster and more reliable than text matching. */
+export function classifyByCode(code: number | undefined): RestrictionKind | null {
+  if (code === undefined) return null
+  if (RATE_LIMIT_CODES.has(code)) return 'rate-limit'
+  if (MUTED_CODES.has(code)) return 'muted'
+  if (BLOCKED_CODES.has(code)) return 'blocked'
+  if (ACCOUNT_CODES.has(code)) return 'account'
+  return null
+}
+
 export interface RestrictionSignal {
   kind: RestrictionKind
   message: string

@@ -165,8 +165,8 @@ function notifyAttach(container: HTMLElement, sub: DanmakuSubscription): void {
   if (sub.onAttach) {
     try {
       sub.onAttach(container)
-    } catch (err) {
-      console.error('[danmaku-stream] onAttach error:', err)
+    } catch {
+      // Subscriber errors are isolated; don't crash the shared stream.
     }
   }
   if (sub.emitExisting && sub.onMessage) {
@@ -177,8 +177,8 @@ function notifyAttach(container: HTMLElement, sub: DanmakuSubscription): void {
       if (!ev) continue
       try {
         onMessage(ev)
-      } catch (err) {
-        console.error('[danmaku-stream] emitExisting error:', err)
+      } catch {
+        // Subscriber errors are isolated; don't crash the shared stream.
       }
     }
   }
@@ -213,8 +213,8 @@ function tryAttach(): boolean {
           if (!sub.onMessage) continue
           try {
             sub.onMessage(ev)
-          } catch (err) {
-            console.error('[danmaku-stream] onMessage error:', err)
+          } catch {
+            // Subscriber errors are isolated; don't crash the shared stream.
           }
         }
       }
@@ -268,7 +268,6 @@ export function subscribeDanmaku(sub: DanmakuSubscription): () => void {
   if (!healthTimer) {
     healthTimer = setInterval(() => {
       if (attached && !attached.isConnected) {
-        console.log('[danmaku-stream] chat container detached, re-attaching...')
         observer?.disconnect()
         observer = null
         attached = null
