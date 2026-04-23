@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.26
+// @version      2.8.28
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -5420,9 +5420,7 @@ ws;
               autoBlendLastActionText.value = `已${sourceLabel}回显：${shortAutoBlendText(display)}`;
             } else if (echoSource === "local") {
               autoBlendLastActionText.value = `接口成功未见广播：${shortAutoBlendText(display)}`;
-              appendLog(
-                `自动跟车接口成功，但 ${Math.round(SEND_ECHO_TIMEOUT_MS / 1e3)}s 内未看到广播回显，弹幕可能被过滤：${display}`
-              );
+              appendLog(`自动跟车接口成功，但 ${Math.round(SEND_ECHO_TIMEOUT_MS / 1e3)}s 内未看到广播回显：${display}`);
             } else {
               autoBlendLastActionText.value = `接口成功但未看到回显：${shortAutoBlendText(display)}`;
               appendLog(

@@ -631,11 +631,9 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
             const sourceLabel = echoSource === 'ws' ? 'WS' : 'DOM'
             autoBlendLastActionText.value = `已${sourceLabel}回显：${shortAutoBlendText(display)}`
           } else if (echoSource === 'local') {
-            // API accepted but no WS broadcast detected — Bilibili may have silently dropped it.
+            // API accepted but no WS/DOM broadcast echo detected within timeout.
             autoBlendLastActionText.value = `接口成功未见广播：${shortAutoBlendText(display)}`
-            appendLog(
-              `自动跟车接口成功，但 ${Math.round(SEND_ECHO_TIMEOUT_MS / 1000)}s 内未看到广播回显，弹幕可能被过滤：${display}`
-            )
+            appendLog(`自动跟车接口成功，但 ${Math.round(SEND_ECHO_TIMEOUT_MS / 1000)}s 内未看到广播回显：${display}`)
           } else {
             autoBlendLastActionText.value = `接口成功但未看到回显：${shortAutoBlendText(display)}`
             appendLog(
