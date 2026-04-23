@@ -291,8 +291,11 @@ function waitForSentEcho(
 ): Promise<'ws' | 'dom' | 'local' | null> {
   const target = text.trim()
   if (!target) return Promise.resolve(null)
+  // Only count real broadcast echoes (ws/dom) as immediate confirmation.
+  // 'local' is emitted synchronously inside sendDanmaku and would always
+  // short-circuit this check before any WS echo has a chance to arrive.
   const recentCustomSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs)
-  if (recentCustomSource) return Promise.resolve(recentCustomSource)
+  if (recentCustomSource && recentCustomSource !== 'local') return Promise.resolve(recentCustomSource)
   const recentDomSource = findRecentDomDanmakuSource(target, uid, sinceTs)
   if (recentDomSource) return Promise.resolve(recentDomSource)
 
@@ -308,10 +311,16 @@ function waitForSentEcho(
       unsubscribeDom()
       resolve(source)
     }
-    const timer = setTimeout(() => finish(null), timeoutMs)
+    // After timeout, fall back to 'local' if the API echo exists — means the
+    // message was sent and shown locally but no broadcast was detected.
+    const timer = setTimeout(() => {
+      const localFallback = findRecentCustomChatDanmakuSource(target, uid, sinceTs)
+      finish(localFallback === 'local' ? 'local' : null)
+    }, timeoutMs)
     unsubscribeEvents = subscribeCustomChatEvents(event => {
       if (!matchesCustomChatEchoEvent(event, target, uid)) return
-      finish(event.source)
+      // Ignore local events mid-wait; only real broadcast sources count.
+      if (event.source !== 'local') finish(event.source)
     })
     unsubscribeDom = subscribeDanmaku({
       onMessage: event => {
@@ -319,8 +328,10 @@ function waitForSentEcho(
         finish('dom')
       },
     })
-    const lateSource =
-      findRecentCustomChatDanmakuSource(target, uid, sinceTs) ?? findRecentDomDanmakuSource(target, uid, sinceTs)
+    // Late check: only real broadcast sources.
+    const lateCustomSource = findRecentCustomChatDanmakuSource(target, uid, sinceTs)
+    const lateDomSource = findRecentDomDanmakuSource(target, uid, sinceTs)
+    const lateSource = (lateCustomSource !== 'local' ? lateCustomSource : null) ?? lateDomSource
     if (lateSource) finish(lateSource)
   })
 }
@@ -616,9 +627,15 @@ async function triggerSend(triggeredText: string, reason: string): Promise<void>
         if (result.success && !result.cancelled) {
           autoBlendLastActionText.value = `已提交，等待回显：${shortAutoBlendText(display)}`
           const echoSource = await waitForSentEcho(toSend, myUid, result.startedAt ?? Date.now())
-          if (echoSource) {
-            const sourceLabel = echoSource === 'ws' ? 'WS' : echoSource === 'dom' ? 'DOM' : '本地'
+          if (echoSource === 'ws' || echoSource === 'dom') {
+            const sourceLabel = echoSource === 'ws' ? 'WS' : 'DOM'
             autoBlendLastActionText.value = `已${sourceLabel}回显：${shortAutoBlendText(display)}`
+          } else if (echoSource === 'local') {
+            // API accepted but no WS broadcast detected — Bilibili may have silently dropped it.
+            autoBlendLastActionText.value = `接口成功未见广播：${shortAutoBlendText(display)}`
+            appendLog(
+              `自动跟车接口成功，但 ${Math.round(SEND_ECHO_TIMEOUT_MS / 1000)}s 内未看到广播回显，弹幕可能被过滤：${display}`
+            )
           } else {
             autoBlendLastActionText.value = `接口成功但未看到回显：${shortAutoBlendText(display)}`
             appendLog(
