@@ -1,5 +1,6 @@
 import { effect as signalEffect } from '@preact/signals'
 
+import { ensureRoomId, fetchEmoticons } from './api'
 import { BASE_URL } from './const'
 import {
   type CustomChatEvent,
@@ -1041,10 +1042,22 @@ let renderFrame: number | null = null
 let rerenderFrame: number | null = null
 let nativeScanFrame: number | null = null
 let rerenderToken = 0
+let emoticonRefreshToken = 0
 let rootEventController: AbortController | null = null
 let emoticonCacheSource: typeof cachedEmoticonPackages.value | null = null
 let emoticonCache = new Map<string, { url: string; alt: string }>()
 let emoticonFirstCharCache = new Map<string, string[]>()
+
+async function refreshCurrentRoomEmoticons(): Promise<void> {
+  const token = ++emoticonRefreshToken
+  try {
+    const roomId = await ensureRoomId()
+    if (token !== emoticonRefreshToken) return
+    await fetchEmoticons(roomId)
+  } catch {
+    // Non-critical: the chat can still render plain text and native DOM fallbacks.
+  }
+}
 
 function eventToSendableMessage(ev: DanmakuEvent): string {
   if (!ev.isReply) return ev.text
@@ -2770,6 +2783,7 @@ export function startCustomChatDom(): void {
 
   ensureStyles()
   scheduleFallbackMount()
+  void refreshCurrentRoomEmoticons()
   disposeSettings = signalEffect(() => {
     if (root) root.dataset.theme = customChatTheme.value
     if (root) root.dataset.debug = customChatPerfDebug.value ? 'true' : 'false'
@@ -2789,6 +2803,7 @@ export function startCustomChatDom(): void {
 }
 
 export function stopCustomChatDom(): void {
+  emoticonRefreshToken += 1
   if (fallbackMountTimer) {
     clearTimeout(fallbackMountTimer)
     fallbackMountTimer = null

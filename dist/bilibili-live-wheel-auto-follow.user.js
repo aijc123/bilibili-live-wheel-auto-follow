@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.36
+// @version      2.8.37
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -6972,10 +6972,20 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   let rerenderFrame = null;
   let nativeScanFrame = null;
   let rerenderToken = 0;
+  let emoticonRefreshToken = 0;
   let rootEventController = null;
   let emoticonCacheSource = null;
   let emoticonCache = new Map();
   let emoticonFirstCharCache = new Map();
+  async function refreshCurrentRoomEmoticons() {
+    const token = ++emoticonRefreshToken;
+    try {
+      const roomId = await ensureRoomId();
+      if (token !== emoticonRefreshToken) return;
+      await fetchEmoticons(roomId);
+    } catch {
+    }
+  }
   function eventToSendableMessage$1(ev) {
     if (!ev.isReply) return ev.text;
     return ev.uname ? `@${ev.uname} ${ev.text}` : ev.text;
@@ -8453,6 +8463,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     if (unsubscribeDom) return;
     ensureStyles();
     scheduleFallbackMount();
+    void refreshCurrentRoomEmoticons();
     disposeSettings = j(() => {
       if (root) root.dataset.theme = customChatTheme.value;
       if (root) root.dataset.debug = customChatPerfDebug.value ? "true" : "false";
@@ -8470,6 +8481,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
     });
   }
   function stopCustomChatDom() {
+    emoticonRefreshToken += 1;
     if (fallbackMountTimer) {
       clearTimeout(fallbackMountTimer);
       fallbackMountTimer = null;
