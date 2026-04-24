@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.34
+// @version      2.8.35
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -1118,7 +1118,7 @@
       showUserNotice(message, "warning");
     }
   }
-  function appendLog(arg, label, display) {
+  function appendLog$1(arg, label, display) {
     const now = new Date();
     const ts = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
     const message = typeof arg === "string" ? `${ts} ${arg}` : arg.cancelled ? `${ts} ⏭ ${label}: ${display}（被手动发送中断）` : arg.success ? `${ts} ✅ ${label}: ${display}` : `${ts} ❌ ${label}: ${display}，原因：${formatDanmakuError(arg.error)}`;
@@ -1143,8 +1143,15 @@
   const danmakuDirectMode = gmSignal("danmakuDirectMode", true);
   const danmakuDirectConfirm = gmSignal("danmakuDirectConfirm", false);
   const danmakuDirectAlwaysShow = gmSignal("danmakuDirectAlwaysShow", false);
+  const customChatDefaultMigrationKey = "customChatDefaultPresetMigrated";
+  if (!_GM_getValue(customChatDefaultMigrationKey, false)) {
+    _GM_setValue("customChatEnabled", true);
+    _GM_setValue("customChatHideNative", false);
+    _GM_setValue("customChatUseWs", true);
+    _GM_setValue(customChatDefaultMigrationKey, true);
+  }
   const customChatEnabled = gmSignal("customChatEnabled", true);
-  const customChatHideNative = gmSignal("customChatHideNative", true);
+  const customChatHideNative$1 = gmSignal("customChatHideNative", false);
   const customChatUseWs = gmSignal("customChatUseWs", true);
   const customChatTheme = gmSignal("customChatTheme", "laplace");
   const customChatShowDanmaku = gmSignal("customChatShowDanmaku", true);
@@ -1237,7 +1244,7 @@
         const stored2 = _GM_getValue("persistedSendMsg", {});
         if (stored2[key]) {
           sendMsg.value = true;
-          appendLog("🔄 已恢复独轮车运行状态");
+          appendLog$1("🔄 已恢复独轮车运行状态");
         }
         return;
       }
@@ -4596,7 +4603,7 @@ ws;
     if (message === lastStartupFailure && now - lastStartupFailureAt < STARTUP_FAILURE_LOG_INTERVAL) return;
     lastStartupFailure = message;
     lastStartupFailureAt = now;
-    appendLog(`⚪ Chatterbox Chat WS 暂不可用，DOM 消息源继续兜底：${message}`);
+    appendLog$1(`⚪ Chatterbox Chat WS 暂不可用，DOM 消息源继续兜底：${message}`);
   }
   function emit(event) {
     emitCustomChatEvent(event);
@@ -4606,7 +4613,7 @@ ws;
       emitCustomChatWsStatus("live");
       lastStartupFailure = "";
       lastStartupFailureAt = 0;
-      appendLog(`🟢 Chatterbox Chat WS 已连接：${roomId}`);
+      appendLog$1(`🟢 Chatterbox Chat WS 已连接：${roomId}`);
     });
     live.addEventListener("close", () => {
       emitCustomChatWsStatus("closed");
@@ -4931,7 +4938,7 @@ ws;
     const seen2 = [...memeContributorSeenTexts.value, text];
     memeContributorSeenTexts.value = seen2.length > MAX_SEEN ? seen2.slice(-MAX_SEEN) : seen2;
     nominationTimestamps.push(now);
-    appendLog(`[贡献者] 检测到高质量烂梗 "${text}"，已加入待贡献池`);
+    appendLog$1(`[贡献者] 检测到高质量烂梗 "${text}"，已加入待贡献池`);
   }
   function ignoreMemeCandidate(text) {
     memeContributorCandidates.value = memeContributorCandidates.value.filter((c2) => c2 !== text);
@@ -5061,7 +5068,7 @@ ws;
     moderationStopReason = reason;
     clearPendingAutoBlend(reason);
     autoBlendEnabled.value = false;
-    appendLog(reason);
+    appendLog$1(reason);
   }
   function handleSendFailure(result, roomId) {
     const now = Date.now();
@@ -5371,7 +5378,7 @@ ws;
       if (reason === "routine") {
         const text = shortAutoBlendText(triggeredText);
         autoBlendLastActionText.value = `还在发，先跳过：${text}`;
-        appendLog(`自动跟车：还在发，先跳过补跟：${text}`);
+        appendLog$1(`自动跟车：还在发，先跳过补跟：${text}`);
       }
       return;
     }
@@ -5387,14 +5394,14 @@ ws;
       const csrfToken = getCsrfToken();
       if (!csrfToken) {
         autoBlendLastActionText.value = "未登录，跳过";
-        appendLog("自动跟车：没检测到登录态，先跳过");
+        appendLog$1("自动跟车：没检测到登录态，先跳过");
         return;
       }
       const roomId = await ensureRoomId();
       const reasonLabel = reason === "burst" ? "刚刷起来" : "补跟";
       const isMulti = targets.length > 1;
       if (isMulti) {
-        appendLog(`自动跟车：同一波有 ${targets.length} 句话达标，开始依次跟`);
+        appendLog$1(`自动跟车：同一波有 ${targets.length} 句话达标，开始依次跟`);
       }
       let memeRecorded = false;
       for (let ti = 0; ti < targets.length; ti++) {
@@ -5404,7 +5411,7 @@ ws;
         const replaced = useReplacements ? applyReplacements(originalText) : originalText;
         const wasReplaced = useReplacements && originalText !== replaced;
         if (isMulti) {
-          appendLog(`  - ${shortAutoBlendText(originalText)}（${formatAutoBlendSenderInfo(uniqueUsers, totalCount)}）`);
+          appendLog$1(`  - ${shortAutoBlendText(originalText)}（${formatAutoBlendSenderInfo(uniqueUsers, totalCount)}）`);
         }
         const repeatCount = reason === "burst" && autoBlendSendAllTrending.value ? 1 : Math.max(1, autoBlendSendCount.value);
         for (let i2 = 0; i2 < repeatCount; i2++) {
@@ -5417,13 +5424,13 @@ ws;
           const display = wasReplaced || toSend !== originalText ? `${originalText} → ${toSend}` : toSend;
           if (autoBlendDryRun.value) {
             autoBlendLastActionText.value = `试运行命中：${shortAutoBlendText(display)}`;
-            appendLog(`自动跟车试运行（未发送）：${display}`);
+            appendLog$1(`自动跟车试运行（未发送）：${display}`);
             continue;
           }
           const result = await enqueueDanmaku(toSend, roomId, csrfToken, SendPriority.AUTO);
           if (isMulti) {
             const label = repeatCount > 1 ? `自动跟车 [${i2 + 1}/${repeatCount}]` : "自动跟车";
-            appendLog(result, label, display);
+            appendLog$1(result, label, display);
             if (result.success && !result.cancelled) {
               autoBlendLastActionText.value = `已跟车：${shortAutoBlendText(display)}`;
             } else if (result.cancelled) {
@@ -5436,14 +5443,14 @@ ws;
             const repeatSuffix = repeatCount > 1 ? ` [${i2 + 1}/${repeatCount}]` : "";
             if (result.cancelled) {
               autoBlendLastActionText.value = `被手动发送打断：${shortAutoBlendText(display)}`;
-              appendLog(`自动跟车${repeatSuffix}：被手动发送打断：${display}`);
+              appendLog$1(`自动跟车${repeatSuffix}：被手动发送打断：${display}`);
             } else if (result.success) {
               autoBlendLastActionText.value = `已跟车：${shortAutoBlendText(display)}`;
-              appendLog(`已跟车${repeatSuffix}（${info}）：${display}`);
+              appendLog$1(`已跟车${repeatSuffix}（${info}）：${display}`);
             } else {
               const error = formatDanmakuError(result.error);
               autoBlendLastActionText.value = `没发出去：${shortAutoBlendText(display)}`;
-              appendLog(`自动跟车没发出去${repeatSuffix}（${info}）：${display}，原因：${error}`);
+              appendLog$1(`自动跟车没发出去${repeatSuffix}（${info}）：${display}，原因：${error}`);
             }
           }
           if (result.success && !result.cancelled) {
@@ -5456,10 +5463,10 @@ ws;
             } else {
               consecutiveSilentDrops++;
               autoBlendLastActionText.value = `接口成功未见广播：${shortAutoBlendText(display)}`;
-              appendLog(`自动跟车接口成功，但 ${Math.round(SEND_ECHO_TIMEOUT_MS / 1e3)}s 内未看到广播回显：${display}`);
+              appendLog$1(`自动跟车接口成功，但 ${Math.round(SEND_ECHO_TIMEOUT_MS / 1e3)}s 内未看到广播回显：${display}`);
               if (consecutiveSilentDrops >= SILENT_DROP_CHECK_THRESHOLD) {
                 consecutiveSilentDrops = 0;
-                appendLog("自动跟车：连续多次未见广播，正在巡检当前房间限制状态…");
+                appendLog$1("自动跟车：连续多次未见广播，正在巡检当前房间限制状态…");
                 try {
                   const signals = await checkSelfRoomRestrictions(roomId);
                   if (signals.length > 0) {
@@ -5467,11 +5474,11 @@ ws;
                     stopAutoBlendAfterModeration(`🔴 自动跟车：巡检发现限制，已自动关闭：${desc}`);
                     return;
                   }
-                  appendLog(
+                  appendLog$1(
                     "自动跟车：巡检未发现明确禁言/限制，弹幕仍未广播。可能原因：该房间需要粉丝牌、发送频率过快、或账号存在风控。"
                   );
                 } catch {
-                  appendLog("自动跟车：巡检请求失败，无法确认限制原因。");
+                  appendLog$1("自动跟车：巡检请求失败，无法确认限制原因。");
                 }
               }
             }
@@ -5496,7 +5503,7 @@ ws;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       autoBlendLastActionText.value = `出错：${msg}`;
-      appendLog(`自动跟车出错：${msg}`);
+      appendLog$1(`自动跟车出错：${msg}`);
     } finally {
       isSending = false;
       updateStatusText();
@@ -5822,7 +5829,7 @@ u$2(
       return data.completion ?? { hasSensitiveContent: false };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLog(`⚠️ AI检测服务出错：${msg}`);
+      appendLog$1(`⚠️ AI检测服务出错：${msg}`);
       return { hasSensitiveContent: false };
     }
   }
@@ -5842,20 +5849,20 @@ u$2(
   }
   async function tryAiEvasion(message, roomId, csrfToken, logPrefix) {
     if (!aiEvasion.value) return { success: false };
-    appendLog(`🤖 ${logPrefix}AI规避：正在检测敏感词…`);
+    appendLog$1(`🤖 ${logPrefix}AI规避：正在检测敏感词…`);
     const detection = await detectSensitiveWords(message);
     if (detection.hasSensitiveContent && detection.sensitiveWords && detection.sensitiveWords.length > 0) {
-      appendLog(`🤖 ${logPrefix}检测到敏感词：${detection.sensitiveWords.join(", ")}，正在尝试规避…`);
+      appendLog$1(`🤖 ${logPrefix}检测到敏感词：${detection.sensitiveWords.join(", ")}，正在尝试规避…`);
       const evadedMessage = replaceSensitiveWords(message, detection.sensitiveWords);
       const retryResult = await enqueueDanmaku(evadedMessage, roomId, csrfToken, SendPriority.MANUAL);
       if (retryResult.success) {
-        appendLog(`✅ ${logPrefix}AI规避成功: ${evadedMessage}`);
+        appendLog$1(`✅ ${logPrefix}AI规避成功: ${evadedMessage}`);
         return { success: true, evadedMessage };
       }
-      appendLog(`❌ ${logPrefix}AI规避失败: ${evadedMessage}，原因：${retryResult.error}`);
+      appendLog$1(`❌ ${logPrefix}AI规避失败: ${evadedMessage}，原因：${retryResult.error}`);
       return { success: false, evadedMessage, error: retryResult.error };
     }
-    appendLog(`⚠️ ${logPrefix}无法检测到敏感词，请手动检查`);
+    appendLog$1(`⚠️ ${logPrefix}无法检测到敏感词，请手动检查`);
     return { success: false };
   }
   async function copyText(text) {
@@ -5881,7 +5888,7 @@ u$2(
       activeTab.value = "fasong";
       dialogOpen.value = true;
     }
-    appendLog(copied ? `🥷 偷并复制: ${msg}` : `🥷 偷: ${msg}`);
+    appendLog$1(copied ? `🥷 偷并复制: ${msg}` : `🥷 偷: ${msg}`);
   }
   function focusCustomChatComposer() {
     if (!customChatEnabled.value) return false;
@@ -5907,22 +5914,22 @@ u$2(
       const roomId = await ensureRoomId();
       const csrfToken = getCsrfToken();
       if (!csrfToken) {
-        appendLog("❌ 未找到登录信息，请先登录 Bilibili");
+        appendLog$1("❌ 未找到登录信息，请先登录 Bilibili");
         return;
       }
       const processed = applyReplacements(msg);
       const result = await enqueueDanmaku(processed, roomId, csrfToken, SendPriority.MANUAL);
       const display = msg !== processed ? `${msg} → ${processed}` : processed;
-      appendLog(result, "+1", display);
+      appendLog$1(result, "+1", display);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      appendLog(`🔴 +1 出错：${message}`);
+      appendLog$1(`🔴 +1 出错：${message}`);
     }
   }
   async function sendManualDanmaku(originalMessage) {
     const trimmed = originalMessage.trim();
     if (!trimmed) {
-      appendLog("⚠️ 消息内容不能为空");
+      appendLog$1("⚠️ 消息内容不能为空");
       return false;
     }
     const isEmote = isEmoticonUnique(trimmed);
@@ -5932,7 +5939,7 @@ u$2(
       const roomId = await ensureRoomId();
       const csrfToken = getCsrfToken();
       if (!csrfToken) {
-        appendLog("❌ 未找到登录信息，请先登录 Bilibili");
+        appendLog$1("❌ 未找到登录信息，请先登录 Bilibili");
         void syncGuardRoomRiskEvent({
           kind: "login_missing",
           source: "manual",
@@ -5951,7 +5958,7 @@ u$2(
         const baseLabel = result.isEmoticon ? "手动表情" : "手动";
         const label = segments.length > 1 ? `${baseLabel} [${i2 + 1}/${segments.length}]` : baseLabel;
         const displayMsg = wasReplaced && segments.length === 1 ? `${trimmed} → ${segment}` : segment;
-        appendLog(result, label, displayMsg);
+        appendLog$1(result, label, displayMsg);
         if (!result.success) {
           allSuccess = false;
           const risk = classifyRiskEvent(result.error);
@@ -5973,7 +5980,7 @@ u$2(
       return allSuccess;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLog(`🔴 发送出错：${msg}`);
+      appendLog$1(`🔴 发送出错：${msg}`);
       return false;
     }
   }
@@ -8061,7 +8068,7 @@ html.lc-custom-chat-hide-native.lc-custom-chat-mounted .chat-history-panel:has(#
   function updateNativeVisibility() {
     const mounted = !!root?.isConnected && !!root.querySelector(".lc-chat-composer");
     const nativeMounted = mounted && !rootUsesFallbackHost;
-    const shouldHideNative = nativeMounted && customChatHideNative.value;
+    const shouldHideNative = nativeMounted && customChatHideNative$1.value;
     document.documentElement.classList.toggle("lc-custom-chat-mounted", nativeMounted);
     document.documentElement.classList.toggle("lc-custom-chat-root-outside-history", nativeMounted && rootOutsideHistory);
     document.documentElement.classList.toggle("lc-custom-chat-hide-native", shouldHideNative);
@@ -8887,7 +8894,7 @@ html.lc-dm-direct-always .${MARKER} {
       follows = await fetchFollowingRooms(FOLLOWING_PAGE_LIMIT);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      appendLog(`直播间保安室：拉关注列表失败，先只同步粉丝牌房。${message}`);
+      appendLog$1(`直播间保安室：拉关注列表失败，先只同步粉丝牌房。${message}`);
     }
     const merged = mergeWatchlistRooms(medals, follows);
     return attachLiveStatus(merged);
@@ -8926,7 +8933,7 @@ html.lc-dm-direct-always .${MARKER} {
     applyControlProfile(control.profile);
     guardRoomLiveDeskSessionId.value = control.session?.status === "active" ? control.session.id : "";
     if (control.session?.id && control.session.id !== lastSessionId) {
-      appendLog(`直播间保安室：监控会话已切到 ${control.session.id}`);
+      appendLog$1(`直播间保安室：监控会话已切到 ${control.session.id}`);
     }
     lastSessionId = control.session?.id ?? "";
     markSuccess(
@@ -8944,7 +8951,7 @@ html.lc-dm-direct-always .${MARKER} {
       guardRoomAgentConnected.value = false;
       guardRoomAgentStatusText.value = `监控室代理掉线：${message}`;
       if (message !== lastFailure) {
-        appendLog(`直播间保安室：监控室代理同步失败：${message}`);
+        appendLog$1(`直播间保安室：监控室代理同步失败：${message}`);
         lastFailure = message;
       }
     } finally {
@@ -8986,7 +8993,7 @@ html.lc-dm-direct-always .${MARKER} {
     }
     if (autostart) {
       autoBlendEnabled.value = true;
-      appendLog("直播间保安室：已接管本页，自动跟车进入试运行。");
+      appendLog$1("直播间保安室：已接管本页，自动跟车进入试运行。");
     }
   }
   const WINDOW_MS = 60 * 1e3;
@@ -9074,13 +9081,13 @@ html.lc-dm-direct-always .${MARKER} {
           roomId = await ensureRoomId();
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          appendLog(`❌ 获取房间ID失败: ${message}`);
+          appendLog$1(`❌ 获取房间ID失败: ${message}`);
           await new Promise((r2) => setTimeout(r2, 5e3));
           continue;
         }
         const csrfToken = getCsrfToken();
         if (!csrfToken) {
-          appendLog("❌ 未找到登录信息，已自动停止运行，请先登录 Bilibili");
+          appendLog$1("❌ 未找到登录信息，已自动停止运行，请先登录 Bilibili");
           void syncGuardRoomRiskEvent({
             kind: "login_missing",
             source: "auto-send",
@@ -9141,7 +9148,7 @@ html.lc-dm-direct-always .${MARKER} {
         const { signal } = currentAbort;
         const currentTemplate = msgTemplates.value[activeTemplateIndex.value] ?? "";
         if (!currentTemplate.trim()) {
-          appendLog("⚠️ 当前模板为空，已自动停止运行");
+          appendLog$1("⚠️ 当前模板为空，已自动停止运行");
           sendMsg.value = false;
           currentAbort = null;
           continue;
@@ -9182,7 +9189,7 @@ html.lc-dm-direct-always .${MARKER} {
             const displayMsg = wasReplaced ? `${originalMessage} → ${processedMessage}` : processedMessage;
             const baseLabel = result.isEmoticon ? "自动表情" : "自动";
             const label = total > 1 ? `${baseLabel} [${i2 + 1}/${total}]` : baseLabel;
-            appendLog(result, label, displayMsg);
+            appendLog$1(result, label, displayMsg);
             if (!result.success && !result.cancelled) {
               const risk = classifyRiskEvent(result.error, result.errorData);
               void syncGuardRoomRiskEvent({
@@ -9204,7 +9211,7 @@ html.lc-dm-direct-always .${MARKER} {
         currentAbort = null;
         if (completed) {
           count += 1;
-          appendLog(`🔵第 ${count} 轮发送完成`);
+          appendLog$1(`🔵第 ${count} 轮发送完成`);
         }
       } else {
         count = 0;
@@ -9715,7 +9722,7 @@ u$2("span", { style: { color: "#a15c00" }, children: "猛" })
     const toggleSend = () => {
       if (!sendMsg.value) {
         if (!currentTemplate.trim()) {
-          appendLog("⚠️ 当前模板为空，请先输入内容");
+          appendLog$1("⚠️ 当前模板为空，请先输入内容");
           return;
         }
         sendMsg.value = true;
@@ -9987,7 +9994,7 @@ u$2("div", { className: "cb-body", children: u$2(
         const roomId = await ensureRoomId();
         const csrfToken = getCsrfToken();
         if (!csrfToken) {
-          appendLog("❌ 未找到登录信息，请先登录 Bilibili");
+          appendLog$1("❌ 未找到登录信息，请先登录 Bilibili");
           return;
         }
         const processed = applyReplacements(meme.content);
@@ -9999,7 +10006,7 @@ u$2("div", { className: "cb-body", children: u$2(
           const result = await enqueueDanmaku(segment, roomId, csrfToken, SendPriority.MANUAL);
           const label = total > 1 ? `烂梗 [${i2 + 1}/${total}]` : "烂梗";
           const display = wasReplaced && total === 1 ? `${meme.content} → ${segment}` : segment;
-          appendLog(result, label, display);
+          appendLog$1(result, label, display);
           if (i2 < total - 1) {
             await new Promise((r2) => setTimeout(r2, msgSendInterval.value * 1e3));
           }
@@ -10008,7 +10015,7 @@ u$2("div", { className: "cb-body", children: u$2(
         if (newCount !== null) onUpdateCount(meme.id, newCount);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        appendLog(`🔴 发送出错：${msg}`);
+        appendLog$1(`🔴 发送出错：${msg}`);
       }
     };
     const handleCopy = async () => {
@@ -11001,7 +11008,7 @@ ${details}`;
         const msg = err instanceof Error ? err.message : String(err);
         syncStatus.value = `同步失败: ${msg}`;
         syncStatusColor.value = "#f44";
-        appendLog(`❌ 云端替换规则同步失败: ${msg}`);
+        appendLog$1(`❌ 云端替换规则同步失败: ${msg}`);
       } finally {
         syncing.value = false;
       }
@@ -11022,15 +11029,15 @@ ${details}`;
     };
     const logTestResult = (result, replacedKeyword) => {
       if (result.originalBlocked) {
-        appendLog(`  ✅ 原词被屏蔽 (错误: ${result.originalError})，测试替换词: ${replacedKeyword}`);
+        appendLog$1(`  ✅ 原词被屏蔽 (错误: ${result.originalError})，测试替换词: ${replacedKeyword}`);
         if (result.replacedBlocked) {
-          appendLog(`  ❌ 替换词也被屏蔽 (错误: ${result.replacedError})`);
+          appendLog$1(`  ❌ 替换词也被屏蔽 (错误: ${result.replacedError})`);
         } else {
-          appendLog("  ✅ 替换词未被屏蔽");
+          appendLog$1("  ✅ 替换词未被屏蔽");
         }
         return 1;
       }
-      appendLog("  ⚠️ 原词未被屏蔽，请考虑提交贡献词条");
+      appendLog$1("  ⚠️ 原词未被屏蔽，请考虑提交贡献词条");
       return 0;
     };
     const testRemote = async () => {
@@ -11043,7 +11050,7 @@ ${details}`;
         const roomId = await ensureRoomId();
         const csrfToken = getCsrfToken();
         if (!csrfToken) {
-          appendLog("❌ 未找到登录信息，请先登录 Bilibili");
+          appendLog$1("❌ 未找到登录信息，请先登录 Bilibili");
           return;
         }
         const rk = remoteKeywords.value;
@@ -11052,47 +11059,47 @@ ${details}`;
         const roomKw = rid !== null ? Object.entries(rk?.rooms?.find((r2) => String(r2.room) === String(rid))?.keywords ?? {}).filter(([f2]) => f2).map(([from, to]) => ({ from, to })) : [];
         const total = globalKw.length + roomKw.length;
         if (total === 0) {
-          appendLog("⚠️ 没有云端替换词可供测试，请先同步云端规则");
+          appendLog$1("⚠️ 没有云端替换词可供测试，请先同步云端规则");
           return;
         }
-        appendLog(`🔵 开始测试云端替换词 ${total} 个（全局 ${globalKw.length} + 房间 ${roomKw.length}）`);
+        appendLog$1(`🔵 开始测试云端替换词 ${total} 个（全局 ${globalKw.length} + 房间 ${roomKw.length}）`);
         let tested = 0;
         let totalBlocked = 0;
         if (globalKw.length > 0) {
-          appendLog(`
+          appendLog$1(`
 📡 测试云端全局替换词 (${globalKw.length} 个)`);
           let blockedCount = 0;
           for (const { from, to } of globalKw) {
             tested++;
-            appendLog(`[${tested}/${total}] 测试: ${from}`);
+            appendLog$1(`[${tested}/${total}] 测试: ${from}`);
             const result = await testKeywordPair(from, to, roomId, csrfToken);
             const b2 = logTestResult(result, to);
             blockedCount += b2;
             totalBlocked += b2;
             if (tested < total) await new Promise((r2) => setTimeout(r2, 2e3));
           }
-          appendLog(`📡 全局替换词测试完成：${blockedCount}/${globalKw.length} 个原词被屏蔽`);
+          appendLog$1(`📡 全局替换词测试完成：${blockedCount}/${globalKw.length} 个原词被屏蔽`);
         }
         if (roomKw.length > 0) {
-          appendLog(`
+          appendLog$1(`
 🏠 测试云端房间专属替换词 (${roomKw.length} 个)`);
           let blockedCount = 0;
           for (const { from, to } of roomKw) {
             tested++;
-            appendLog(`[${tested}/${total}] 测试: ${from}`);
+            appendLog$1(`[${tested}/${total}] 测试: ${from}`);
             const result = await testKeywordPair(from, to, roomId, csrfToken);
             const b2 = logTestResult(result, to);
             blockedCount += b2;
             totalBlocked += b2;
             if (tested < total) await new Promise((r2) => setTimeout(r2, 2e3));
           }
-          appendLog(`🏠 房间专属替换词测试完成：${blockedCount}/${roomKw.length} 个原词被屏蔽`);
+          appendLog$1(`🏠 房间专属替换词测试完成：${blockedCount}/${roomKw.length} 个原词被屏蔽`);
         }
-        appendLog(`
+        appendLog$1(`
 🔵 云端测试完成！共测试 ${total} 个词，其中 ${totalBlocked} 个原词被屏蔽`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        appendLog(`🔴 测试出错：${msg}`);
+        appendLog$1(`🔴 测试出错：${msg}`);
       } finally {
         testingRemote.value = false;
       }
@@ -11105,7 +11112,7 @@ ${details}`;
         const roomId = await ensureRoomId();
         const csrfToken = getCsrfToken();
         if (!csrfToken) {
-          appendLog("❌ 未找到登录信息，请先登录 Bilibili");
+          appendLog$1("❌ 未找到登录信息，请先登录 Bilibili");
           return;
         }
         const globalRules2 = localGlobalRules.value.filter((r2) => r2.from);
@@ -11113,47 +11120,47 @@ ${details}`;
         const roomRules = rid !== null ? (localRoomRules.value[String(rid)] ?? []).filter((r2) => r2.from) : [];
         const total = globalRules2.length + roomRules.length;
         if (total === 0) {
-          appendLog("⚠️ 没有本地替换词可供测试，请先添加本地替换规则");
+          appendLog$1("⚠️ 没有本地替换词可供测试，请先添加本地替换规则");
           return;
         }
-        appendLog(`🔵 开始测试本地替换词 ${total} 个（全局 ${globalRules2.length} + 当前房间 ${roomRules.length}）`);
+        appendLog$1(`🔵 开始测试本地替换词 ${total} 个（全局 ${globalRules2.length} + 当前房间 ${roomRules.length}）`);
         let tested = 0;
         let totalBlocked = 0;
         if (globalRules2.length > 0) {
-          appendLog(`
+          appendLog$1(`
 📋 测试本地全局替换词 (${globalRules2.length} 个)`);
           let blockedCount = 0;
           for (const rule of globalRules2) {
             tested++;
-            appendLog(`[${tested}/${total}] 测试: ${rule.from}`);
+            appendLog$1(`[${tested}/${total}] 测试: ${rule.from}`);
             const result = await testKeywordPair(rule.from ?? "", rule.to ?? "", roomId, csrfToken);
             const b2 = logTestResult(result, rule.to ?? "");
             blockedCount += b2;
             totalBlocked += b2;
             if (tested < total) await new Promise((r2) => setTimeout(r2, 2e3));
           }
-          appendLog(`📋 本地全局替换词测试完成：${blockedCount}/${globalRules2.length} 个原词被屏蔽`);
+          appendLog$1(`📋 本地全局替换词测试完成：${blockedCount}/${globalRules2.length} 个原词被屏蔽`);
         }
         if (roomRules.length > 0) {
-          appendLog(`
+          appendLog$1(`
 🏠 测试本地房间替换词 (${roomRules.length} 个)`);
           let blockedCount = 0;
           for (const rule of roomRules) {
             tested++;
-            appendLog(`[${tested}/${total}] 测试: ${rule.from}`);
+            appendLog$1(`[${tested}/${total}] 测试: ${rule.from}`);
             const result = await testKeywordPair(rule.from ?? "", rule.to ?? "", roomId, csrfToken);
             const b2 = logTestResult(result, rule.to ?? "");
             blockedCount += b2;
             totalBlocked += b2;
             if (tested < total) await new Promise((r2) => setTimeout(r2, 2e3));
           }
-          appendLog(`🏠 本地房间替换词测试完成：${blockedCount}/${roomRules.length} 个原词被屏蔽`);
+          appendLog$1(`🏠 本地房间替换词测试完成：${blockedCount}/${roomRules.length} 个原词被屏蔽`);
         }
-        appendLog(`
+        appendLog$1(`
 🔵 本地测试完成！共测试 ${total} 个词，其中 ${totalBlocked} 个原词被屏蔽`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        appendLog(`🔴 测试出错：${msg}`);
+        appendLog$1(`🔴 测试出错：${msg}`);
       } finally {
         testingLocal.value = false;
       }
@@ -11166,10 +11173,10 @@ ${details}`;
         const rooms = await fetchMedalRooms();
         if (rooms.length === 0) {
           medalCheckStatus.value = "没有找到粉丝牌直播间";
-          appendLog("禁言巡检：没有找到粉丝牌直播间");
+          appendLog$1("禁言巡检：没有找到粉丝牌直播间");
           return;
         }
-        appendLog(`禁言巡检：找到 ${rooms.length} 个粉丝牌直播间，开始检查`);
+        appendLog$1(`禁言巡检：找到 ${rooms.length} 个粉丝牌直播间，开始检查`);
         const results = [];
         for (let i2 = 0; i2 < rooms.length; i2++) {
           const room = rooms[i2];
@@ -11180,26 +11187,26 @@ ${details}`;
           const label = `${room.anchorName} / ${room.medalName} / ${room.roomId}`;
           if (result.status === "restricted") {
             const detail = result.signals.map((signal) => `${signalKindLabel(signal.kind)}：${signal.message}，时长：${signal.duration}`).join("；");
-            appendLog(`禁言巡检：发现限制 - ${label}：${detail}`);
+            appendLog$1(`禁言巡检：发现限制 - ${label}：${detail}`);
           } else if (result.status === "deactivated") {
-            appendLog(`禁言巡检：主播已注销 - ${label}`);
+            appendLog$1(`禁言巡检：主播已注销 - ${label}`);
           } else if (result.status === "unknown") {
-            appendLog(`禁言巡检：无法确认 - ${label}：${result.note ?? "接口未返回明确结果"}`);
+            appendLog$1(`禁言巡检：无法确认 - ${label}：${result.note ?? "接口未返回明确结果"}`);
           } else {
-            appendLog(`禁言巡检：正常 - ${label}`);
+            appendLog$1(`禁言巡检：正常 - ${label}`);
           }
           if (i2 < rooms.length - 1) await new Promise((r2) => setTimeout(r2, 500));
         }
         const counts = getMedalCheckCounts(results);
         medalCheckStatus.value = `完成：${rooms.length} 个房间，${counts.restricted} 个限制，${counts.deactivated} 个主播注销，${counts.unknown} 个无法确认`;
-        appendLog(
+        appendLog$1(
           `禁言巡检完成：${rooms.length} 个房间，${counts.restricted} 个限制，${counts.deactivated} 个主播注销，${counts.unknown} 个无法确认`
         );
         if (guardRoomSyncKey.value.trim()) await syncGuardRoomInspection(results);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         medalCheckStatus.value = `检查失败：${msg}`;
-        appendLog(`禁言巡检失败：${msg}`);
+        appendLog$1(`禁言巡检失败：${msg}`);
       } finally {
         checkingMedalRooms.value = false;
       }
@@ -11229,11 +11236,11 @@ ${details}`;
         const json = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(json.message ?? `HTTP ${response.status}`);
         guardRoomSyncStatus.value = "已同步到直播间保安室";
-        appendLog("直播间保安室：巡检结果已同步");
+        appendLog$1("直播间保安室：巡检结果已同步");
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         guardRoomSyncStatus.value = `同步失败：${msg}`;
-        appendLog(`直播间保安室：同步失败：${msg}`);
+        appendLog$1(`直播间保安室：同步失败：${msg}`);
       } finally {
         guardRoomSyncing.value = false;
       }
@@ -11279,7 +11286,7 @@ ${details}`;
     };
     const addGlobalRule = () => {
       if (!globalReplaceFrom.value) {
-        appendLog("⚠️ 替换前的内容不能为空");
+        appendLog$1("⚠️ 替换前的内容不能为空");
         return;
       }
       localGlobalRules.value = [...localGlobalRules.value, { from: globalReplaceFrom.value, to: globalReplaceTo.value }];
@@ -11296,11 +11303,11 @@ ${details}`;
     const addRoomRule = () => {
       const rid = editingRoomId.value;
       if (!rid) {
-        appendLog("⚠️ 请先选择一个直播间");
+        appendLog$1("⚠️ 请先选择一个直播间");
         return;
       }
       if (!roomReplaceFrom.value) {
-        appendLog("⚠️ 替换前的内容不能为空");
+        appendLog$1("⚠️ 替换前的内容不能为空");
         return;
       }
       const all = { ...localRoomRules.value };
@@ -11898,10 +11905,10 @@ u$2(
                         {
                           id: "customChatHideNative",
                           type: "checkbox",
-                          checked: customChatHideNative.value,
+                          checked: customChatHideNative$1.value,
                           disabled: !customChatEnabled.value,
                           onInput: (e2) => {
-                            customChatHideNative.value = e2.currentTarget.checked;
+                            customChatHideNative$1.value = e2.currentTarget.checked;
                           }
                         }
                       ),
@@ -12209,17 +12216,17 @@ u$2("span", { style: { color: "#999", fontSize: "0.9em" }, children: "(1-1000)" 
         const roomId = await ensureRoomId();
         const csrfToken = getCsrfToken();
         if (!csrfToken) {
-          appendLog("❌ 同传：未找到登录信息");
+          appendLog$1("❌ 同传：未找到登录信息");
           return;
         }
         const result = await enqueueDanmaku(segment, roomId, csrfToken, SendPriority.STT);
-        appendLog(result, "同传", segment);
+        appendLog$1(result, "同传", segment);
         if (!result.success && !result.cancelled) {
           await tryAiEvasion(segment, roomId, csrfToken, "同传");
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        appendLog(`🔴 同传发送出错：${msg}`);
+        appendLog$1(`🔴 同传发送出错：${msg}`);
       }
     };
     const flushBuffer = async () => {
@@ -12258,7 +12265,7 @@ u$2("span", { style: { color: "#999", fontSize: "0.9em" }, children: "(1-1000)" 
       if (state.value === "stopped") {
         const apiKey = sonioxApiKey.value.trim();
         if (!apiKey) {
-          appendLog("⚠️ 请先输入 Soniox API Key");
+          appendLog$1("⚠️ 请先输入 Soniox API Key");
           statusText.value = "请输入 API Key";
           statusColor.value = "#f44";
           return;
@@ -12290,7 +12297,7 @@ u$2("span", { style: { color: "#999", fontSize: "0.9em" }, children: "(1-1000)" 
                 statusText.value = "正在识别…";
               }
               statusColor.value = "#36a185";
-              appendLog(translationEnabled ? `🎤 同传已启动（翻译模式：${translationTarget}）` : "🎤 同传已启动");
+              appendLog$1(translationEnabled ? `🎤 同传已启动（翻译模式：${translationTarget}）` : "🎤 同传已启动");
             },
             onPartialResult: (result) => {
               let newFinal = "";
@@ -12339,11 +12346,11 @@ u$2("span", { style: { color: "#999", fontSize: "0.9em" }, children: "(1-1000)" 
                 waitCount++;
               }
               await flushBuffer();
-              appendLog("🎤 同传已停止");
+              appendLog$1("🎤 同传已停止");
               resetState();
             },
             onError: (_status, message) => {
-              appendLog(`🔴 Soniox 错误：${message}`);
+              appendLog$1(`🔴 Soniox 错误：${message}`);
               if (state.value !== "stopping" && state.value !== "stopped") resetState(`错误: ${message}`, "#f44");
             }
           };
@@ -12354,13 +12361,13 @@ u$2("span", { style: { color: "#999", fontSize: "0.9em" }, children: "(1-1000)" 
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           if (err instanceof Error && (err.name === "NotAllowedError" || err.name === "PermissionDeniedError")) {
-            appendLog("❌ 麦克风权限被拒绝，请在浏览器设置中允许使用麦克风");
+            appendLog$1("❌ 麦克风权限被拒绝，请在浏览器设置中允许使用麦克风");
             resetState("麦克风权限被拒绝，请允许浏览器使用麦克风", "#f44");
           } else if (err instanceof Error && err.name === "NotFoundError") {
-            appendLog("❌ 未找到麦克风设备");
+            appendLog$1("❌ 未找到麦克风设备");
             resetState("未找到麦克风设备", "#f44");
           } else {
-            appendLog(`🔴 启动同传失败：${message}`);
+            appendLog$1(`🔴 启动同传失败：${message}`);
             resetState(`启动失败: ${message}`, "#f44");
           }
         }
@@ -12810,6 +12817,12 @@ u$2(
         ]
       }
     );
+  }
+  const CUSTOM_CHAT_REARM_OFF_DELAY_MS = 80;
+  const CUSTOM_CHAT_REARM_ON_DELAY_MS = 160;
+  function currentLiveRoomSlug() {
+    const match = window.location.pathname.match(/\/(?:blanc\/)?(\d+)(?:\/|$)/);
+    return match?.[1] ?? null;
   }
   function App() {
     y$2(() => {
@@ -13413,6 +13426,79 @@ u$2(
       document.head.appendChild(style);
       void loop();
       return () => style.remove();
+    }, []);
+    y$2(() => {
+      let disposed = false;
+      let offTimer = null;
+      let onTimer = null;
+      let serial = 0;
+      let lastRoomSlug = currentLiveRoomSlug();
+      const clearTimers = () => {
+        if (offTimer) {
+          clearTimeout(offTimer);
+          offTimer = null;
+        }
+        if (onTimer) {
+          clearTimeout(onTimer);
+          onTimer = null;
+        }
+      };
+      const applyDesiredCustomChatDefaults = () => {
+        customChatHideNative.value = false;
+        customChatUseWs.value = true;
+      };
+      const rearmCustomChat = (roomSlug) => {
+        serial += 1;
+        const runId = serial;
+        clearTimers();
+        applyDesiredCustomChatDefaults();
+        customChatEnabled.value = true;
+        offTimer = setTimeout(() => {
+          if (disposed || runId !== serial) return;
+          customChatEnabled.value = false;
+        }, CUSTOM_CHAT_REARM_OFF_DELAY_MS);
+        onTimer = setTimeout(() => {
+          if (disposed || runId !== serial) return;
+          applyDesiredCustomChatDefaults();
+          customChatEnabled.value = true;
+        }, CUSTOM_CHAT_REARM_ON_DELAY_MS);
+      };
+      const handleLocationMaybeChanged = () => {
+        const roomSlug = currentLiveRoomSlug();
+        if (!roomSlug) {
+          lastRoomSlug = null;
+          return;
+        }
+        if (roomSlug === lastRoomSlug) return;
+        lastRoomSlug = roomSlug;
+        rearmCustomChat();
+      };
+      const scheduleLocationCheck = () => {
+        window.setTimeout(handleLocationMaybeChanged, 0);
+      };
+      const originalPushState = window.history.pushState.bind(window.history);
+      const originalReplaceState = window.history.replaceState.bind(window.history);
+      window.history.pushState = ((...args) => {
+        originalPushState(...args);
+        scheduleLocationCheck();
+      });
+      window.history.replaceState = ((...args) => {
+        originalReplaceState(...args);
+        scheduleLocationCheck();
+      });
+      window.addEventListener("popstate", handleLocationMaybeChanged);
+      window.addEventListener("hashchange", handleLocationMaybeChanged);
+      const roomWatcher = window.setInterval(handleLocationMaybeChanged, 1e3);
+      if (lastRoomSlug) rearmCustomChat();
+      return () => {
+        disposed = true;
+        clearTimers();
+        window.history.pushState = originalPushState;
+        window.history.replaceState = originalReplaceState;
+        window.removeEventListener("popstate", handleLocationMaybeChanged);
+        window.removeEventListener("hashchange", handleLocationMaybeChanged);
+        clearInterval(roomWatcher);
+      };
     }, []);
     y$2(() => {
       if (danmakuDirectMode.value) {

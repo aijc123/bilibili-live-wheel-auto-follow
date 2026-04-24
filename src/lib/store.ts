@@ -18,8 +18,15 @@ export const optimizeLayout = gmSignal('optimizeLayout', false)
 export const danmakuDirectMode = gmSignal('danmakuDirectMode', true)
 export const danmakuDirectConfirm = gmSignal('danmakuDirectConfirm', false)
 export const danmakuDirectAlwaysShow = gmSignal('danmakuDirectAlwaysShow', false)
+const customChatDefaultMigrationKey = 'customChatDefaultPresetMigrated'
+if (!GM_getValue(customChatDefaultMigrationKey, false)) {
+  GM_setValue('customChatEnabled', true)
+  GM_setValue('customChatHideNative', false)
+  GM_setValue('customChatUseWs', true)
+  GM_setValue(customChatDefaultMigrationKey, true)
+}
 export const customChatEnabled = gmSignal('customChatEnabled', true)
-export const customChatHideNative = gmSignal('customChatHideNative', true)
+export const customChatHideNative = gmSignal('customChatHideNative', false)
 export const customChatUseWs = gmSignal('customChatUseWs', true)
 export const customChatTheme = gmSignal<'laplace' | 'light' | 'compact'>('customChatTheme', 'laplace')
 export const customChatShowDanmaku = gmSignal('customChatShowDanmaku', true)

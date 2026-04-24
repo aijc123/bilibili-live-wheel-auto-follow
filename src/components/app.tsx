@@ -8,7 +8,6 @@ import { applyGuardRoomHandoff } from '../lib/guard-room-handoff'
 import { guardRoomLiveDeskSessionId } from '../lib/guard-room-live-desk-state'
 import { startLiveDeskSync, stopLiveDeskSync } from '../lib/live-desk-sync'
 import { startLiveWsSource, stopLiveWsSource } from '../lib/live-ws-source'
-import { appendLog } from '../lib/log'
 import { loop } from '../lib/loop'
 import {
   autoBlendEnabled,
@@ -22,6 +21,14 @@ import { Configurator } from './configurator'
 import { ToggleButton } from './toggle-button'
 import { AlertDialog } from './ui/alert-dialog'
 import { UserNotice } from './user-notice'
+
+const CUSTOM_CHAT_REARM_OFF_DELAY_MS = 80
+const CUSTOM_CHAT_REARM_ON_DELAY_MS = 160
+
+function currentLiveRoomSlug(): string | null {
+  const match = window.location.pathname.match(/\/(?:blanc\/)?(\d+)(?:\/|$)/)
+  return match?.[1] ?? null
+}
 
 export function App() {
   useEffect(() => {
@@ -628,6 +635,89 @@ export function App() {
     document.head.appendChild(style)
     void loop()
     return () => style.remove()
+  }, [])
+
+  useEffect(() => {
+    let disposed = false
+    let offTimer: ReturnType<typeof setTimeout> | null = null
+    let onTimer: ReturnType<typeof setTimeout> | null = null
+    let serial = 0
+    let lastRoomSlug = currentLiveRoomSlug()
+
+    const clearTimers = () => {
+      if (offTimer) {
+        clearTimeout(offTimer)
+        offTimer = null
+      }
+      if (onTimer) {
+        clearTimeout(onTimer)
+        onTimer = null
+      }
+    }
+
+    const applyDesiredCustomChatDefaults = () => {
+      customChatHideNative.value = false
+      customChatUseWs.value = true
+    }
+
+    const rearmCustomChat = (roomSlug: string) => {
+      serial += 1
+      const runId = serial
+      clearTimers()
+      applyDesiredCustomChatDefaults()
+      customChatEnabled.value = true
+      offTimer = setTimeout(() => {
+        if (disposed || runId !== serial) return
+        customChatEnabled.value = false
+      }, CUSTOM_CHAT_REARM_OFF_DELAY_MS)
+      onTimer = setTimeout(() => {
+        if (disposed || runId !== serial) return
+        applyDesiredCustomChatDefaults()
+        customChatEnabled.value = true
+      }, CUSTOM_CHAT_REARM_ON_DELAY_MS)
+    }
+
+    const handleLocationMaybeChanged = () => {
+      const roomSlug = currentLiveRoomSlug()
+      if (!roomSlug) {
+        lastRoomSlug = null
+        return
+      }
+      if (roomSlug === lastRoomSlug) return
+      lastRoomSlug = roomSlug
+      rearmCustomChat(roomSlug)
+    }
+
+    const scheduleLocationCheck = () => {
+      window.setTimeout(handleLocationMaybeChanged, 0)
+    }
+
+    const originalPushState = window.history.pushState.bind(window.history)
+    const originalReplaceState = window.history.replaceState.bind(window.history)
+    window.history.pushState = ((...args: Parameters<History['pushState']>) => {
+      originalPushState(...args)
+      scheduleLocationCheck()
+    }) as History['pushState']
+    window.history.replaceState = ((...args: Parameters<History['replaceState']>) => {
+      originalReplaceState(...args)
+      scheduleLocationCheck()
+    }) as History['replaceState']
+
+    window.addEventListener('popstate', handleLocationMaybeChanged)
+    window.addEventListener('hashchange', handleLocationMaybeChanged)
+    const roomWatcher = window.setInterval(handleLocationMaybeChanged, 1000)
+
+    if (lastRoomSlug) rearmCustomChat(lastRoomSlug)
+
+    return () => {
+      disposed = true
+      clearTimers()
+      window.history.pushState = originalPushState
+      window.history.replaceState = originalReplaceState
+      window.removeEventListener('popstate', handleLocationMaybeChanged)
+      window.removeEventListener('hashchange', handleLocationMaybeChanged)
+      clearInterval(roomWatcher)
+    }
   }, [])
 
   useEffect(() => {
