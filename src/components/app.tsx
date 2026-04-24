@@ -8,15 +8,18 @@ import { applyGuardRoomHandoff } from '../lib/guard-room-handoff'
 import { guardRoomLiveDeskSessionId } from '../lib/guard-room-live-desk-state'
 import { startLiveDeskSync, stopLiveDeskSync } from '../lib/live-desk-sync'
 import { startLiveWsSource, stopLiveWsSource } from '../lib/live-ws-source'
+import { appendLog } from '../lib/log'
 import { loop } from '../lib/loop'
 import {
   autoBlendEnabled,
   customChatEnabled,
+  customChatHideNative,
   customChatUseWs,
   danmakuDirectMode,
   hasSeenWelcome,
   optimizeLayout,
 } from '../lib/store'
+import { extractRoomNumber } from '../lib/utils'
 import { Configurator } from './configurator'
 import { ToggleButton } from './toggle-button'
 import { AlertDialog } from './ui/alert-dialog'
@@ -26,8 +29,11 @@ const CUSTOM_CHAT_REARM_OFF_DELAY_MS = 80
 const CUSTOM_CHAT_REARM_ON_DELAY_MS = 160
 
 function currentLiveRoomSlug(): string | null {
-  const match = window.location.pathname.match(/\/(?:blanc\/)?(\d+)(?:\/|$)/)
-  return match?.[1] ?? null
+  try {
+    return extractRoomNumber(window.location.href) ?? null
+  } catch {
+    return null
+  }
 }
 
 export function App() {
@@ -642,7 +648,7 @@ export function App() {
     let offTimer: ReturnType<typeof setTimeout> | null = null
     let onTimer: ReturnType<typeof setTimeout> | null = null
     let serial = 0
-    let lastRoomSlug = currentLiveRoomSlug()
+    let lastRoomSlug: string | null = null
 
     const clearTimers = () => {
       if (offTimer) {
@@ -660,7 +666,7 @@ export function App() {
       customChatUseWs.value = true
     }
 
-    const rearmCustomChat = (roomSlug: string) => {
+    const rearmCustomChat = (roomSlug: string | null) => {
       serial += 1
       const runId = serial
       clearTimers()
@@ -677,13 +683,13 @@ export function App() {
       }, CUSTOM_CHAT_REARM_ON_DELAY_MS)
     }
 
-    const handleLocationMaybeChanged = () => {
+    const handleLocationMaybeChanged = (force = false) => {
       const roomSlug = currentLiveRoomSlug()
       if (!roomSlug) {
         lastRoomSlug = null
         return
       }
-      if (roomSlug === lastRoomSlug) return
+      if (!force && roomSlug === lastRoomSlug) return
       lastRoomSlug = roomSlug
       rearmCustomChat(roomSlug)
     }
@@ -707,7 +713,7 @@ export function App() {
     window.addEventListener('hashchange', handleLocationMaybeChanged)
     const roomWatcher = window.setInterval(handleLocationMaybeChanged, 1000)
 
-    if (lastRoomSlug) rearmCustomChat(lastRoomSlug)
+    handleLocationMaybeChanged(true)
 
     return () => {
       disposed = true
