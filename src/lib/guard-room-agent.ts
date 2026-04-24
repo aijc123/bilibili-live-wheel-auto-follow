@@ -19,7 +19,13 @@ import {
   syncGuardRoomWatchlist,
 } from './guard-room-sync'
 import { appendLog } from './log'
-import { autoBlendDryRun, guardRoomEndpoint, guardRoomSyncKey } from './store'
+import {
+  autoBlendDryRun,
+  guardRoomEndpoint,
+  guardRoomHandoffActive,
+  guardRoomSyncKey,
+  guardRoomWebsiteControlEnabled,
+} from './store'
 
 const MIN_SYNC_INTERVAL_MS = 30_000
 const FOLLOWING_PAGE_LIMIT = 4
@@ -115,6 +121,7 @@ async function collectWatchlist(): Promise<GuardRoomWatchlistRoomInput[]> {
 function applyControlProfile(profile: GuardRoomControlProfile): void {
   guardRoomAppliedProfile.value = profile
   guardRoomLiveDeskHeartbeatSec.value = profile.heartbeatSec
+  if (!guardRoomWebsiteControlEnabled.value && !guardRoomHandoffActive.value) return
   autoBlendDryRun.value = profile.dryRunDefault
   applyAutoBlendPreset(profile.conservativeMode)
 }

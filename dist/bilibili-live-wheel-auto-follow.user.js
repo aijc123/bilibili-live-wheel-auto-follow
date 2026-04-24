@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.33
+// @version      2.8.34
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -1157,6 +1157,7 @@
   const unlockForbidLive = gmSignal("unlockForbidLive", true);
   const guardRoomEndpoint = gmSignal("guardRoomEndpoint", "https://bilibili-guard-room.vercel.app");
   const guardRoomSyncKey = gmSignal("guardRoomSyncKey", "");
+  const guardRoomWebsiteControlEnabled = gmSignal("guardRoomWebsiteControlEnabled", false);
   const activeTab = gmSignal("activeTab", "fasong");
   const msgTemplates = gmSignal("MsgTemplates", []);
   const activeTemplateIndex = gmSignal("activeTemplateIndex", 0);
@@ -1218,6 +1219,7 @@
   const sendMsg = y$1(false);
   const sttRunning = y$1(false);
   const cachedRoomId = y$1(null);
+  const guardRoomHandoffActive = y$1(false);
   const autoBlendEnabled = y$1(false);
   const autoBlendStatusText = y$1("已关闭");
   const autoBlendCandidateText = y$1("暂无");
@@ -8893,6 +8895,7 @@ html.lc-dm-direct-always .${MARKER} {
   function applyControlProfile(profile) {
     guardRoomAppliedProfile.value = profile;
     guardRoomLiveDeskHeartbeatSec.value = profile.heartbeatSec;
+    if (!guardRoomWebsiteControlEnabled.value && !guardRoomHandoffActive.value) return;
     autoBlendDryRun.value = profile.dryRunDefault;
     applyAutoBlendPreset(profile.conservativeMode);
   }
@@ -8971,6 +8974,7 @@ html.lc-dm-direct-always .${MARKER} {
     applied = true;
     const url = new URL(window.location.href);
     if (url.searchParams.get("guard_room_source") !== "guard-room") return;
+    guardRoomHandoffActive.value = true;
     const mode = url.searchParams.get("guard_room_mode");
     const autostart = url.searchParams.get("guard_room_autostart") === "1";
     const sessionId = url.searchParams.get("guard_room_session");
@@ -11603,6 +11607,21 @@ u$2(
 u$2("div", { className: "cb-panel cb-stack", style: { marginBottom: ".5em" }, children: [
 u$2("div", { className: "cb-heading", style: { marginBottom: 0 }, children: "监控室代理状态（网站主控版）" }),
 u$2("div", { className: "cb-note", children: "监控、推荐、跳转和统一跟车配置现在都以网站为准。脚本这边只负责同步牌子房/关注房清单、拉取网站配置，并在当前直播页执行试运行。" }),
+u$2("label", { className: "cb-note cb-switch-row", children: [
+u$2(
+                    "input",
+                    {
+                      type: "checkbox",
+                      checked: guardRoomWebsiteControlEnabled.value,
+                      onChange: (e2) => {
+                        guardRoomWebsiteControlEnabled.value = e2.currentTarget.checked;
+                      }
+                    }
+                  ),
+u$2("span", { children: "允许网站覆盖本地自动跟车配置（预设 / 试运行）" })
+                ] }),
+                !guardRoomWebsiteControlEnabled.value && u$2("div", { className: "cb-note", children: "关闭时仍会同步监控状态，但不会把你的本地自定义参数改回 normal / 试运行。" }),
+                guardRoomHandoffActive.value && u$2("div", { className: "cb-note", children: "当前页是从监控室接管跳转进来的，本页仍会按监控室指令执行试运行/自动启动。" }),
 u$2("div", { className: "cb-row", style: { display: "flex", gap: ".5em", alignItems: "center", flexWrap: "wrap" }, children: u$2("label", { className: "cb-note", style: { display: "inline-flex", alignItems: "center", gap: ".4em" }, children: [
                   "心跳间隔",
 u$2(

@@ -37,7 +37,9 @@ import {
   danmakuDirectMode,
   forceScrollDanmaku,
   guardRoomEndpoint,
+  guardRoomHandoffActive,
   guardRoomSyncKey,
+  guardRoomWebsiteControlEnabled,
   localGlobalRules,
   localRoomRules,
   optimizeLayout,
@@ -1001,6 +1003,22 @@ export function SettingsTab() {
             <div className='cb-note'>
               监控、推荐、跳转和统一跟车配置现在都以网站为准。脚本这边只负责同步牌子房/关注房清单、拉取网站配置，并在当前直播页执行试运行。
             </div>
+            <label className='cb-note cb-switch-row'>
+              <input
+                type='checkbox'
+                checked={guardRoomWebsiteControlEnabled.value}
+                onChange={e => {
+                  guardRoomWebsiteControlEnabled.value = e.currentTarget.checked
+                }}
+              />
+              <span>允许网站覆盖本地自动跟车配置（预设 / 试运行）</span>
+            </label>
+            {!guardRoomWebsiteControlEnabled.value && (
+              <div className='cb-note'>关闭时仍会同步监控状态，但不会把你的本地自定义参数改回 normal / 试运行。</div>
+            )}
+            {guardRoomHandoffActive.value && (
+              <div className='cb-note'>当前页是从监控室接管跳转进来的，本页仍会按监控室指令执行试运行/自动启动。</div>
+            )}
             <div className='cb-row' style={{ display: 'flex', gap: '.5em', alignItems: 'center', flexWrap: 'wrap' }}>
               <label className='cb-note' style={{ display: 'inline-flex', alignItems: 'center', gap: '.4em' }}>
                 心跳间隔

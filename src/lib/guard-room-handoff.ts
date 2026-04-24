@@ -1,6 +1,6 @@
 import { guardRoomLiveDeskSessionId } from './guard-room-live-desk-state'
 import { appendLog } from './log'
-import { autoBlendDryRun, autoBlendEnabled } from './store'
+import { autoBlendDryRun, autoBlendEnabled, guardRoomHandoffActive } from './store'
 
 let applied = false
 
@@ -10,6 +10,7 @@ export function applyGuardRoomHandoff(): void {
 
   const url = new URL(window.location.href)
   if (url.searchParams.get('guard_room_source') !== 'guard-room') return
+  guardRoomHandoffActive.value = true
 
   const mode = url.searchParams.get('guard_room_mode')
   const autostart = url.searchParams.get('guard_room_autostart') === '1'
