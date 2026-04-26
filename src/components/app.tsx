@@ -666,7 +666,7 @@ export function App() {
       customChatUseWs.value = true
     }
 
-    const rearmCustomChat = (roomSlug: string | null) => {
+    const rearmCustomChat = (_roomSlug: string | null) => {
       serial += 1
       const runId = serial
       clearTimers()

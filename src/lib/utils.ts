@@ -193,3 +193,5 @@ export function processMessages(text: string, maxLength: number, addRandomChar =
     })
     .filter(line => line?.trim())
 }
+
+export const nf = new Intl.NumberFormat()

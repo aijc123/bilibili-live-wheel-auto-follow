@@ -875,9 +875,14 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 #${ROOT_ID} .lc-chat-unread[data-frozen="true"] {
   background: color-mix(in srgb, var(--lc-chat-chip) 74%, var(--lc-chat-own) 26%);
 }
+@keyframes lc-status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
 #${ROOT_ID} .lc-chat-ws-status {
   display: inline-flex;
   align-items: center;
+  gap: 5px;
   min-height: 22px;
   max-width: 100%;
   padding: 2px 7px;
@@ -888,18 +893,45 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   background: color-mix(in srgb, var(--lc-chat-chip) 70%, transparent);
   overflow-wrap: anywhere;
 }
+#${ROOT_ID} .lc-chat-ws-status::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--lc-chat-muted);
+  opacity: 0.5;
+}
 #${ROOT_ID} .lc-chat-ws-status[data-status="live"] {
   color: var(--lc-chat-accent);
+}
+#${ROOT_ID} .lc-chat-ws-status[data-status="live"]::before {
+  background: var(--lc-chat-accent);
+  opacity: 1;
+}
+#${ROOT_ID} .lc-chat-ws-status[data-status="connecting"]::before {
+  background: #ff9500;
+  opacity: 1;
+  animation: lc-status-pulse 1.2s ease-in-out infinite;
 }
 #${ROOT_ID} .lc-chat-ws-status[data-status="fallback"] {
   color: #8a4b00;
   background: rgba(255, 159, 10, .18);
   border: 1px solid rgba(255, 159, 10, .34);
 }
+#${ROOT_ID} .lc-chat-ws-status[data-status="fallback"]::before {
+  background: #ff9500;
+  opacity: 1;
+}
 #${ROOT_ID} .lc-chat-ws-status[data-status="dom-warning"] {
   color: #9a3412;
   background: rgba(255, 204, 0, .20);
   border: 1px solid rgba(255, 204, 0, .42);
+}
+#${ROOT_ID} .lc-chat-ws-status[data-status="dom-warning"]::before {
+  background: #ff9500;
+  opacity: 1;
 }
 #${ROOT_ID}[data-theme="laplace"] .lc-chat-ws-status[data-status="fallback"],
 #${ROOT_ID}[data-theme="compact"] .lc-chat-ws-status[data-status="fallback"],
@@ -908,6 +940,13 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   color: #ffd60a;
   background: rgba(255, 159, 10, .20);
   border-color: rgba(255, 214, 10, .36);
+}
+#${ROOT_ID}[data-theme="laplace"] .lc-chat-ws-status[data-status="fallback"]::before,
+#${ROOT_ID}[data-theme="compact"] .lc-chat-ws-status[data-status="fallback"]::before,
+#${ROOT_ID}[data-theme="laplace"] .lc-chat-ws-status[data-status="dom-warning"]::before,
+#${ROOT_ID}[data-theme="compact"] .lc-chat-ws-status[data-status="dom-warning"]::before {
+  background: #ff9f0a;
+  opacity: 1;
 }
 #${ROOT_ID} .lc-chat-perf {
   display: none;

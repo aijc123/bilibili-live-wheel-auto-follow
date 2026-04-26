@@ -302,6 +302,23 @@ export function SettingsTab() {
   const guardRoomSyncing = useSignal(false)
   const guardRoomSyncStatus = useSignal('')
 
+  const cssDraft = useSignal(customChatCss.value)
+  const cssStatus = useSignal<'saved' | 'pending'>('saved')
+
+  useEffect(() => {
+    const draft = cssDraft.value
+    if (draft === customChatCss.value) {
+      cssStatus.value = 'saved'
+      return
+    }
+    cssStatus.value = 'pending'
+    const timer = setTimeout(() => {
+      customChatCss.value = draft
+      cssStatus.value = 'saved'
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [cssDraft.value])
+
   const globalReplaceFrom = useSignal('')
   const globalReplaceTo = useSignal('')
 
@@ -1300,34 +1317,45 @@ export function SettingsTab() {
                     type='button'
                     disabled={!customChatEnabled.value}
                     onClick={() => {
-                      customChatCss.value = MILK_GREEN_IMESSAGE_CSS
+                      cssDraft.value = MILK_GREEN_IMESSAGE_CSS
                     }}
                   >
                     奶绿 iMessage
                   </button>
                   <button
                     type='button'
-                    disabled={!customChatEnabled.value || !customChatCss.value.trim()}
+                    disabled={!customChatEnabled.value || !cssDraft.value.trim()}
                     onClick={() => {
-                      customChatCss.value = ''
+                      cssDraft.value = ''
                     }}
                   >
                     清空 CSS
                   </button>
                 </div>
                 <textarea
-                  value={customChatCss.value}
+                  value={cssDraft.value}
                   disabled={!customChatEnabled.value}
                   onInput={e => {
-                    customChatCss.value = e.currentTarget.value
+                    cssDraft.value = e.currentTarget.value
                   }}
                   placeholder={'#laplace-custom-chat .lc-chat-message { ... }'}
                   style={{ minHeight: '90px', resize: 'vertical', width: '100%' }}
                 />
-                <div className='cb-note'>
-                  可覆盖 #laplace-custom-chat 的 --lc-chat-* 变量，以及
-                  .lc-chat-bubble、.lc-chat-medal、.lc-chat-name、.lc-chat-action、.lc-chat-card-event、[data-kind]、[data-card]、[data-guard]
-                  等选择器。
+                <div className='cb-note' style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>
+                    可覆盖 #laplace-custom-chat 的 --lc-chat-* 变量，以及
+                    .lc-chat-bubble、.lc-chat-medal、.lc-chat-name、.lc-chat-action、.lc-chat-card-event、[data-kind]、[data-card]、[data-guard]
+                    等选择器。
+                  </span>
+                  <span
+                    style={{
+                      flexShrink: 0,
+                      marginLeft: '8px',
+                      color: cssStatus.value === 'pending' ? '#ff9500' : '#34c759',
+                    }}
+                  >
+                    {cssStatus.value === 'pending' ? '有待保存更改' : '已保存'}
+                  </span>
                 </div>
               </div>
             </details>

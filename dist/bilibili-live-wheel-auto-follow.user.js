@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.40
+// @version      2.8.43
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -6811,9 +6811,14 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 #${ROOT_ID} .lc-chat-unread[data-frozen="true"] {
   background: color-mix(in srgb, var(--lc-chat-chip) 74%, var(--lc-chat-own) 26%);
 }
+@keyframes lc-status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
 #${ROOT_ID} .lc-chat-ws-status {
   display: inline-flex;
   align-items: center;
+  gap: 5px;
   min-height: 22px;
   max-width: 100%;
   padding: 2px 7px;
@@ -6824,18 +6829,45 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   background: color-mix(in srgb, var(--lc-chat-chip) 70%, transparent);
   overflow-wrap: anywhere;
 }
+#${ROOT_ID} .lc-chat-ws-status::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--lc-chat-muted);
+  opacity: 0.5;
+}
 #${ROOT_ID} .lc-chat-ws-status[data-status="live"] {
   color: var(--lc-chat-accent);
+}
+#${ROOT_ID} .lc-chat-ws-status[data-status="live"]::before {
+  background: var(--lc-chat-accent);
+  opacity: 1;
+}
+#${ROOT_ID} .lc-chat-ws-status[data-status="connecting"]::before {
+  background: #ff9500;
+  opacity: 1;
+  animation: lc-status-pulse 1.2s ease-in-out infinite;
 }
 #${ROOT_ID} .lc-chat-ws-status[data-status="fallback"] {
   color: #8a4b00;
   background: rgba(255, 159, 10, .18);
   border: 1px solid rgba(255, 159, 10, .34);
 }
+#${ROOT_ID} .lc-chat-ws-status[data-status="fallback"]::before {
+  background: #ff9500;
+  opacity: 1;
+}
 #${ROOT_ID} .lc-chat-ws-status[data-status="dom-warning"] {
   color: #9a3412;
   background: rgba(255, 204, 0, .20);
   border: 1px solid rgba(255, 204, 0, .42);
+}
+#${ROOT_ID} .lc-chat-ws-status[data-status="dom-warning"]::before {
+  background: #ff9500;
+  opacity: 1;
 }
 #${ROOT_ID}[data-theme="laplace"] .lc-chat-ws-status[data-status="fallback"],
 #${ROOT_ID}[data-theme="compact"] .lc-chat-ws-status[data-status="fallback"],
@@ -6844,6 +6876,13 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   color: #ffd60a;
   background: rgba(255, 159, 10, .20);
   border-color: rgba(255, 214, 10, .36);
+}
+#${ROOT_ID}[data-theme="laplace"] .lc-chat-ws-status[data-status="fallback"]::before,
+#${ROOT_ID}[data-theme="compact"] .lc-chat-ws-status[data-status="fallback"]::before,
+#${ROOT_ID}[data-theme="laplace"] .lc-chat-ws-status[data-status="dom-warning"]::before,
+#${ROOT_ID}[data-theme="compact"] .lc-chat-ws-status[data-status="dom-warning"]::before {
+  background: #ff9f0a;
+  opacity: 1;
 }
 #${ROOT_ID} .lc-chat-perf {
   display: none;
@@ -10980,6 +11019,21 @@ ${details}`;
     const medalCheckCopyStatus = useSignal("");
     const guardRoomSyncing = useSignal(false);
     const guardRoomSyncStatus = useSignal("");
+    const cssDraft = useSignal(customChatCss.value);
+    const cssStatus = useSignal("saved");
+    y$2(() => {
+      const draft = cssDraft.value;
+      if (draft === customChatCss.value) {
+        cssStatus.value = "saved";
+        return;
+      }
+      cssStatus.value = "pending";
+      const timer2 = setTimeout(() => {
+        customChatCss.value = draft;
+        cssStatus.value = "saved";
+      }, 400);
+      return () => clearTimeout(timer2);
+    }, [cssDraft.value]);
     const globalReplaceFrom = useSignal("");
     const globalReplaceTo = useSignal("");
     const roomReplaceFrom = useSignal("");
@@ -11974,7 +12028,7 @@ u$2(
                               type: "button",
                               disabled: !customChatEnabled.value,
                               onClick: () => {
-                                customChatCss.value = MILK_GREEN_IMESSAGE_CSS;
+                                cssDraft.value = MILK_GREEN_IMESSAGE_CSS;
                               },
                               children: "奶绿 iMessage"
                             }
@@ -11983,9 +12037,9 @@ u$2(
                             "button",
                             {
                               type: "button",
-                              disabled: !customChatEnabled.value || !customChatCss.value.trim(),
+                              disabled: !customChatEnabled.value || !cssDraft.value.trim(),
                               onClick: () => {
-                                customChatCss.value = "";
+                                cssDraft.value = "";
                               },
                               children: "清空 CSS"
                             }
@@ -11994,16 +12048,29 @@ u$2(
 u$2(
                           "textarea",
                           {
-                            value: customChatCss.value,
+                            value: cssDraft.value,
                             disabled: !customChatEnabled.value,
                             onInput: (e2) => {
-                              customChatCss.value = e2.currentTarget.value;
+                              cssDraft.value = e2.currentTarget.value;
                             },
                             placeholder: "#laplace-custom-chat .lc-chat-message { ... }",
                             style: { minHeight: "90px", resize: "vertical", width: "100%" }
                           }
                         ),
-u$2("div", { className: "cb-note", children: "可覆盖 #laplace-custom-chat 的 --lc-chat-* 变量，以及 .lc-chat-bubble、.lc-chat-medal、.lc-chat-name、.lc-chat-action、.lc-chat-card-event、[data-kind]、[data-card]、[data-guard] 等选择器。" })
+u$2("div", { className: "cb-note", style: { display: "flex", justifyContent: "space-between" }, children: [
+u$2("span", { children: "可覆盖 #laplace-custom-chat 的 --lc-chat-* 变量，以及 .lc-chat-bubble、.lc-chat-medal、.lc-chat-name、.lc-chat-action、.lc-chat-card-event、[data-kind]、[data-card]、[data-guard] 等选择器。" }),
+u$2(
+                            "span",
+                            {
+                              style: {
+                                flexShrink: 0,
+                                marginLeft: "8px",
+                                color: cssStatus.value === "pending" ? "#ff9500" : "#34c759"
+                              },
+                              children: cssStatus.value === "pending" ? "有待保存更改" : "已保存"
+                            }
+                          )
+                        ] })
                       ] })
                     ] }),
 u$2("span", { className: "cb-switch-row", style: { display: "inline-flex", alignItems: "center", gap: ".25em" }, children: [
@@ -13466,7 +13533,7 @@ u$2(
         customChatHideNative.value = false;
         customChatUseWs.value = true;
       };
-      const rearmCustomChat = (roomSlug) => {
+      const rearmCustomChat = (_roomSlug) => {
         serial += 1;
         const runId = serial;
         clearTimers();
