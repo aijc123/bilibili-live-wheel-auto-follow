@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.8.44
+// @version      2.8.45
 // @author       aijc123
 // @description  给 B 站/哔哩哔哩直播间用的弹幕助手：支持独轮车循环发送、自动跟车、Chatterbox Chat、粉丝牌禁言巡检、同传、烂梗库、弹幕替换和 AI 规避。
 // @license      AGPL-3.0
@@ -13533,11 +13533,12 @@ u$2(
         customChatHideNative.value = false;
         customChatUseWs.value = true;
       };
-      const rearmCustomChat = (_roomSlug) => {
-        if (!customChatEnabled.value) return;
+      let rearming = false;
+      const rearmCustomChat = () => {
         serial += 1;
         const runId = serial;
         clearTimers();
+        rearming = true;
         applyDesiredCustomChatDefaults();
         customChatEnabled.value = true;
         offTimer = setTimeout(() => {
@@ -13548,6 +13549,7 @@ u$2(
           if (disposed || runId !== serial) return;
           applyDesiredCustomChatDefaults();
           customChatEnabled.value = true;
+          rearming = false;
         }, CUSTOM_CHAT_REARM_ON_DELAY_MS);
       };
       const handleLocationMaybeChanged = (force = false) => {
@@ -13558,8 +13560,18 @@ u$2(
         }
         if (!force && roomSlug === lastRoomSlug) return;
         lastRoomSlug = roomSlug;
+        if (!customChatEnabled.value) return;
         rearmCustomChat();
       };
+      let prevEnabled = customChatEnabled.peek();
+      const stopEnabledWatcher = j(() => {
+        const next = customChatEnabled.value;
+        const wasEnabled = prevEnabled;
+        prevEnabled = next;
+        if (!wasEnabled && next && !rearming) {
+          rearmCustomChat();
+        }
+      });
       const scheduleLocationCheck = () => {
         window.setTimeout(handleLocationMaybeChanged, 0);
       };
@@ -13580,6 +13592,7 @@ u$2(
       return () => {
         disposed = true;
         clearTimers();
+        stopEnabledWatcher();
         window.history.pushState = originalPushState;
         window.history.replaceState = originalReplaceState;
         window.removeEventListener("popstate", handleLocationMaybeChanged);

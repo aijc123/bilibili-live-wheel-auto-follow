@@ -1,3 +1,4 @@
+import { effect } from '@preact/signals'
 import { useEffect } from 'preact/hooks'
 
 import { startAutoBlend, stopAutoBlend } from '../lib/auto-blend'
@@ -666,11 +667,13 @@ export function App() {
       customChatUseWs.value = true
     }
 
-    const rearmCustomChat = (_roomSlug: string | null) => {
-      if (!customChatEnabled.value) return
+    let rearming = false
+
+    const rearmCustomChat = () => {
       serial += 1
       const runId = serial
       clearTimers()
+      rearming = true
       applyDesiredCustomChatDefaults()
       customChatEnabled.value = true
       offTimer = setTimeout(() => {
@@ -681,6 +684,7 @@ export function App() {
         if (disposed || runId !== serial) return
         applyDesiredCustomChatDefaults()
         customChatEnabled.value = true
+        rearming = false
       }, CUSTOM_CHAT_REARM_ON_DELAY_MS)
     }
 
@@ -692,8 +696,19 @@ export function App() {
       }
       if (!force && roomSlug === lastRoomSlug) return
       lastRoomSlug = roomSlug
-      rearmCustomChat(roomSlug)
+      if (!customChatEnabled.value) return
+      rearmCustomChat()
     }
+
+    let prevEnabled = customChatEnabled.peek()
+    const stopEnabledWatcher = effect(() => {
+      const next = customChatEnabled.value
+      const wasEnabled = prevEnabled
+      prevEnabled = next
+      if (!wasEnabled && next && !rearming) {
+        rearmCustomChat()
+      }
+    })
 
     const scheduleLocationCheck = () => {
       window.setTimeout(handleLocationMaybeChanged, 0)
@@ -719,6 +734,7 @@ export function App() {
     return () => {
       disposed = true
       clearTimers()
+      stopEnabledWatcher()
       window.history.pushState = originalPushState
       window.history.replaceState = originalReplaceState
       window.removeEventListener('popstate', handleLocationMaybeChanged)
