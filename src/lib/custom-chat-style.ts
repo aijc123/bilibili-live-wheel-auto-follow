@@ -23,7 +23,11 @@ export const CUSTOM_CHAT_STYLE = `
   --lc-chat-chip-text: #1d1d1f;
   --lc-chat-accent: #34c759;
   --lc-chat-shadow: rgba(0, 0, 0, .10);
-  --lc-chat-bubble-shadow: 0 1px 1px rgba(0, 0, 0, .035), 0 8px 22px rgba(0, 0, 0, .075);
+  /* Bubble shadow: inset top-edge highlight (white in light themes) + faint
+     drop + soft outer. The inset is what makes bubbles read as "raised
+     cards" rather than colored rectangles — same iOS 18 trick that makes
+     Messages, Wallet, and Notes feel three-dimensional even at 12-13px text. */
+  --lc-chat-bubble-shadow: 0 1px 0 rgba(255, 255, 255, .9) inset, 0 1px 2px rgba(0, 0, 0, .04), 0 8px 20px rgba(0, 0, 0, .08);
   --lc-chat-lite: rgba(118, 118, 128, .12);
   --lc-chat-lite-text: #5f6368;
   --lc-chat-medal-bg: #fff0b8;
@@ -80,7 +84,11 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   --lc-chat-chip-text: #e6edf7;
   --lc-chat-accent: #30d158;
   --lc-chat-shadow: rgba(0, 0, 0, .34);
-  --lc-chat-bubble-shadow: 0 1px 1px rgba(255, 255, 255, .025), 0 10px 28px rgba(0, 0, 0, .28);
+  /* Dark variant: inset highlight is much weaker (.06 alpha white) — just
+     enough to suggest the bubble's top edge catches light, without it looking
+     like a fake glow. Outer drop is deeper to compensate for the near-black
+     background that swallows soft shadows. */
+  --lc-chat-bubble-shadow: 0 1px 0 rgba(255, 255, 255, .06) inset, 0 1px 2px rgba(0, 0, 0, .35), 0 8px 20px rgba(0, 0, 0, .4);
   --lc-chat-lite: rgba(255, 255, 255, .08);
   --lc-chat-lite-text: #b8bac4;
   --lc-chat-medal-bg: rgba(255, 214, 10, .18);
@@ -291,15 +299,41 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   position: relative;
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr);
-  gap: 3px 9px;
+  /* Row gap (between meta and bubble) + column gap (between avatar and
+     body) both on the 4px grid; was 3px / 9px which broke the rhythm with
+     surrounding 4-grid padding. Vertical row padding also normalized to 4/4
+     instead of 4/2/6 (asymmetric without reason). */
+  gap: 4px 8px;
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  padding: 4px 2px 6px;
+  padding: 4px 4px;
   border-radius: 0;
   border: 1px solid transparent;
   background: transparent;
   overflow: visible;
+}
+/* Entrance animation — wired from custom-chat-dom.ts where new messages get
+   the .lc-chat-peek class IFF (a) user is following the bottom and (b)
+   batch size leq 12. Both gates prevent the animation from firing during
+   scroll-up history reads or large catch-up batches. The .35s spring
+   cubic-bezier(.34, 1.56, .64, 1) is the iOS Smooth-Spring curve — it
+   overshoots 1px then snaps back, giving messages a "popping in" feel
+   without yanking the reader's attention away from older content.
+   prefers-reduced-motion users get the position immediately. NOTE: do not
+   use backticks anywhere in this CSS — this entire string is a JS template
+   literal, and an unescaped backtick will silently terminate it. */
+@keyframes lc-msg-in {
+  0%   { opacity: 0; transform: translateY(8px) scale(.96); }
+  100% { opacity: 1; transform: translateY(0)   scale(1);   }
+}
+#${ROOT_ID} .lc-chat-message.lc-chat-peek {
+  animation: lc-msg-in .35s cubic-bezier(.34, 1.56, .64, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  #${ROOT_ID} .lc-chat-message.lc-chat-peek {
+    animation: none;
+  }
 }
 #${ROOT_ID} .lc-chat-message:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--lc-chat-own) 64%, transparent);
@@ -332,21 +366,26 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 #${ROOT_ID} .lc-chat-card-event .lc-chat-bubble {
   width: 100%;
   max-width: 100%;
-  min-height: 62px;
-  padding: 11px 14px;
-  border-radius: 18px;
+  min-height: 64px;
+  /* Card bubbles (gift / SC / guard / redpacket / lottery) get the iOS
+     "important card" treatment: padding 12/16 (was 11/14 — both off-grid),
+     border-radius 20/8 (was 18/8 — 20 is iOS Lock Screen card radius),
+     font-weight 800 (was 720, a non-standard CSS variant most fonts don't
+     ship; 800 is "Extra Bold" everywhere). */
+  padding: 12px 16px;
+  border-radius: 20px;
   border-bottom-left-radius: 8px;
   font-size: 14px;
-  font-weight: 720;
+  font-weight: 800;
   box-shadow: var(--lc-chat-bubble-shadow);
 }
 #${ROOT_ID} .lc-chat-card-compact .lc-chat-bubble {
   min-height: 0;
-  padding: 8px 11px;
+  padding: 8px 12px;
   border-radius: 20px;
   border-bottom-left-radius: 8px;
-  font-size: 12.5px;
-  font-weight: 650;
+  font-size: 13px;
+  font-weight: 700;
 }
 #${ROOT_ID} .lc-chat-card-event .lc-chat-bubble::before {
   top: auto;
@@ -427,6 +466,15 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   background: linear-gradient(135deg, #ff9f0a, #ff453a);
   color: #fff;
   border-color: rgba(255, 69, 58, .32);
+  /* SC is the only "hero" event in the chat list — user paid for it,
+     they want it seen. Extra outer glow + bright inset highlight set it
+     apart from every other card (which all share --lc-chat-bubble-shadow).
+     The glow uses the gradient's hot-red endpoint so it reads as "the
+     bubble itself radiating", not a separate halo. */
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, .25) inset,
+    0 0 0 1px rgba(255, 122, 89, .3),
+    0 12px 32px rgba(255, 69, 58, .35);
 }
 #${ROOT_ID} .lc-chat-card-event[data-card="guard"] .lc-chat-bubble {
   background: linear-gradient(135deg, #2f80ed, #7c5cff);
@@ -476,14 +524,15 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 #${ROOT_ID} .lc-chat-message[data-priority="lite"] .lc-chat-bubble {
   max-width: 92%;
   min-width: 0;
-  padding: 4px 9px;
+  padding: 4px 12px;
   border-radius: 999px;
   color: var(--lc-chat-lite-text);
   background: var(--lc-chat-lite);
   border-color: transparent;
   box-shadow: none;
   font-size: 11px;
-  line-height: 1.25;
+  font-weight: 500;
+  line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -678,15 +727,23 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   display: block;
   width: fit-content;
   min-width: 2.6em;
-  max-width: calc(100% - 14px);
+  max-width: calc(100% - 12px);
   color: var(--lc-chat-bubble-text);
   background: var(--lc-chat-bubble);
   border: 1px solid color-mix(in srgb, var(--lc-chat-border) 74%, transparent);
   border-radius: 20px;
-  border-bottom-left-radius: 7px;
-  padding: 8px 13px 9px;
-  font-size: 13.5px;
-  line-height: 1.38;
+  border-bottom-left-radius: 8px;
+  /* Padding + font-weight + font-size all snap to the 4px / iOS Text grid:
+     padding 8/12 (was 8/13/9 with asymmetric bottom — drops 13 and 9 which
+     broke the rhythm), font-size 13px (was 13.5 — half-pixel anti-aliasing
+     is noisy at this size), font-weight 500 (was unset → 400, which the
+     design-direction doc flags as too light to read on dark backgrounds at
+     small sizes). The cumulative effect is bubbles that look "tighter"
+     without changing apparent size. */
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
   word-break: break-word;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
