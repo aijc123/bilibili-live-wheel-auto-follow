@@ -21,7 +21,8 @@ import { extractRoomNumber } from '../lib/utils'
  * 替代原有的 4-Tab 系统（发送/同传/设置/关于）。设计原则：
  *  - 状态一目了然：直播间号 / WS 状态 / 哪些自动功能在跑 / 是否试运行。
  *  - 导航降为图标：⚙ 进设置抽屉，ⓘ 进关于抽屉，← 返回主页。
- *  - 试运行徽章高亮（橙色）确保用户不会误以为在真发。
+ *  - 试运行用每个功能 chip 自己的 `·试` 后缀（橙色）指示——不再叠加单独的
+ *    "⚠ 试运行" 强调 chip（双重视觉指示是冗余）。
  *
  * 内部仍复用 `activeTab` 信号——'fasong'=主页，'settings'/'about'=抽屉视图。
  * 旧版 'tongchuan' tab 已被 Configurator 迁移到 'fasong'。
@@ -50,7 +51,10 @@ export function PanelHeader() {
         <button
           ref={backBtnRef}
           type='button'
-          className='cb-btn cb-panel-header-back'
+          // Share padding + font-size with ⚙ / ⓘ icon buttons (cb-panel-header-icon)
+          // so the chrome looks consistent across home + sub-pages.
+          // cb-panel-header-back remains as a hook for back-specific overrides.
+          className='cb-btn cb-panel-header-icon cb-panel-header-back'
           onClick={() => {
             activeTab.value = 'fasong'
           }}
@@ -109,7 +113,6 @@ export function PanelHeader() {
   const isStt = sttRunning.value
   const blendDry = isBlend && autoBlendDryRun.value
   const hzmDry = isHzm && hzmDryRun.value
-  const anyDry = blendDry || hzmDry
   const hasAnyActive = isLoop || isBlend || isHzm || isStt
 
   return (
@@ -209,14 +212,11 @@ export function PanelHeader() {
             </span>
           )}
           {isStt && <span className='cb-panel-header-chip cb-panel-header-chip--on'>同传</span>}
-          {anyDry && (
-            <span
-              className='cb-panel-header-chip cb-panel-header-chip--dry-emphasis'
-              title='当前有功能处于试运行模式，记得检查是否需要切换到真发'
-            >
-              ⚠ 试运行
-            </span>
-          )}
+          {/*
+           * 试运行视觉指示一律走每个功能的 chip 后缀（跟车·试 / 智驾·试），不再
+           * 叠加一个独立的"⚠ 试运行"强调 chip——双重指示是视觉冗余，单 chip
+           * 已经足够橙色 + ·试 后缀提示用户。
+           */}
         </div>
       )}
 
