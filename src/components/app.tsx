@@ -9,6 +9,7 @@ import {
 import { startAutoBlend, stopAutoBlend } from '../lib/auto-blend'
 import { installRemoteClusterLifecycle } from '../lib/chatfilter/remote-controller'
 import { startReplacementFeed, stopReplacementFeed } from '../lib/chatfilter-replacement-feed'
+import { startCloudReplacementSync } from '../lib/cloud-replacement-sync'
 import { startCustomChat, stopCustomChat } from '../lib/custom-chat'
 import { startDanmakuDirect, stopDanmakuDirect } from '../lib/danmaku-direct'
 import { startGuardRoomAgent, stopGuardRoomAgent } from '../lib/guard-room-agent'
@@ -63,6 +64,14 @@ export function App() {
   // 丢掉未发送的 buffer。fire-and-forget — 失败/网络错误一律静默吞掉。
   useEffect(() => {
     startRadarReportLoop()
+  }, [])
+
+  // 云端替换规则后台 sync:Jobs 式审计后把替换规则的 UI 砍掉了,原本的同步
+  // 逻辑挂在 CloudReplacementSection 的 useEffect 里,意味着用户不打开设置
+  // 就不刷新。现在搬到 boot 路径,与 UI 解耦——10 分钟一次,失败静默。
+  // hidden GM 键 `disableCloudReplacement` 可关掉(少数派用户的逃生口)。
+  useEffect(() => {
+    startCloudReplacementSync()
   }, [])
 
   // chatfilter 远程聚类：用户在设置里打开 chatfilterRemoteEnabled 时自动启动，

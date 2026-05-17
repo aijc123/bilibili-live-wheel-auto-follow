@@ -23,13 +23,7 @@ import { DanmakuDirectSection } from './settings/danmaku-direct-section'
 import { LayoutSection } from './settings/layout-section'
 import { MedalCheckSection } from './settings/medal-check-section'
 import { RadarSection } from './settings/radar-section'
-import {
-  CloudReplacementSection,
-  LocalGlobalReplacementSection,
-  LocalRoomReplacementSection,
-} from './settings/replacement-section'
 import { matchesSearchQuery } from './settings/search'
-import { ShadowObservationSection } from './settings/shadow-observation-section'
 
 function GroupHeading({ children, query }: { children: string; query: string }) {
   if (query) return null
@@ -126,7 +120,7 @@ export function SettingsTab() {
             aria-expanded={false}
             aria-controls='cb-advanced-settings'
           >
-            ▸ 显示高级设置（替换规则 / LLM / 粉丝牌巡检 / 雷达 / 日志…）
+            ▸ 显示高级设置（LLM / 粉丝牌巡检 / 雷达 / 日志…）
           </button>
           <div className='cb-note' style={{ color: '#999', fontSize: '0.8em', marginTop: '.25em' }}>
             常用 5 项已展开；剩下 10+ 项大多数用户不需要碰。
@@ -155,11 +149,22 @@ export function SettingsTab() {
           <GroupHeading query={query}>智能识别</GroupHeading>
           <ChatfilterSection query={query} />
 
-          <GroupHeading query={query}>替换规则</GroupHeading>
-          <CloudReplacementSection query={query} />
-          <LocalGlobalReplacementSection query={query} />
-          <LocalRoomReplacementSection query={query} />
-          <ShadowObservationSection query={query} />
+          {/*
+           * 「替换规则」section 组已删除(2026 Jobs 式审计):云端规则、本地全局
+           * 规则、本地房间规则、影子屏蔽观察列表 5 个 section 全部从设置面板移除。
+           * 用户从来不应该思考"规则有几层、我在哪一层加"——这是数据库设计师的
+           * 心智,不是用户的心智。
+           *
+           * 后台机制全部保留:
+           *  - 云端规则继续由 `cloud-replacement-sync.ts` 每 10 分钟拉一次
+           *    (boot 阶段就启动,与 UI 解耦)。
+           *  - 本地全局/本地房间规则:已有的 GM 持久值仍然被 `replacement.ts`
+           *    读取并应用,但不再有添加/删除入口。
+           *  - 影子屏蔽自动学习:`shadow-learn.ts` 继续运行;候选改写气泡仍
+           *    通过 `<ShadowBypassChip>` 出现在「手动发送」输入框旁边。
+           *  - hidden GM 键 `disableCloudReplacement` 留给少数派用户(Apple
+           *    'hidden defaults' 风格,不在 UI 上暴露)。
+           */}
 
           <GroupHeading query={query}>
             LLM（智驾选梗 + AI 润色共用）·「AI 润色」= LLM 在你发出去之前用你写的 prompt 重写一遍（原代号 YOLO）
