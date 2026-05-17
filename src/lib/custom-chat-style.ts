@@ -44,6 +44,15 @@ export const CUSTOM_CHAT_STYLE = `
   --lc-chat-honor-text: #19643a;
   --lc-chat-price-bg: #ffe2cf;
   --lc-chat-price-text: #7f3516;
+  /* SC outer glow — exposed as a variable so presets can re-tint the "hero
+     card" halo to match their SC bubble color (e.g. milk-green's mint glow,
+     midnight-indigo's electric blue) without re-stating the whole rule.
+     The baseline value is the iOS-orange→hot-red used by the default SC
+     gradient. */
+  --lc-superchat-glow:
+    0 1px 0 rgba(255, 255, 255, .25) inset,
+    0 0 0 1px rgba(255, 122, 89, .3),
+    0 12px 32px rgba(255, 69, 58, .35);
   height: 100%;
   width: 100%;
   min-width: 0;
@@ -469,12 +478,10 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   /* SC is the only "hero" event in the chat list — user paid for it,
      they want it seen. Extra outer glow + bright inset highlight set it
      apart from every other card (which all share --lc-chat-bubble-shadow).
-     The glow uses the gradient's hot-red endpoint so it reads as "the
-     bubble itself radiating", not a separate halo. */
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, .25) inset,
-    0 0 0 1px rgba(255, 122, 89, .3),
-    0 12px 32px rgba(255, 69, 58, .35);
+     The glow lives in --lc-superchat-glow so presets with a non-red SC
+     gradient (milk-green, midnight-indigo) can re-tint it without copy-
+     pasting the whole shadow stack. */
+  box-shadow: var(--lc-superchat-glow);
 }
 #${ROOT_ID} .lc-chat-card-event[data-card="guard"] .lc-chat-bubble {
   background: linear-gradient(135deg, #2f80ed, #7c5cff);

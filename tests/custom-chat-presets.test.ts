@@ -97,6 +97,34 @@ describe('preset color identity — sanity-check the headline tokens', () => {
   test('MIDNIGHT_INDIGO SC bubble keeps its rainbow outer glow (the "hero card" treatment)', () => {
     // The signature shadow is 12px y-offset + 32px blur in iOS Indigo blue —
     // this is what makes SC bubbles read as "see this, not a chat line".
+    // After the refactor the value lives on `--lc-superchat-glow` instead of
+    // a hard-coded `box-shadow:` line, but the rgba triple is unchanged so
+    // this assertion still locks the visual identity.
     expect(MIDNIGHT_INDIGO_IMESSAGE_CSS).toContain('0 12px 32px rgba(13, 99, 255, .35)')
+  })
+})
+
+describe('preset SC glow — each preset re-tints --lc-superchat-glow away from baseline red', () => {
+  // Regression guard: MILK_GREEN shipped 2026-05-15→2026-05-18 with a
+  // green/mint SC bubble background but inherited baseline's `0 12px 32px
+  // rgba(255, 69, 58, .35)` red glow because the preset never overrode
+  // box-shadow. Fix: baseline reads `box-shadow: var(--lc-superchat-glow)`,
+  // each preset declares its own glow value next to `--lc-superchat-bg`.
+
+  test('MILK_GREEN declares --lc-superchat-glow tinted to its SC palette, not baseline red', () => {
+    // Must declare the variable…
+    expect(MILK_GREEN_IMESSAGE_CSS).toMatch(/--lc-superchat-glow:/)
+    // …and the outer-halo rgba should reference the SC gradient's mint
+    // endpoint (#47d18c → rgba(71, 209, 140, …)), not baseline's hot-red
+    // rgba(255, 69, 58, …).
+    expect(MILK_GREEN_IMESSAGE_CSS).toContain('0 12px 32px rgba(71, 209, 140, .36)')
+    expect(MILK_GREEN_IMESSAGE_CSS).not.toContain('rgba(255, 69, 58')
+  })
+
+  test('MIDNIGHT_INDIGO declares --lc-superchat-glow tinted to its SC palette, not baseline red', () => {
+    expect(MIDNIGHT_INDIGO_IMESSAGE_CSS).toMatch(/--lc-superchat-glow:/)
+    // Blue outer halo from the SC gradient's #0d63ff endpoint.
+    expect(MIDNIGHT_INDIGO_IMESSAGE_CSS).toContain('0 12px 32px rgba(13, 99, 255, .35)')
+    expect(MIDNIGHT_INDIGO_IMESSAGE_CSS).not.toContain('rgba(255, 69, 58')
   })
 })

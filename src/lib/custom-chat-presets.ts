@@ -80,6 +80,13 @@ export const MILK_GREEN_IMESSAGE_CSS = `/* Chatterbox 奶绿 iMessage × Laplace
     --lc-gift-text: #4a2618;
     --lc-superchat-bg: linear-gradient(135deg, #2f80ed, #47d18c);
     --lc-superchat-text: #fff;
+    /* Match the SC gradient: blue hairline at the cooler endpoint, mint
+       outer halo at the warmer endpoint. Replaces baseline's red glow,
+       which clashed with the green/mint SC bubble. */
+    --lc-superchat-glow:
+      0 1px 0 rgba(255, 255, 255, .28) inset,
+      0 0 0 1px rgba(47, 128, 237, .28),
+      0 12px 32px rgba(71, 209, 140, .36);
     --lc-guard-3-bg: linear-gradient(135deg, #c8ddfc, #d8f1df);
     --lc-guard-2-bg: linear-gradient(135deg, #e9ccf0, #d8f1df);
     --lc-guard-1-bg: linear-gradient(135deg, #ffd7c2, #f5e19e);
@@ -344,6 +351,13 @@ export const MIDNIGHT_INDIGO_IMESSAGE_CSS = `/* Chatterbox 午夜深蓝 iMessage
     --lc-gift-text: #ffd6e8;
     --lc-superchat-bg: linear-gradient(135deg, #0d63ff, #d946ef);
     --lc-superchat-text: #fff;
+    /* SC 是直播间最高优先级事件 — 给一个额外的彩虹外晕,真正"亮起来"。
+       Magenta hairline pulls from the gradient's hot endpoint, electric-blue
+       outer halo from the cool endpoint. Replaces baseline's red glow. */
+    --lc-superchat-glow:
+      0 1px 0 rgba(255, 255, 255, .15) inset,
+      0 0 0 1px rgba(217, 70, 239, .25),
+      0 12px 32px rgba(13, 99, 255, .35);
     --lc-guard-3-bg: linear-gradient(135deg, #0e2f5c, #133a4a);
     --lc-guard-2-bg: linear-gradient(135deg, #3a1559, #5b2a4e);
     --lc-guard-1-bg: linear-gradient(135deg, #5e3009, #6b441b);
@@ -489,11 +503,13 @@ export const MIDNIGHT_INDIGO_IMESSAGE_CSS = `/* Chatterbox 午夜深蓝 iMessage
   #laplace-custom-chat[data-theme] .lc-chat-card-event[data-card="superchat"] .lc-chat-bubble {
     color: var(--lc-superchat-text);
     background: var(--lc-superchat-bg);
-    /* SC 是直播间最高优先级事件 — 给一个额外的彩虹外晕,真正"亮起来"。 */
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, .15) inset,
-      0 0 0 1px rgba(217, 70, 239, .25),
-      0 12px 32px rgba(13, 99, 255, .35);
+    /* Re-state box-shadow at this selector's higher specificity (0,1,4,0)
+       so the preset's generic .lc-chat-card-event .lc-chat-bubble rule
+       above (which sets a flat dark-card shadow at 0,1,3,0) does NOT win
+       on the source-order tiebreaker against baseline's SC rule. The value
+       comes from --lc-superchat-glow declared in this preset's :root.
+       NOTE: this whole CSS string is a JS template literal — no backticks. */
+    box-shadow: var(--lc-superchat-glow);
   }
 
   #laplace-custom-chat[data-theme] .lc-chat-card-event[data-card="guard"] .lc-chat-bubble {
