@@ -223,7 +223,7 @@ The floating panel has **no top-level Tab bar**. It's a single-page waterfall wi
 - **Three core primitive cards on the home page**, each visually paired with its supporting widget through a `<section class="cb-core-group">` wrapper:
   - `AutoSendControls` (独轮车) + `MemesList` as a `<details class="cb-supporting-feature">` summary "📚 从烂梗库挑模板"
   - `AutoBlendControls` (自动跟车) + `HzmDrivePanelMount` (智驾) as "🤖 用 LLM 选梗"
-  - `NormalSendTab` (普通发送 / +1 / 复制 / 影子屏蔽候选) + `SttTab` (同传) as "🎤 语音输入弹幕"
+  - `NormalSendTab` (手动发送, formerly 普通发送/常规发送; +1 / 复制 / 影子屏蔽候选) + `SttTab` (同传) as "🎤 语音输入弹幕"
   Supporting features are visually subordinate (smaller, indented, dimmer background) — the design encodes "X serves Y" through layout, not through equal Tabs.
 - **Settings page** ([`src/components/settings-tab.tsx`](src/components/settings-tab.tsx)): default view shows only 5 essential sections (Chatterbox Chat, +1 直接动作, 布局, 表情, 备份/恢复). A "▸ 显示高级设置" button reveals 10+ advanced sections (智能识别 / 替换规则 / 影子屏蔽 / LLM / 粉丝牌巡检 / chatterbox-cloud 后端 / 雷达 / 日志). Search query overrides the toggle — typing in the search box always matches across all sections. State lives in `settingsAdvancedVisible` ([`store-ui.ts`](src/lib/store-ui.ts)).
 - **Esc key two-stage behavior** ([`src/components/toggle-button.tsx`](src/components/toggle-button.tsx)): on a sub-page (settings/about), Esc returns to home; on home, Esc closes the panel. Editable-field focus suppresses both (so Esc still clears inputs).

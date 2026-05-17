@@ -1,5 +1,5 @@
 /**
- * YOLO 提示词访问层。
+ * AI 润色（原代号 YOLO）提示词访问层。
  *
  * 把"全局基线 + 功能特定"的拼接策略集中在这里，调用方（llm-polish.ts、UI 的
  * PromptManager / PromptPicker）只看 `getActiveLlmPrompt(feature)` 一个入口，

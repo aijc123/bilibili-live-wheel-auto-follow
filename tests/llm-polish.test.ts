@@ -186,7 +186,7 @@ describe('describeLlmGap', () => {
     hzmLlmModel.value = 'm'
     hzmLlmProvider.value = 'openai'
 
-    expect(describeLlmGap('normalSend')).toContain('常规发送')
+    expect(describeLlmGap('normalSend')).toContain('手动发送')
     expect(describeLlmGap('autoBlend')).toContain('自动跟车')
     expect(describeLlmGap('autoSend')).toContain('独轮车')
   })
