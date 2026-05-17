@@ -1,5 +1,3 @@
-import { useSignal } from '@preact/signals'
-
 import { debugLogVisible, maxLogLines } from '../lib/log'
 import {
   llmActivePromptAutoBlend,
@@ -56,29 +54,18 @@ function GroupHeading({ children, query }: { children: string; query: string }) 
  * 的直觉。
  */
 export function SettingsTab() {
-  const settingsSearch = useSignal('')
-  const query = settingsSearch.value.trim().toLowerCase()
-  // 搜索激活时，所有 section 都参与匹配（无视高级开关）。
-  const showAdvanced = settingsAdvancedVisible.value || query.length > 0
+  const showAdvanced = settingsAdvancedVisible.value
+
+  // Jobs 式 #10: 搜索框已删除——"需要搜索"本身就是设置过多的征兆。
+  // 替换规则的 5 个 section 已经在 #7 砍掉,剩下的设置走"5 常用 + 10 高级"
+  // 两级分类,通过 GroupHeading 锚定语义,通过<details>折叠减压。空 query
+  // 一律命中(`matchesSearchQuery` 早返 true),所有 section 接受 query=''
+  // 默认值。子 section 内部仍保留 KEYWORDS 常量是 forward-compat:若未来
+  // 重新引入搜索,只需在这里挂一个输入框就够。
+  const query = ''
 
   return (
     <>
-      <div className='cb-section cb-stack' style={{ margin: '.5em 0', gap: '.35em' }}>
-        <label htmlFor='settingsSearch' className='cb-label'>
-          搜索设置
-        </label>
-        <input
-          id='settingsSearch'
-          type='search'
-          value={settingsSearch.value}
-          placeholder='输入关键词（可空格分隔多词），例如：表情、粉丝牌、CSS、API key、备份'
-          style={{ width: '100%' }}
-          onInput={e => {
-            settingsSearch.value = e.currentTarget.value
-          }}
-        />
-      </div>
-
       <GroupHeading query={query}>常用</GroupHeading>
       <CustomChatSection query={query} />
       <DanmakuDirectSection query={query} />
@@ -123,28 +110,26 @@ export function SettingsTab() {
             ▸ 显示高级设置（LLM / 粉丝牌巡检 / 雷达 / 日志…）
           </button>
           <div className='cb-note' style={{ color: '#999', fontSize: '0.8em', marginTop: '.25em' }}>
-            常用 5 项已展开；剩下 10+ 项大多数用户不需要碰。
+            常用 5 项已展开；剩下大多数用户不需要碰。
           </div>
         </div>
       )}
 
       {showAdvanced && (
         <div id='cb-advanced-settings'>
-          {!query && (
-            <div style={{ margin: '1.25em 0 .5em' }}>
-              <button
-                type='button'
-                className='cb-disclosure-link'
-                onClick={() => {
-                  settingsAdvancedVisible.value = false
-                }}
-                aria-expanded={true}
-                aria-controls='cb-advanced-settings'
-              >
-                ▾ 收起高级设置
-              </button>
-            </div>
-          )}
+          <div style={{ margin: '1.25em 0 .5em' }}>
+            <button
+              type='button'
+              className='cb-disclosure-link'
+              onClick={() => {
+                settingsAdvancedVisible.value = false
+              }}
+              aria-expanded={true}
+              aria-controls='cb-advanced-settings'
+            >
+              ▾ 收起高级设置
+            </button>
+          </div>
 
           <GroupHeading query={query}>智能识别</GroupHeading>
           <ChatfilterSection query={query} />
