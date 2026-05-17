@@ -14,6 +14,7 @@ import {
   sttRunning,
 } from '../lib/store'
 import { extractRoomNumber } from '../lib/utils'
+import { Icon } from './ui/icon'
 
 /**
  * 面板顶部常驻状态条 + 导航入口。
@@ -61,7 +62,7 @@ export function PanelHeader() {
           aria-label='返回主页'
           title='返回主页 (Esc)'
         >
-          ← 返回
+          <Icon name='arrow-left' /> 返回
         </button>
         <strong className='cb-panel-header-title'>{tab === 'settings' ? '设置' : '关于'}</strong>
       </div>
@@ -176,7 +177,7 @@ export function PanelHeader() {
             aria-label='打开设置'
             title='设置'
           >
-            ⚙
+            <Icon name='settings' />
           </button>
           <button
             type='button'
@@ -187,7 +188,7 @@ export function PanelHeader() {
             aria-label='打开关于'
             title='关于 / 隐私 / 版本'
           >
-            ⓘ
+            <Icon name='info' />
           </button>
         </div>
       </div>
@@ -227,7 +228,7 @@ export function PanelHeader() {
           aria-live='polite'
           title='直播 WebSocket 断开，自动跟车与 Chatterbox Chat 已退化为 DOM 抓取模式（高峰期可能漏事件）。刷新页面通常可恢复。'
         >
-          ⚠️ 直播 WS 已断开 · 已退回 DOM 抓取（高峰期可能漏事件）
+          <Icon name='warning' aria-hidden={true} /> 直播 WS 已断开 · 已退回 DOM 抓取（高峰期可能漏事件）
         </div>
       )}
     </div>

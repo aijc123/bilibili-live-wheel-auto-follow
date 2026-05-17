@@ -13,6 +13,7 @@ import { NormalSendTab } from './normal-send-tab'
 import { PanelHeader } from './panel-header'
 import { SettingsTab } from './settings-tab'
 import { SttTab } from './stt-tab'
+import { Icon } from './ui/icon'
 
 /**
  * 面板容器。
@@ -104,7 +105,7 @@ export function Configurator() {
               >
                 <summary>
                   <span className='cb-supporting-feature-icon' aria-hidden='true'>
-                    📚
+                    <Icon name='book' />
                   </span>
                   从烂梗库挑模板
                 </summary>
@@ -130,7 +131,7 @@ export function Configurator() {
               >
                 <summary>
                   <span className='cb-supporting-feature-icon' aria-hidden='true'>
-                    🤖
+                    <Icon name='robot' />
                   </span>
                   用 LLM 选梗（智驾，仅特定房间）
                 </summary>
@@ -144,7 +145,7 @@ export function Configurator() {
               <details className='cb-supporting-feature'>
                 <summary>
                   <span className='cb-supporting-feature-icon' aria-hidden='true'>
-                    🎤
+                    <Icon name='mic' />
                   </span>
                   语音输入弹幕（同传，Soniox）
                 </summary>
