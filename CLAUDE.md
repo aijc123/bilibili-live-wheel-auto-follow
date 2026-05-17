@@ -4,18 +4,42 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This repository builds a Bilibili Live userscript named `B站独轮车 + 自动跟车`. It is a fork of LAPLACE Chatterbox, packaged for Greasy Fork/Tampermonkey/Violentmonkey, and focuses on live-room danmaku workflows:
+This repository builds a Bilibili Live userscript named `弹幕助手 · 替你说，替你看` (Greasy Fork title still reads `B站独轮车 + 自动跟车` for SEO). Independent rewrite based on LAPLACE Chatterbox; **as of 2026, no longer syncs upstream** — both projects evolve independently.
 
+### Target user (anchor for every product decision)
+
+**Heavy-active Bilibili-live viewer at shadow-ban / mute / blacklist risk.** Daily live-room dweller, very active in danmaku. Because they send a lot, they regularly get rate-limited, muted, shadow-banned, or blacklisted by streamers — so they need:
+
+1. **Send-side acceleration**: auto-send loops (独轮车), auto-follow (跟车), one-line manual send (手动发送), +1, AI 润色, shadow-ban auto-rewrite.
+2. **Self-defense visibility**: fan-medal inspection to see *which rooms have muted/restricted/blacklisted them today*.
+3. **Better-reading affordance**: Chatterbox Chat for a cleaner right-side chat.
+
+**They are NOT** guild administrators, room operators, or live-desk staff. Guard Room sync + live-desk heartbeat exist for that audience and are scheduled to be **spun off into a sibling userscript** — keep them runnable but don't grow them, and don't treat them as defining features.
+
+**When in doubt about whether to add / keep a feature, ask:** *does this serve the heavy-active viewer who's worried about getting silenced?* If yes, keep it; if no, defer or remove from main UI surface.
+
+### Capability surface
+
+The product does **two things**: 替你说 (send) + 替你看 (read).
+
+**替你说 (Tier 1, primary):**
 - auto-send loops (`独轮车`)
 - repeated-danmaku auto-follow (`自动跟车`) with broadcast verification
+- one-line manual send (`手动发送`, formerly `普通发送`) with optional AI 润色 (single switch, user-supplied prompt via `PromptManager`) and shadow-ban candidates
+
+**替你看 (Tier 1, supporting):**
+- Chatterbox Chat — custom right-side live chat replacement (WS + DOM fallback, dark mode aware)
+- fan-medal room mute/restriction inspection — slated to surface as a `我的状态` main-panel section
+
+**Supporting / background machinery (Tier 2, mostly invisible to the user):**
 - Smart Auto-Drive (`智能辅助驾驶`) — heuristic + optional LLM meme picker that runs alongside auto-follow
-- Chatterbox Chat, a custom right-side live chat replacement (WS source + DOM fallback, dark mode aware)
-- fan-medal room mute/restriction inspection, with optional Guard Room sync and live-desk handoff
-- normal danmaku sending, +1/steal actions, replacement rules, AI evasion
-- Shadow-ban subsystem: send-broadcast verification, candidate rewrites, persistent observations, optional rule learning
+- Shadow-ban subsystem: send-broadcast verification, candidate rewrites, persistent observations, rule auto-learning (all backgrounded; no user-facing rule-editing UI)
 - Multi-source meme library: LAPLACE + SBHZM + chatterbox-cloud aggregator + per-room community sources
-- Soniox speech-to-text
-- LLM provider matrix: Anthropic, OpenAI, and any OpenAI-compatible base URL (DeepSeek/Moonshot/OpenRouter/Ollama/...) used by AI evasion and Smart Auto-Drive
+- Soniox speech-to-text (`同传`)
+- LLM provider matrix (Anthropic, OpenAI, OpenAI-compatible base URL) used by AI 润色 + AI evasion + Smart Auto-Drive
+
+**Scheduled for spin-off (don't grow):**
+- Guard Room sync (`guard-room-*`) and live-desk heartbeat (`live-desk-sync`) — for guild admins, not core target user.
 
 Most UI text is Chinese. Keep Markdown, HTML, and TypeScript files encoded as UTF-8.
 
