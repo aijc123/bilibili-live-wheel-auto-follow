@@ -1,3 +1,9 @@
+/**
+ * @deprecated 即将剥离到独立姊妹脚本 `bilibili-guild-companion`(Jobs 式 #9)。
+ * 详细迁移计划: [docs/guard-room-spinoff-plan.md](../../docs/guard-room-spinoff-plan.md)。
+ * 不要在这里新增功能,留待剥离后的姊妹脚本里加。
+ */
+
 import { ensureRoomId } from './api'
 import { subscribeCustomChatEvents } from './custom-chat-events'
 import {

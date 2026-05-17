@@ -382,8 +382,24 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
         </div>
         <details className='cb-panel cb-stack' style={{ marginBottom: '.5em' }}>
           <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }} className='cb-heading'>
-            直播间保安室同步（外部服务）
+            直播间保安室同步（外部服务 · 即将剥离）
           </summary>
+          <div
+            className='cb-note'
+            style={{
+              color: 'var(--cb-warning-text)',
+              fontSize: '0.85em',
+              marginTop: '.5em',
+              padding: '.4em .55em',
+              background: 'rgba(161, 92, 0, .08)',
+              borderRadius: '4px',
+            }}
+          >
+            ⓘ 即将剥离公告:Guard Room sync + 监控室代理是公会管理员工具, 将在下一次大版本(v3.0)迁移到独立姊妹脚本{' '}
+            <code>bilibili-guild-companion</code>。 届时:普通观众无需任何操作;公会管理员请额外安装新脚本。
+            <br />
+            <span style={{ color: '#666' }}>(本节当前仍正常工作,迁移前会在 release notes 提前通知。)</span>
+          </div>
           <div className='cb-note' style={{ color: '#666', marginTop: '.5em' }}>
             保安室是独立的开源项目，需要自行搭建或加入。同步会上传：房间号、主播昵称、粉丝牌、限制信号、脚本版本。
             <strong>不会上传 cookie、csrf、localStorage 或完整接口数据。</strong>
@@ -496,7 +512,7 @@ export function MedalCheckSection({ query = '' }: { query?: string }) {
         </details>
         <details className='cb-panel cb-stack' style={{ marginBottom: '.5em' }}>
           <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold' }} className='cb-heading'>
-            高级：监控室代理（默认折叠）
+            高级：监控室代理（默认折叠 · 即将剥离）
           </summary>
           <div className='cb-note' style={{ color: '#666', marginTop: '.5em' }}>
             连接到保安室网站后用于远程协调监控。普通用户通常不需要打开。

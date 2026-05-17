@@ -1,3 +1,17 @@
+/**
+ * @deprecated 即将剥离到独立姊妹脚本 `bilibili-guild-companion`(Jobs 式 #9)。
+ *
+ * Guard Room sync / live-desk heartbeat 是公会管理员的工具,跟 chatterbox
+ * 的目标用户(被屏蔽风险下的重度直播观众)是不同人群。剥离后:
+ *  - chatterbox 设置面板砍掉所有 Guard Room UI
+ *  - @connect 列表去掉 `bilibili-guard-room.vercel.app` 域
+ *  - 公会管理员装两个脚本(chatterbox + companion),互不耦合
+ *
+ * 详细迁移计划: [docs/guard-room-spinoff-plan.md](../../docs/guard-room-spinoff-plan.md)
+ *
+ * **不要在这里新增功能**,留待剥离后的姊妹脚本里加。维护性 bug fix 仍可。
+ */
+
 import { VERSION } from './const'
 import { guardRoomCurrentRiskLevel } from './guard-room-live-desk-state'
 import { notifyUser } from './log'
