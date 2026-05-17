@@ -19,7 +19,7 @@
 
 **做给谁的**：每天泡 B 站直播间、在弹幕里活跃的重度观众。你发得多，所以经常被屏蔽 / 被禁言 / 被影子屏蔽 / 被主播拉黑——这个脚本帮你**加速发言**，也帮你**看清自己在哪被禁了**。不是公会管理工具，不是直播间运营工具。
 
-**项目状态**：基于 [LAPLACE Chatterbox](https://github.com/laplace-live/chatterbox) 重写，**2026 起不再 sync upstream**；原 Chatterbox 的同传、烂梗库、弹幕替换、AI 规避、Chatterbox Chat 全部保留并独立演进，新增自动跟车、粉丝牌巡检、多源烂梗库和针对国内直播文化的影子屏蔽自动学习。
+**血脉**：本脚本最初从 [LAPLACE Chatterbox](https://github.com/laplace-live/chatterbox) fork 而来，产品方向已经走得比较远。原 Chatterbox 的同传、烂梗库、弹幕替换、AI 规避、Chatterbox Chat 全部保留并继续演进，新增自动跟车、粉丝牌巡检、多源烂梗库和针对国内直播文化的影子屏蔽自动学习。如果 LAPLACE 有好的修复 / 功能，按需 cherry-pick。
 
 项目链接：
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This repository builds a Bilibili Live userscript named `弹幕助手 · 替你说，替你看` (Greasy Fork title still reads `B站独轮车 + 自动跟车` for SEO). Independent rewrite based on LAPLACE Chatterbox; **as of 2026, no longer syncs upstream** — both projects evolve independently.
+This repository builds a Bilibili Live userscript named `弹幕助手 · 替你说，替你看` (Greasy Fork title still reads `B站独轮车 + 自动跟车` for SEO). Originally forked from [LAPLACE Chatterbox](https://github.com/laplace-live/chatterbox); product direction has diverged enough that wholesale sync is no longer practical, but **upstream cherry-picks are still welcome on a case-by-case basis** — if LAPLACE ships a bug fix or feature that's a clean win, port it. There is no formal "we are independent now" stance to defend; that kind of declaration only closes doors.
 
 ### Target user (anchor for every product decision)
 
