@@ -10,11 +10,38 @@
  * [docs/chatterbox-chat-design-direction.md](../../docs/chatterbox-chat-design-direction.md)。
  */
 
+// IMPORTANT — Cascade Layer & Specificity Notes
+// ───────────────────────────────────────────────
+// 1) **No `@layer` wrapper.** Per CSS Cascading Level 5, ANY unlayered author
+//    style beats ALL layered author styles regardless of specificity / source
+//    order. Baseline `custom-chat-style.ts` is unlayered, so wrapping presets
+//    in `@layer chatterbox-custom-css { … }` makes them lose every variable
+//    fight against baseline. We learned this the hard way when both presets
+//    silently fell back to baseline colors in production
+//    (`tmp/chat-preview/` audit, 2026-05-17). Keep these presets unlayered.
+// 2) **Selectors use `#laplace-custom-chat[data-theme]`** instead of bare
+//    `#laplace-custom-chat` so they tie with the baseline laplace/compact
+//    variant `#laplace-custom-chat[data-theme="laplace"]` on specificity.
+//    Source order (preset `<style>` is appended after baseline `<style>`)
+//    then breaks the tie in the preset's favor. With bare `#laplace-custom-chat`
+//    (0,1,0,0) the preset loses to baseline's `[data-theme]` selector (0,1,1,0)
+//    even when unlayered — so the dark-theme path stays broken.
+// 3) **`@import` is fine** but the sanitizer strips it when this CSS comes
+//    from the user-CSS textarea (defense-in-depth against arbitrary remote
+//    fetches). The button injection path (preset → textarea) keeps the
+//    @import line for users who want the Google font; sanitization removes
+//    it for safety. Without the font, the preset still renders fine using
+//    the system-ui fallback in `--lc-chat-font`.
+//
+// Concretely: changing the selector prefix or re-adding `@layer` here will
+// silently break every color variable in this preset. Run
+// `bun tmp/chat-preview/gen-preview.mjs` and open `chat-milk.html` /
+// `chat-midnight.html` to verify with `getComputedStyle` if you touch this.
+
 export const MILK_GREEN_IMESSAGE_CSS = `/* Chatterbox 奶绿 iMessage × Laplace 气泡 */
 @import url('https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&display=swap');
 
-@layer chatterbox-custom-css {
-  #laplace-custom-chat {
+#laplace-custom-chat[data-theme] {
     --lc-chat-font: 'Jost', -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
     --lc-chat-bg: #eef7f1;
     --lc-chat-panel: rgba(248, 253, 249, .86);
@@ -60,12 +87,12 @@ export const MILK_GREEN_IMESSAGE_CSS = `/* Chatterbox 奶绿 iMessage × Laplace
     --lc-lottery-bg: linear-gradient(135deg, #bde5d1, #c8ddfc);
   }
 
-  #laplace-custom-chat,
-  #laplace-custom-chat * {
+  #laplace-custom-chat[data-theme],
+  #laplace-custom-chat[data-theme] * {
     font-family: var(--lc-chat-font);
   }
 
-  #laplace-custom-chat .lc-chat-list {
+  #laplace-custom-chat[data-theme] .lc-chat-list {
     background-image:
       linear-gradient(45deg, rgba(255,255,255,.46) 25%, transparent 25%),
       linear-gradient(-45deg, rgba(255,255,255,.46) 25%, transparent 25%),
@@ -77,87 +104,87 @@ export const MILK_GREEN_IMESSAGE_CSS = `/* Chatterbox 奶绿 iMessage × Laplace
     mask-image: linear-gradient(to bottom, transparent, #000 24px, #000 calc(100% - 24px), transparent);
   }
 
-  #laplace-custom-chat .lc-chat-message {
+  #laplace-custom-chat[data-theme] .lc-chat-message {
     transition: .24s color ease, .24s background-color ease, .24s opacity ease;
   }
 
-  #laplace-custom-chat .lc-chat-avatar {
+  #laplace-custom-chat[data-theme] .lc-chat-avatar {
     box-shadow: 0 0 0 2px rgba(255, 255, 255, .72), 0 2px 8px rgba(36, 74, 48, .16);
   }
 
-  #laplace-custom-chat .lc-chat-name {
+  #laplace-custom-chat[data-theme] .lc-chat-name {
     color: #21976a;
     font-weight: 800;
     text-shadow: 0 0 2px rgba(238, 247, 241, .8);
   }
 
-  #laplace-custom-chat .lc-chat-time {
+  #laplace-custom-chat[data-theme] .lc-chat-time {
     color: #7b8e82;
   }
 
-  #laplace-custom-chat .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-bubble {
     color: var(--lc-event-text);
     background: var(--lc-event-bg);
     font-weight: 700;
     filter: drop-shadow(0 0 1px rgba(33, 61, 43, .24));
   }
 
-  #laplace-custom-chat .lc-chat-bubble::before {
+  #laplace-custom-chat[data-theme] .lc-chat-bubble::before {
     background: var(--lc-event-bg);
     border-color: rgba(63, 103, 79, .12);
   }
 
-  #laplace-custom-chat .lc-chat-reply {
+  #laplace-custom-chat[data-theme] .lc-chat-reply {
     color: #15945f;
   }
 
-  #laplace-custom-chat .lc-chat-medal {
+  #laplace-custom-chat[data-theme] .lc-chat-medal {
     max-width: min(13em, 72%);
     text-shadow: none;
   }
 
-  #laplace-custom-chat .lc-chat-badge[data-badge-type="medal"] {
+  #laplace-custom-chat[data-theme] .lc-chat-badge[data-badge-type="medal"] {
     color: var(--lc-chat-medal-text);
     background: var(--lc-chat-medal-bg);
   }
 
-  #laplace-custom-chat .lc-chat-badge[data-badge-type="guard"] {
+  #laplace-custom-chat[data-theme] .lc-chat-badge[data-badge-type="guard"] {
     color: var(--lc-chat-guard-text);
     background: var(--lc-chat-guard-bg);
   }
 
-  #laplace-custom-chat .lc-chat-badge[data-badge-type="admin"] {
+  #laplace-custom-chat[data-theme] .lc-chat-badge[data-badge-type="admin"] {
     color: var(--lc-chat-admin-text);
     background: var(--lc-chat-admin-bg);
   }
 
-  #laplace-custom-chat .lc-chat-badge[data-badge-type="rank"] {
+  #laplace-custom-chat[data-theme] .lc-chat-badge[data-badge-type="rank"] {
     color: var(--lc-chat-rank-text);
     background: var(--lc-chat-rank-bg);
   }
 
-  #laplace-custom-chat .lc-chat-badge[data-badge-type="ul"] {
+  #laplace-custom-chat[data-theme] .lc-chat-badge[data-badge-type="ul"] {
     color: var(--lc-chat-ul-text);
     background: var(--lc-chat-ul-bg);
   }
 
-  #laplace-custom-chat .lc-chat-badge[data-badge-type="honor"] {
+  #laplace-custom-chat[data-theme] .lc-chat-badge[data-badge-type="honor"] {
     color: var(--lc-chat-honor-text);
     background: var(--lc-chat-honor-bg);
   }
 
-  #laplace-custom-chat .lc-chat-badge[data-badge-type="price"] {
+  #laplace-custom-chat[data-theme] .lc-chat-badge[data-badge-type="price"] {
     color: var(--lc-chat-price-text);
     background: var(--lc-chat-price-bg);
   }
 
-  #laplace-custom-chat .lc-chat-kind,
-  #laplace-custom-chat .lc-chat-card-mark {
+  #laplace-custom-chat[data-theme] .lc-chat-kind,
+  #laplace-custom-chat[data-theme] .lc-chat-card-mark {
     color: #21422f;
     background: rgba(255, 255, 255, .5);
   }
 
-  #laplace-custom-chat .lc-chat-card-event .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-card-event .lc-chat-bubble {
     min-width: min(18em, 100%);
     padding: 11px 15px;
     border-radius: 20px;
@@ -165,93 +192,92 @@ export const MILK_GREEN_IMESSAGE_CSS = `/* Chatterbox 奶绿 iMessage × Laplace
     filter: drop-shadow(0 1px 2px rgba(36, 74, 48, .18));
   }
 
-  #laplace-custom-chat .lc-chat-card-event .lc-chat-bubble::before {
+  #laplace-custom-chat[data-theme] .lc-chat-card-event .lc-chat-bubble::before {
     background: inherit;
   }
 
-  #laplace-custom-chat .lc-chat-card-title {
+  #laplace-custom-chat[data-theme] .lc-chat-card-title {
     font-weight: 800;
   }
 
-  #laplace-custom-chat .lc-chat-card-field {
+  #laplace-custom-chat[data-theme] .lc-chat-card-field {
     background: rgba(255, 255, 255, .42);
   }
 
-  #laplace-custom-chat .lc-chat-card-field[data-field$="price"],
-  #laplace-custom-chat .lc-chat-card-field[data-kind="money"] {
+  #laplace-custom-chat[data-theme] .lc-chat-card-field[data-field$="price"],
+  #laplace-custom-chat[data-theme] .lc-chat-card-field[data-kind="money"] {
     color: #855118;
   }
 
-  #laplace-custom-chat .lc-chat-card-field[data-field$="count"],
-  #laplace-custom-chat .lc-chat-card-field[data-kind="count"] {
+  #laplace-custom-chat[data-theme] .lc-chat-card-field[data-field$="count"],
+  #laplace-custom-chat[data-theme] .lc-chat-card-field[data-kind="count"] {
     color: #24523a;
   }
 
-  #laplace-custom-chat .lc-chat-event-debug {
+  #laplace-custom-chat[data-theme] .lc-chat-event-debug {
     color: #24523a;
     background: rgba(214, 239, 224, .92);
   }
 
-  #laplace-custom-chat .lc-chat-card-event[data-card="gift"] .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-card-event[data-card="gift"] .lc-chat-bubble {
     color: var(--lc-gift-text);
     background: var(--lc-gift-bg);
   }
 
-  #laplace-custom-chat .lc-chat-card-event[data-card="superchat"] .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-card-event[data-card="superchat"] .lc-chat-bubble {
     color: var(--lc-superchat-text);
     background: var(--lc-superchat-bg);
   }
 
-  #laplace-custom-chat .lc-chat-card-event[data-card="guard"] .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-card-event[data-card="guard"] .lc-chat-bubble {
     color: #173b28;
     background: var(--lc-guard-3-bg);
   }
 
-  #laplace-custom-chat .lc-chat-card-event[data-guard="2"] .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-card-event[data-guard="2"] .lc-chat-bubble {
     color: #43205c;
     background: var(--lc-guard-2-bg);
   }
 
-  #laplace-custom-chat .lc-chat-card-event[data-guard="1"] .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-card-event[data-guard="1"] .lc-chat-bubble {
     color: #4d2318;
     background: var(--lc-guard-1-bg);
   }
 
-  #laplace-custom-chat .lc-chat-card-event[data-card="redpacket"] .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-card-event[data-card="redpacket"] .lc-chat-bubble {
     color: #4d2318;
     background: var(--lc-redpacket-bg);
   }
 
-  #laplace-custom-chat .lc-chat-card-event[data-card="lottery"] .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-card-event[data-card="lottery"] .lc-chat-bubble {
     color: #173b28;
     background: var(--lc-lottery-bg);
   }
 
-  #laplace-custom-chat .lc-chat-message[data-kind="follow"] .lc-chat-bubble,
-  #laplace-custom-chat .lc-chat-message[data-kind="like"] .lc-chat-bubble,
-  #laplace-custom-chat .lc-chat-message[data-kind="share"] .lc-chat-bubble,
-  #laplace-custom-chat .lc-chat-message[data-kind="enter"] .lc-chat-bubble,
-  #laplace-custom-chat .lc-chat-message[data-kind="notice"] .lc-chat-bubble,
-  #laplace-custom-chat .lc-chat-message[data-priority="lite"] .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-message[data-kind="follow"] .lc-chat-bubble,
+  #laplace-custom-chat[data-theme] .lc-chat-message[data-kind="like"] .lc-chat-bubble,
+  #laplace-custom-chat[data-theme] .lc-chat-message[data-kind="share"] .lc-chat-bubble,
+  #laplace-custom-chat[data-theme] .lc-chat-message[data-kind="enter"] .lc-chat-bubble,
+  #laplace-custom-chat[data-theme] .lc-chat-message[data-kind="notice"] .lc-chat-bubble,
+  #laplace-custom-chat[data-theme] .lc-chat-message[data-priority="lite"] .lc-chat-bubble {
     color: #24523a;
     background: rgba(189, 229, 209, .72);
   }
 
-  #laplace-custom-chat .lc-chat-actions {
+  #laplace-custom-chat[data-theme] .lc-chat-actions {
     filter: drop-shadow(0 1px 2px rgba(36, 74, 48, .16));
   }
 
-  #laplace-custom-chat .lc-chat-action,
-  #laplace-custom-chat .lc-chat-send {
+  #laplace-custom-chat[data-theme] .lc-chat-action,
+  #laplace-custom-chat[data-theme] .lc-chat-send {
     color: #fff;
     background: #2f9b70;
   }
 
-  #laplace-custom-chat .lc-chat-perf {
+  #laplace-custom-chat[data-theme] .lc-chat-perf {
     color: #24523a;
     background: rgba(214, 239, 224, .8);
   }
-}
 `
 
 /**
@@ -279,8 +305,7 @@ export const MILK_GREEN_IMESSAGE_CSS = `/* Chatterbox 奶绿 iMessage × Laplace
 export const MIDNIGHT_INDIGO_IMESSAGE_CSS = `/* Chatterbox 午夜深蓝 iMessage × iOS 18 Tinted */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap');
 
-@layer chatterbox-custom-css {
-  #laplace-custom-chat {
+#laplace-custom-chat[data-theme] {
     --lc-chat-font: 'Inter', -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
     --lc-chat-bg: #0c1228;
     --lc-chat-panel: rgba(20, 28, 56, .82);
@@ -326,13 +351,13 @@ export const MIDNIGHT_INDIGO_IMESSAGE_CSS = `/* Chatterbox 午夜深蓝 iMessage
     --lc-lottery-bg: linear-gradient(135deg, #15384e, #3a1f5c);
   }
 
-  #laplace-custom-chat,
-  #laplace-custom-chat * {
+  #laplace-custom-chat[data-theme],
+  #laplace-custom-chat[data-theme] * {
     font-family: var(--lc-chat-font);
   }
 
   /* 整个聊天列表加一层深色玻璃 + 上下渐隐遮罩,跟 iOS 18 Lock Screen 类似。 */
-  #laplace-custom-chat .lc-chat-list {
+  #laplace-custom-chat[data-theme] .lc-chat-list {
     background-image:
       radial-gradient(circle at 18% 12%, rgba(94, 92, 230, .14), transparent 38%),
       radial-gradient(circle at 82% 88%, rgba(217, 70, 239, .08), transparent 42%);
@@ -340,95 +365,95 @@ export const MIDNIGHT_INDIGO_IMESSAGE_CSS = `/* Chatterbox 午夜深蓝 iMessage
     mask-image: linear-gradient(to bottom, transparent, #000 20px, #000 calc(100% - 20px), transparent);
   }
 
-  #laplace-custom-chat .lc-chat-message {
+  #laplace-custom-chat[data-theme] .lc-chat-message {
     transition: .2s color ease, .2s background-color ease, .2s opacity ease, .2s transform ease;
   }
 
   /* 头像加一圈薄高光,让它从深色 BG 里浮起来。 */
-  #laplace-custom-chat .lc-chat-avatar {
+  #laplace-custom-chat[data-theme] .lc-chat-avatar {
     box-shadow:
       0 0 0 1px rgba(140, 166, 255, .2),
       0 0 0 3px rgba(20, 28, 56, .85),
       0 2px 10px rgba(0, 0, 0, .5);
   }
 
-  #laplace-custom-chat .lc-chat-name {
+  #laplace-custom-chat[data-theme] .lc-chat-name {
     color: var(--lc-chat-name);
     font-weight: 700;
     text-shadow: 0 1px 1px rgba(0, 0, 0, .3);
   }
 
-  #laplace-custom-chat .lc-chat-time {
+  #laplace-custom-chat[data-theme] .lc-chat-time {
     color: var(--lc-chat-muted);
   }
 
   /* 普通气泡:深色 bubble + 1px 高光 inset + 弱外阴影,iOS Tinted 风。 */
-  #laplace-custom-chat .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-bubble {
     color: var(--lc-chat-bubble-text);
     background: var(--lc-chat-bubble);
     font-weight: 500;
     box-shadow: var(--lc-chat-bubble-shadow);
   }
 
-  #laplace-custom-chat .lc-chat-bubble::before {
+  #laplace-custom-chat[data-theme] .lc-chat-bubble::before {
     background: var(--lc-chat-bubble);
     border-color: var(--lc-chat-border);
   }
 
-  #laplace-custom-chat .lc-chat-reply {
+  #laplace-custom-chat[data-theme] .lc-chat-reply {
     color: var(--lc-chat-accent);
   }
 
-  #laplace-custom-chat .lc-chat-medal {
+  #laplace-custom-chat[data-theme] .lc-chat-medal {
     max-width: min(13em, 72%);
     text-shadow: none;
   }
 
   /* Badges:深色背景下的彩色徽章,内嵌细高光让它有"贴上去"的质感。 */
-  #laplace-custom-chat .lc-chat-badge[data-badge-type="medal"] {
+  #laplace-custom-chat[data-theme] .lc-chat-badge[data-badge-type="medal"] {
     color: var(--lc-chat-medal-text);
     background: var(--lc-chat-medal-bg);
     box-shadow: 0 1px 0 rgba(255, 255, 255, .06) inset;
   }
-  #laplace-custom-chat .lc-chat-badge[data-badge-type="guard"] {
+  #laplace-custom-chat[data-theme] .lc-chat-badge[data-badge-type="guard"] {
     color: var(--lc-chat-guard-text);
     background: var(--lc-chat-guard-bg);
     box-shadow: 0 1px 0 rgba(255, 255, 255, .06) inset;
   }
-  #laplace-custom-chat .lc-chat-badge[data-badge-type="admin"] {
+  #laplace-custom-chat[data-theme] .lc-chat-badge[data-badge-type="admin"] {
     color: var(--lc-chat-admin-text);
     background: var(--lc-chat-admin-bg);
     box-shadow: 0 1px 0 rgba(255, 255, 255, .06) inset;
   }
-  #laplace-custom-chat .lc-chat-badge[data-badge-type="rank"] {
+  #laplace-custom-chat[data-theme] .lc-chat-badge[data-badge-type="rank"] {
     color: var(--lc-chat-rank-text);
     background: var(--lc-chat-rank-bg);
     box-shadow: 0 1px 0 rgba(255, 255, 255, .06) inset;
   }
-  #laplace-custom-chat .lc-chat-badge[data-badge-type="ul"] {
+  #laplace-custom-chat[data-theme] .lc-chat-badge[data-badge-type="ul"] {
     color: var(--lc-chat-ul-text);
     background: var(--lc-chat-ul-bg);
     box-shadow: 0 1px 0 rgba(255, 255, 255, .06) inset;
   }
-  #laplace-custom-chat .lc-chat-badge[data-badge-type="honor"] {
+  #laplace-custom-chat[data-theme] .lc-chat-badge[data-badge-type="honor"] {
     color: var(--lc-chat-honor-text);
     background: var(--lc-chat-honor-bg);
     box-shadow: 0 1px 0 rgba(255, 255, 255, .06) inset;
   }
-  #laplace-custom-chat .lc-chat-badge[data-badge-type="price"] {
+  #laplace-custom-chat[data-theme] .lc-chat-badge[data-badge-type="price"] {
     color: var(--lc-chat-price-text);
     background: var(--lc-chat-price-bg);
     box-shadow: 0 1px 0 rgba(255, 255, 255, .06) inset;
   }
 
-  #laplace-custom-chat .lc-chat-kind,
-  #laplace-custom-chat .lc-chat-card-mark {
+  #laplace-custom-chat[data-theme] .lc-chat-kind,
+  #laplace-custom-chat[data-theme] .lc-chat-card-mark {
     color: var(--lc-chat-bubble-text);
     background: rgba(140, 166, 255, .12);
   }
 
   /* Card events(gift / SC / guard / redpacket / lottery) */
-  #laplace-custom-chat .lc-chat-card-event .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-card-event .lc-chat-bubble {
     min-width: min(18em, 100%);
     padding: 12px 16px;
     border-radius: 18px;
@@ -438,30 +463,30 @@ export const MIDNIGHT_INDIGO_IMESSAGE_CSS = `/* Chatterbox 午夜深蓝 iMessage
       0 8px 24px rgba(0, 0, 0, .45);
   }
 
-  #laplace-custom-chat .lc-chat-card-event .lc-chat-bubble::before {
+  #laplace-custom-chat[data-theme] .lc-chat-card-event .lc-chat-bubble::before {
     background: inherit;
   }
 
-  #laplace-custom-chat .lc-chat-card-title {
+  #laplace-custom-chat[data-theme] .lc-chat-card-title {
     font-weight: 800;
   }
 
-  #laplace-custom-chat .lc-chat-card-field {
+  #laplace-custom-chat[data-theme] .lc-chat-card-field {
     background: rgba(255, 255, 255, .06);
   }
 
-  #laplace-custom-chat .lc-chat-event-debug {
+  #laplace-custom-chat[data-theme] .lc-chat-event-debug {
     color: var(--lc-chat-muted);
     background: rgba(36, 50, 92, .65);
   }
 
   /* 礼物 / SC / 舰队 — 各自层级颜色,加 inset 高光让深色 BG 上仍有 depth。 */
-  #laplace-custom-chat .lc-chat-card-event[data-card="gift"] .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-card-event[data-card="gift"] .lc-chat-bubble {
     color: var(--lc-gift-text);
     background: var(--lc-gift-bg);
   }
 
-  #laplace-custom-chat .lc-chat-card-event[data-card="superchat"] .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-card-event[data-card="superchat"] .lc-chat-bubble {
     color: var(--lc-superchat-text);
     background: var(--lc-superchat-bg);
     /* SC 是直播间最高优先级事件 — 给一个额外的彩虹外晕,真正"亮起来"。 */
@@ -471,55 +496,54 @@ export const MIDNIGHT_INDIGO_IMESSAGE_CSS = `/* Chatterbox 午夜深蓝 iMessage
       0 12px 32px rgba(13, 99, 255, .35);
   }
 
-  #laplace-custom-chat .lc-chat-card-event[data-card="guard"] .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-card-event[data-card="guard"] .lc-chat-bubble {
     color: #c6d8ff;
     background: var(--lc-guard-3-bg);
   }
 
-  #laplace-custom-chat .lc-chat-card-event[data-guard="2"] .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-card-event[data-guard="2"] .lc-chat-bubble {
     color: #f1c9ff;
     background: var(--lc-guard-2-bg);
   }
 
-  #laplace-custom-chat .lc-chat-card-event[data-guard="1"] .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-card-event[data-guard="1"] .lc-chat-bubble {
     color: #ffd29b;
     background: var(--lc-guard-1-bg);
   }
 
-  #laplace-custom-chat .lc-chat-card-event[data-card="redpacket"] .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-card-event[data-card="redpacket"] .lc-chat-bubble {
     color: #ffd0b5;
     background: var(--lc-redpacket-bg);
   }
 
-  #laplace-custom-chat .lc-chat-card-event[data-card="lottery"] .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-card-event[data-card="lottery"] .lc-chat-bubble {
     color: #c0d8ff;
     background: var(--lc-lottery-bg);
   }
 
   /* follow / like / share / enter / notice 等次要事件,用主题色 lite 变体。 */
-  #laplace-custom-chat .lc-chat-message[data-kind="follow"] .lc-chat-bubble,
-  #laplace-custom-chat .lc-chat-message[data-kind="like"] .lc-chat-bubble,
-  #laplace-custom-chat .lc-chat-message[data-kind="share"] .lc-chat-bubble,
-  #laplace-custom-chat .lc-chat-message[data-kind="enter"] .lc-chat-bubble,
-  #laplace-custom-chat .lc-chat-message[data-kind="notice"] .lc-chat-bubble,
-  #laplace-custom-chat .lc-chat-message[data-priority="lite"] .lc-chat-bubble {
+  #laplace-custom-chat[data-theme] .lc-chat-message[data-kind="follow"] .lc-chat-bubble,
+  #laplace-custom-chat[data-theme] .lc-chat-message[data-kind="like"] .lc-chat-bubble,
+  #laplace-custom-chat[data-theme] .lc-chat-message[data-kind="share"] .lc-chat-bubble,
+  #laplace-custom-chat[data-theme] .lc-chat-message[data-kind="enter"] .lc-chat-bubble,
+  #laplace-custom-chat[data-theme] .lc-chat-message[data-kind="notice"] .lc-chat-bubble,
+  #laplace-custom-chat[data-theme] .lc-chat-message[data-priority="lite"] .lc-chat-bubble {
     color: var(--lc-chat-lite-text);
     background: var(--lc-chat-lite);
   }
 
-  #laplace-custom-chat .lc-chat-actions {
+  #laplace-custom-chat[data-theme] .lc-chat-actions {
     filter: drop-shadow(0 2px 6px rgba(0, 0, 0, .5));
   }
 
-  #laplace-custom-chat .lc-chat-action,
-  #laplace-custom-chat .lc-chat-send {
+  #laplace-custom-chat[data-theme] .lc-chat-action,
+  #laplace-custom-chat[data-theme] .lc-chat-send {
     color: #fff;
     background: var(--lc-chat-own);
   }
 
-  #laplace-custom-chat .lc-chat-perf {
+  #laplace-custom-chat[data-theme] .lc-chat-perf {
     color: var(--lc-chat-muted);
     background: rgba(36, 50, 92, .65);
   }
-}
 `

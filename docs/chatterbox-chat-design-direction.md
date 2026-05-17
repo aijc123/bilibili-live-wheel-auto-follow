@@ -135,6 +135,42 @@ MILK_GREEN 用户预设。`iMessage Dark` 和 `MILK_GREEN` 都是"日间柔色" 
 - 给视频流叠加可选(对接 OBS 浏览器源):一份针对 OBS 1080p stream-overlay
   优化的预设,字号 + 对比度 + safe area 都按"远观可读"调。
 
+## 教训:preset CSS 的 cascade 陷阱(2026-05-17 Preview vs Cloud 审计)
+
+第一版 `MIDNIGHT_INDIGO_IMESSAGE_CSS` 和 `MILK_GREEN_IMESSAGE_CSS` 都写得很认真,
+但实际加载到 panel 上 **几乎不生效** —— 用户点 "午夜深蓝" 看到的依然是 baseline
+深色,只有 font 和 drop-shadow 这种 baseline 没设置的属性偷偷溜进去。
+
+通过 `tmp/chat-preview/` 把两份 preset 渲染到一个 iframe 里,跑
+`getComputedStyle(root).getPropertyValue('--lc-chat-bg')` 比对,发现:
+
+- preset 想要 `--lc-chat-bg: #0c1228` (午夜深蓝)
+- 实际值 `--lc-chat-bg: #050608` (baseline laplace 黑)
+
+两个根因:
+
+1. **`@layer chatterbox-custom-css { … }` 包装杀掉了 preset 的所有规则。**
+   按 CSS Cascading Level 5 spec,**任何 unlayered author 规则永远赢 layered author 规则**,
+   不分 specificity / 不分 source order。baseline `CUSTOM_CHAT_STYLE` 是 unlayered,
+   preset 一旦包进 layer 就全部输掉。这是 spec 里最反直觉的一条 —— 大多数人以为 layer 是
+   "命名空间隔离",其实它是"自愿降级"。
+2. **`#laplace-custom-chat` 单 id 选择器输给 baseline 的 data-theme 变体。**
+   即使 unlayered,baseline 有 `#laplace-custom-chat[data-theme="laplace"] {...}`
+   声明深色变量(specificity `0,1,1,0`),preset 用 `#laplace-custom-chat {...}`
+   只有 `0,1,0,0`,被压制。修复:preset 也用 `#laplace-custom-chat[data-theme] {...}`
+   (匹配 *any* data-theme,specificity 同样是 `0,1,1,0`),源代码顺序又在后,
+   tie-break 由 preset 赢。
+
+**写 preset CSS 永远遵守的两条**:
+
+- 不要包 `@layer …`。tests/`custom-chat-presets.test.ts` 会 catch 这条。
+- 每个 selector 用 `#laplace-custom-chat[data-theme]` 而不是裸 id。tests 同样 catch。
+
+**怎么提前发现**:`bun tmp/chat-preview/gen-preview.mjs` 生成对比页,
+用 `getComputedStyle(root).getPropertyValue('--lc-chat-bg')` 跟 preset 声明值
+做 deep-equals。或者在 Chatterbox Chat 实际加载的 panel 上,DevTools Computed 栏
+搜 `--lc-chat-bg` —— 它如果没变成 preset 的值,preset 就没在做事。
+
 ## 复盘问
 
 读这个文档的人(包括未来的 Claude session、维护者、新贡献者)在动 Chatterbox
