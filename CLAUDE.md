@@ -14,7 +14,7 @@ This repository builds a Bilibili Live userscript named `弹幕助手 · 替你�
 2. **Self-defense visibility**: fan-medal inspection to see *which rooms have muted/restricted/blacklisted them today*.
 3. **Better-reading affordance**: Chatterbox Chat for a cleaner right-side chat.
 
-**They are NOT** guild administrators, room operators, or live-desk staff. Guard Room sync + live-desk heartbeat exist for that audience and are scheduled to be **spun off into a sibling userscript** — keep them runnable but don't grow them, and don't treat them as defining features.
+**Note on Guard Room / live-desk modules**: an earlier audit (2026-05-15) misread these as "guild administrator tooling" and queued them for spin-off. That was wrong. The real audience for Guard Room sync + live-desk heartbeat + monitoring-room agent is **the same heavy-active viewer above, watching multiple rooms simultaneously and hopping between them** — they need cross-room state sync, cross-tab handoff, and remote-pushed presets so all their open chatterbox instances stay coordinated. The spin-off has been reverted (`docs/guard-room-spinoff-plan.md` carries a DECISION REVERSED banner). The user-facing terminology ("保安室 / 监控室代理") **stays**: it's a deliberately concrete metaphor — picture an old guy sitting in a security guard's room watching N monitors and switching attention between them, which is exactly what a multi-room viewer does. The Apple-style precedent is Finder / Time Machine / Mission Control / Dashboard: a vivid noun beats a generic functional label every time. Don't flatten these names into "多房间观察台" or "跨房间挂机" — those describe the function, the original names evoke the experience.
 
 **When in doubt about whether to add / keep a feature, ask:** *does this serve the heavy-active viewer who's worried about getting silenced?* If yes, keep it; if no, defer or remove from main UI surface.
 
@@ -38,8 +38,11 @@ The product does **two things**: 替你说 (send) + 替你看 (read).
 - Soniox speech-to-text (`同传`)
 - LLM provider matrix (Anthropic, OpenAI, OpenAI-compatible base URL) used by AI 润色 + AI evasion + Smart Auto-Drive
 
-**Scheduled for spin-off (don't grow):**
-- Guard Room sync (`guard-room-*`) and live-desk heartbeat (`live-desk-sync`) — for guild admins, not core target user.
+**Multi-room observation (`guard-room-*`, `live-desk-sync`):**
+- Cross-room state sync to `bilibili-guard-room.vercel.app` dashboard so a viewer running chatterbox in N tabs / devices sees aggregated state in one place.
+- Live-desk heartbeat from each room.
+- Monitoring-room agent that pulls a unified control profile (auto-blend preset, dry-run, heartbeat cadence) and applies it to every chatterbox instance bound to the same sync key.
+- URL handoff (`?guard_room_*` query params) so dashboard links can land you on a room with the right config pre-armed.
 
 Most UI text is Chinese. Keep Markdown, HTML, and TypeScript files encoded as UTF-8.
 

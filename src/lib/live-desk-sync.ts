@@ -1,7 +1,12 @@
 /**
- * @deprecated 即将剥离到独立姊妹脚本 `bilibili-guild-companion`(Jobs 式 #9)。
- * 详细迁移计划: [docs/guard-room-spinoff-plan.md](../../docs/guard-room-spinoff-plan.md)。
- * 不要在这里新增功能,留待剥离后的姊妹脚本里加。
+ * Live-desk heartbeat loop: every N seconds, snapshot the current room's
+ * activity (message count, unique uids, risk level) and POST to the
+ * multi-room dashboard so other devices / tabs can see room state at a
+ * glance. Restarts heartbeat with the new interval when the user changes
+ * the cadence signal.
+ *
+ * (Briefly slated for spinoff under the wrong premise; staying. See
+ * guard-room-sync.ts header for the retrospective.)
  */
 
 import { ensureRoomId } from './api'

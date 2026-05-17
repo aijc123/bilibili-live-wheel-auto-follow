@@ -1,15 +1,23 @@
 /**
- * @deprecated 即将剥离到独立姊妹脚本 `bilibili-guild-companion`(Jobs 式 #9)。
+ * Low-level sync client for the multi-room observation dashboard
+ * (`bilibili-guard-room.vercel.app`). Posts inspection summaries, shadow
+ * rule shares, and live-desk heartbeats. HTTPS-only except loopback.
  *
- * Guard Room sync / live-desk heartbeat 是公会管理员的工具,跟 chatterbox
- * 的目标用户(被屏蔽风险下的重度直播观众)是不同人群。剥离后:
- *  - chatterbox 设置面板砍掉所有 Guard Room UI
- *  - @connect 列表去掉 `bilibili-guard-room.vercel.app` 域
- *  - 公会管理员装两个脚本(chatterbox + companion),互不耦合
+ * **HISTORICAL NOTE (2026-05-18, reversed)**: a previous Jobs-style audit
+ * (#9) and the corresponding `docs/guard-room-spinoff-plan.md` mis-framed
+ * this module as a "guild administrator tool" and queued it for spin-off
+ * to a separate userscript. That was wrong: the actual target user is a
+ * heavy-active viewer who watches multiple live rooms simultaneously and
+ * hops between them — the SAME core user chatterbox is built for. The
+ * spin-off has been reverted; see the DECISION REVERSED banner at the top
+ * of the spinoff-plan doc for details. **This module stays.**
  *
- * 详细迁移计划: [docs/guard-room-spinoff-plan.md](../../docs/guard-room-spinoff-plan.md)
- *
- * **不要在这里新增功能**,留待剥离后的姊妹脚本里加。维护性 bug fix 仍可。
+ * The user-facing terminology ("保安室" / "监控室代理") is **deliberately**
+ * a concrete metaphor (an old guy sitting in a security guard's room
+ * watching multiple monitors and switching attention between them — which
+ * is exactly what a multi-room viewer does). Don't flatten these to a
+ * generic "multi-room dashboard" — vivid wins over functional, see the
+ * Apple-style precedent (Finder vs File Manager etc.) noted in CLAUDE.md.
  */
 
 import { VERSION } from './const'

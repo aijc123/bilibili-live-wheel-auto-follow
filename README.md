@@ -123,12 +123,12 @@ bun run build
 | `api.soniox.com` | Soniox 语音识别 API |
 | `unpkg.com` | 加载 Soniox 浏览器客户端（`@require`） |
 
-**本地开发 / 公会同步（可选，普通用户用不到）**
+**本地开发 / 多房间挂机（可选）**
 
 | 域 | 用途 |
 |---|---|
 | `localhost` | 本地自托管后端测试（`bun run dev` of `server/`） |
-| `bilibili-guard-room.vercel.app` | 「直播间保安室」可选同步；这是公会 / live-desk 工具，普通重度观众用不到，后续会剥成独立姊妹脚本 |
+| `bilibili-guard-room.vercel.app` | 多房间观察台云同步（可选）；同时挂多个直播间 / 多设备的用户用来跨实例同步预设、状态、心跳。普通单房间用户不需要开启 |
 
 ## 隐私和数据流说明
 
@@ -145,7 +145,7 @@ bun run build
 
 - B 站接口和 WebSocket：用于读取直播间事件、发送弹幕、获取当前账号相关粉丝牌房间信息、判断房间状态。这些请求使用你浏览器当前的 B 站登录会话。
 - Soniox：仅在启用并使用同传/语音识别时涉及音频识别能力。
-- 直播间保安室：完全可选。开启后只同步巡检摘要或选定规则，不应上传 cookie、csrf、localStorage 或完整 B 站接口响应。
+- 多房间观察台云同步（直播间保安室）：完全可选，只为同时挂多个直播间 / 多设备的用户准备。开启后只同步巡检摘要或选定规则，不应上传 cookie、csrf、localStorage 或完整 B 站接口响应。
 - 烂梗库梗源（`sbhzm.cn` 社区库 / `chatterbox-cloud.aijc-eric.workers.dev` 自建聚合后端）：仅在打开烂梗库或社区贡献时拉取梗列表；可在设置里改成自部署地址或关闭该功能。
 - live-meme-radar 传感器（`live-meme-radar.aijc-eric.workers.dev`）：烂梗库面板打开时后台只读拉一次 trending 列表给 🔥 徽章用，每 10 分钟最多一次，不上传任何本地数据。详见下面的"传感器（live-meme-radar）"小节。
 - LLM 智能辅助驾驶（`api.anthropic.com`、`api.openai.com`，以及任何你自填的 OpenAI 兼容 base URL）：仅在你填入 API key 并主动开启 AI 规避/改写时才会调用，prompt 内容只包含当前要改写的弹幕和必要上下文。

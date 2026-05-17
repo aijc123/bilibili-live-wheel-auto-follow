@@ -1,7 +1,10 @@
 /**
- * @deprecated 即将剥离到独立姊妹脚本 `bilibili-guild-companion`(Jobs 式 #9)。
- * 详细迁移计划: [docs/guard-room-spinoff-plan.md](../../docs/guard-room-spinoff-plan.md)。
- * 不要在这里新增功能,留待剥离后的姊妹脚本里加。
+ * Live-desk runtime signals: session id, heartbeat cadence, current
+ * risk level, watchlist of rooms being observed. Drives the multi-room
+ * observation agent's heartbeat loop.
+ *
+ * (Briefly slated for spinoff under the wrong premise; staying. See
+ * guard-room-sync.ts header for the retrospective.)
  */
 
 import { signal } from '@preact/signals'
