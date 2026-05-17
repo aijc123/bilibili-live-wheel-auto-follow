@@ -72,6 +72,12 @@ export const CUSTOM_CHAT_STYLE = `
 }
 html.lc-custom-chat-mounted #${ROOT_ID} {
   display: grid !important;
+  /* 6 rows: toolbar / pin strip (collapses to 0 when empty) / menu /
+     debug / list / composer. The pin strip is inserted between toolbar
+     and menu by custom-chat-dom.ts; when there are no active SCs it
+     carries .lc-chat-sc-pinstrip-empty which sets display:none, removing
+     it from the grid entirely so empty chats pay no layout cost. */
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
 }
 html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   flex: 1 1 auto;
@@ -132,6 +138,239 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 #${ROOT_ID}[data-theme="compact"] .lc-chat-bubble {
   font-size: 12px;
 }
+/* ─────────────── SC pin strip ───────────────
+   Horizontal carousel of active Superchats. See custom-chat-sc-pinstrip.ts
+   for behavior; this block is style-only. The strip uses the panel's own
+   --lc-chat-panel translucent background + the SC accent glow var, so it
+   automatically retints when the user switches preset (奶绿 / 午夜深蓝). */
+#${ROOT_ID} .lc-chat-sc-pinstrip {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-height: 64px;
+  padding: 8px 12px 4px;
+  background: color-mix(in srgb, var(--lc-chat-panel) 88%, transparent);
+  border-bottom: 1px solid var(--lc-chat-border);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  overflow: hidden;
+  /* Slide in from the top when an SC first arrives — same iOS Smooth-Spring
+     curve as the message entrance animation, so the chat feels coherent. */
+  animation: lc-sc-pinstrip-in .35s cubic-bezier(.34, 1.56, .64, 1);
+}
+#${ROOT_ID} .lc-chat-sc-pinstrip.lc-chat-sc-pinstrip-empty {
+  /* Zero layout cost when no SC is active. */
+  display: none;
+}
+@keyframes lc-sc-pinstrip-in {
+  0%   { opacity: 0; transform: translateY(-12px); max-height: 0; }
+  100% { opacity: 1; transform: translateY(0);     max-height: 80px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #${ROOT_ID} .lc-chat-sc-pinstrip { animation: none; }
+}
+
+#${ROOT_ID} .lc-chat-sc-card {
+  display: grid;
+  grid-template-columns: auto 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+#${ROOT_ID} .lc-chat-sc-card-stuck::before {
+  /* Subtle 📌 indicator on the left edge when user has long-pressed to stick. */
+  content: '📌';
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  font-size: 10px;
+  opacity: .8;
+}
+
+#${ROOT_ID} .lc-chat-sc-amount {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--lc-superchat-bg, linear-gradient(135deg, #ff9f0a, #ff453a));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* Drop a small piece of the SC's hero glow on the badge so the badge
+     itself reads as "this is a paid event", not just "a price label". */
+  box-shadow: var(--lc-superchat-glow);
+}
+
+#${ROOT_ID} .lc-chat-sc-avatar {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--lc-chat-chip);
+  flex: 0 0 auto;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .4);
+}
+#${ROOT_ID} .lc-chat-sc-avatar-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+#${ROOT_ID} .lc-chat-sc-body {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+#${ROOT_ID} .lc-chat-sc-name {
+  flex: 0 0 auto;
+  max-width: 8em;
+  color: var(--lc-chat-name);
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#${ROOT_ID} .lc-chat-sc-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--lc-chat-text);
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#${ROOT_ID} .lc-chat-sc-time {
+  flex: 0 0 auto;
+  color: var(--lc-chat-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding-left: 4px;
+}
+
+/* Navigation arrows — desktop-only affordance for prev/next. Touch users
+   swipe; keyboard users use arrow keys. Buttons appear on strip hover so
+   they don't compete with SC content when the user isn't seeking. */
+#${ROOT_ID} .lc-chat-sc-nav {
+  position: absolute;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--lc-chat-panel) 70%, transparent);
+  color: var(--lc-chat-text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity .14s ease;
+}
+#${ROOT_ID} .lc-chat-sc-nav-prev { left: 4px; }
+#${ROOT_ID} .lc-chat-sc-nav-next { right: 4px; }
+#${ROOT_ID} .lc-chat-sc-pinstrip:hover .lc-chat-sc-nav,
+#${ROOT_ID} .lc-chat-sc-pinstrip:focus-within .lc-chat-sc-nav {
+  opacity: .85;
+}
+#${ROOT_ID} .lc-chat-sc-nav:hover {
+  opacity: 1;
+  background: var(--lc-chat-chip);
+}
+
+/* Dots indicator — one tab per active SC, centered under the card.
+   Overflow counter shows when > 5 SCs are queued. */
+#${ROOT_ID} .lc-chat-sc-dots {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  min-height: 8px;
+}
+#${ROOT_ID} .lc-chat-sc-dot {
+  width: 5px;
+  height: 5px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--lc-chat-muted) 50%, transparent);
+  cursor: pointer;
+  transition: background .14s ease, transform .14s ease;
+}
+#${ROOT_ID} .lc-chat-sc-dot:hover {
+  transform: scale(1.4);
+}
+#${ROOT_ID} .lc-chat-sc-dot-active {
+  background: var(--lc-chat-name);
+  transform: scale(1.6);
+}
+#${ROOT_ID} .lc-chat-sc-dot-overflow {
+  margin-left: 4px;
+  color: var(--lc-chat-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Progress bar — 1px hairline at the very bottom of the strip, scales
+   from 1.0 → 0 as the current SC's lifetime runs down. iOS Battery /
+   Now-Playing style. */
+#${ROOT_ID} .lc-chat-sc-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--lc-chat-name);
+  transform-origin: left;
+  transform: scaleX(0);
+  transition: transform .25s linear;
+  opacity: .85;
+  pointer-events: none;
+}
+
+/* Copy-feedback flash. Triggered by dblclick handler; clears after 600ms. */
+#${ROOT_ID} .lc-chat-sc-pinstrip-copied .lc-chat-sc-card {
+  animation: lc-sc-copied-flash .6s ease;
+}
+@keyframes lc-sc-copied-flash {
+  0%   { background: transparent; }
+  20%  { background: color-mix(in srgb, var(--lc-chat-accent) 30%, transparent); }
+  100% { background: transparent; }
+}
+
+/* Compact theme: shrink the strip to a single 36px row, drop the avatar,
+   tighten the body. Compact users explicitly opted into density. */
+#${ROOT_ID}[data-theme="compact"] .lc-chat-sc-pinstrip {
+  min-height: 36px;
+  padding: 4px 8px;
+}
+#${ROOT_ID}[data-theme="compact"] .lc-chat-sc-card {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+#${ROOT_ID}[data-theme="compact"] .lc-chat-sc-avatar {
+  display: none;
+}
+#${ROOT_ID}[data-theme="compact"] .lc-chat-sc-dots {
+  display: none;
+}
+#${ROOT_ID}[data-theme="compact"] .lc-chat-sc-name {
+  max-width: 6em;
+  font-size: 11px;
+}
+#${ROOT_ID}[data-theme="compact"] .lc-chat-sc-text {
+  font-size: 12px;
+}
+
 #${ROOT_ID} .lc-chat-toolbar {
   position: relative;
   min-height: 42px;

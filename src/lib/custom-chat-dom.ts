@@ -50,6 +50,7 @@ import {
   trimRenderQueue,
   visibleRenderMessages,
 } from './custom-chat-render'
+import { createScPinStrip } from './custom-chat-sc-pinstrip'
 import { customChatSearchHint, kindLabel, messageMatchesCustomChatSearch } from './custom-chat-search'
 import { ensureCustomChatStyles } from './custom-chat-style'
 import { calculateVirtualContentHeight, calculateVirtualRange } from './custom-chat-virtualizer'
@@ -101,6 +102,7 @@ let unsubscribeWsStatus: (() => void) | null = null
 let disposeSettings: (() => void) | null = null
 let disposeComposer: (() => void) | null = null
 let disposeActionsIsland: (() => void) | null = null
+let disposePinStrip: (() => void) | null = null
 let fallbackMountTimer: ReturnType<typeof setTimeout> | null = null
 let nativeEventObserver: MutationObserver | null = null
 // The container the native observer is currently bound to. Used so we can
@@ -1663,7 +1665,16 @@ function createRoot(): HTMLElement {
   })
   jumpBottomBtn.style.display = 'none'
   composer.append(jumpBottomBtn, inputWrap, sendRow)
-  panel.append(toolbar, menu, debugEl, listEl, composer)
+
+  // SC pin strip sits between toolbar and the menu / debug / list rows. When
+  // there are no active SCs the strip carries `.lc-chat-sc-pinstrip-empty`
+  // which collapses it to `display:none` (zero grid row) — so empty chats
+  // pay no layout cost. See custom-chat-sc-pinstrip.ts for the rationale
+  // (horizontal time-multiplex, reader-focused durations, 3 input modes).
+  const pinStrip = createScPinStrip()
+  disposePinStrip = pinStrip.dispose
+
+  panel.append(toolbar, pinStrip.element, menu, debugEl, listEl, composer)
   updateUnread()
   updateEmptyState()
   return panel
@@ -2027,6 +2038,10 @@ export function stopCustomChatDom(): void {
   if (disposeActionsIsland) {
     disposeActionsIsland()
     disposeActionsIsland = null
+  }
+  if (disposePinStrip) {
+    disposePinStrip()
+    disposePinStrip = null
   }
   abortRootEventListeners()
   nativeEventObserver?.disconnect()
