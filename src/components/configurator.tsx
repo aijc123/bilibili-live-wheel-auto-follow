@@ -7,6 +7,7 @@ import { AutoBlendControls } from './auto-blend-controls'
 import { AutoSendControls } from './auto-send-controls'
 import { HzmDrivePanelMount } from './hzm-drive-panel'
 import { LogPanel } from './log-panel'
+import { MedalStatusPanel } from './medal-status-panel'
 import { MemesList } from './memes-list'
 import { NormalSendTab } from './normal-send-tab'
 import { PanelHeader } from './panel-header'
@@ -150,6 +151,13 @@ export function Configurator() {
                 <SttTab />
               </details>
             </section>
+
+            {/*
+             * 「我的状态」section — Jobs 式 #8:重度直播观众会被主播拉黑/禁言,
+             * 需要每天瞄一眼自己在哪些房间被禁了。原本是设置项,升级为主面板
+             * 自带 section。Self-defense visibility,跟"替你说"三件套并列。
+             */}
+            <MedalStatusPanel />
 
             {/*
              * 历史：早期把 Chatfilter 观察日志（开发者调试面板）直接挂在首页。

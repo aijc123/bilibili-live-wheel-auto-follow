@@ -13,6 +13,12 @@ export const logPanelFocusRequest = signal(0)
 export const autoSendPanelOpen = gmSignal('autoSendPanelOpen', true)
 export const autoBlendPanelOpen = gmSignal('autoBlendPanelOpen', true)
 export const memesPanelOpen = gmSignal('memesPanelOpen', false)
+/**
+ * 主面板「我的状态」(粉丝牌禁言巡检的紧凑视图) 折叠状态。默认折叠 —— 没有
+ * 巡检过的新用户看到的是一行 summary("尚未巡检 · 点这里在设置里巡检"),不
+ * 占垂直空间。展开后给计数 + top 3 异常 + 跳转设置链接。
+ */
+export const medalStatusPanelOpen = gmSignal('medalStatusPanelOpen', false)
 export const dialogOpen = gmSignal('dialogOpen', false)
 export const unlockForbidLive = gmSignal('unlockForbidLive', true)
 export const unlockSpaceBlock = gmSignal('unlockSpaceBlock', true)
