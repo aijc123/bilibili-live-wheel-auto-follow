@@ -35272,49 +35272,53 @@ function SttTab() {
 		/* @__PURE__ */ u("div", {
 			className: "cb-section cb-stack",
 			style: { margin: ".5em 0" },
-			children: [/* @__PURE__ */ u("div", {
-				className: "cb-row",
-				style: {
-					display: "flex",
-					gap: ".5em",
-					alignItems: "center",
-					flexWrap: "wrap",
-					marginBottom: ".5em"
-				},
-				children: [/* @__PURE__ */ u("button", {
-					type: "button",
-					onClick: () => void toggle(),
-					children: btnText
-				}), /* @__PURE__ */ u("span", {
-					style: { color: statusColor.value },
-					children: statusText.value
-				})]
-			}), /* @__PURE__ */ u("div", {
-				style: { marginBlock: ".5em" },
-				children: [/* @__PURE__ */ u("div", {
-					className: "cb-heading",
+			children: [
+				/* @__PURE__ */ u("div", {
+					className: "cb-row",
 					style: {
-						fontWeight: "bold",
-						marginBottom: ".25em"
+						display: "flex",
+						gap: ".5em",
+						alignItems: "center",
+						flexWrap: "wrap",
+						marginBottom: ".5em"
 					},
-					children: "实时识别结果："
-				}), /* @__PURE__ */ u("div", {
-					className: "cb-result",
-					style: {
-						padding: ".5em",
-						background: "var(--bg2, #f5f5f5)",
-						borderRadius: "4px",
-						minHeight: "40px",
-						maxHeight: "100px",
-						overflowY: "auto",
-						wordBreak: "break-all"
-					},
-					children: [/* @__PURE__ */ u("span", { children: finalText.value }), /* @__PURE__ */ u("span", {
-						style: { color: "#999" },
-						children: nonFinalText.value
+					children: [/* @__PURE__ */ u("button", {
+						type: "button",
+						onClick: () => void toggle(),
+						children: btnText
+					}), /* @__PURE__ */ u("span", {
+						style: { color: statusColor.value },
+						children: statusText.value
 					})]
-				})]
-			})]
+				}),
+				/* @__PURE__ */ u("div", {
+					style: { marginBlock: ".5em" },
+					children: [/* @__PURE__ */ u("div", {
+						className: "cb-heading",
+						style: {
+							fontWeight: "bold",
+							marginBottom: ".25em"
+						},
+						children: "实时识别结果："
+					}), /* @__PURE__ */ u("div", {
+						className: "cb-result",
+						style: {
+							padding: ".5em",
+							background: "var(--bg2, #f5f5f5)",
+							borderRadius: "4px",
+							minHeight: "40px",
+							maxHeight: "100px",
+							overflowY: "auto",
+							wordBreak: "break-all"
+						},
+						children: [/* @__PURE__ */ u("span", { children: finalText.value }), /* @__PURE__ */ u("span", {
+							style: { color: "#999" },
+							children: nonFinalText.value
+						})]
+					})]
+				}),
+				/* @__PURE__ */ u(AiCandidateSection, {})
+			]
 		})
 	] });
 }
