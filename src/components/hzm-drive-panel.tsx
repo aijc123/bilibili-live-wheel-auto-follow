@@ -13,6 +13,7 @@ import {
   getDailyStats,
   getSelectedTags,
   type HzmDriveMode,
+  type HzmDriveSendMode,
   hasConfirmedHzmRealFire,
   hzmActivityMinDanmu,
   hzmActivityMinDistinctUsers,
@@ -20,8 +21,8 @@ import {
   hzmDriveEnabled,
   hzmDriveIntervalSec,
   hzmDriveMode,
+  hzmDriveSendMode,
   hzmDriveStatusText,
-  hzmDryRun,
   hzmLlmRatio,
   hzmPauseKeywordsOverride,
   hzmRateLimitPerMin,
@@ -36,7 +37,7 @@ import { LlmApiConfigSummary } from './llm-api-config'
 import { showConfirm } from './ui/alert-dialog'
 
 /**
- * 智能辅助驾驶（灰泽满烂梗库）独立面板。
+ * 智能辅助驾驶 独立面板。
  *
  * 设计：UIUX 镜像 `AutoBlendControls`：
  *  - 顶部：开车/停车按钮 + 状态指示点
@@ -55,6 +56,18 @@ const MODE_LABEL: Record<HzmDriveMode, string> = {
 const MODE_HINT: Record<HzmDriveMode, string> = {
   heuristic: '关键词触发，按 tag 命中本地梗库',
   llm: '由 LLM 阅读弹幕选梗，需要 API key',
+}
+
+const SEND_MODE_LABEL: Record<HzmDriveSendMode, string> = {
+  dry: '🧪 试运行',
+  candidate: '📝 候选',
+  live: '🚗 直接发送',
+}
+
+const SEND_MODE_HINT: Record<HzmDriveSendMode, string> = {
+  dry: '只在日志显示选中的梗,不发送、不入审',
+  candidate: '选中的梗推到「AI 陪聊」面板,等你点确认才发(推荐)',
+  live: '选中即发,与你手动发弹幕等同',
 }
 
 function modeButtonStyle(active: boolean) {
@@ -85,19 +98,49 @@ function resolveCurrentRoomIdSync(): number | null {
   }
 }
 
-export function HzmDrivePanelMount() {
-  const source = getMemeSourceForRoom(resolveCurrentRoomIdSync())
-  if (!source) return null
-  return <HzmDrivePanel source={source} />
+/**
+ * 在任何房间没有 source 注册时合成一个最小可用的 MemeSource。这让智驾运行时
+ * (startHzmAutoDrive 要求 roomId === source.roomId)能在非灰泽满房间起,且
+ * 让面板内引用 source.name / pauseKeywords 的代码自然降级到中性默认值。
+ *
+ * listEndpoint 给空串 —— 智驾通过 memesProvider() callback 拿梗(memes-list
+ * 已经在合并 LAPLACE/sbhzm/cb 后写入 currentMemesList),从不读这个字段。
+ */
+function makeSyntheticSource(roomId: number): MemeSource {
+  return {
+    roomId,
+    name: '当前房间梗库',
+    listEndpoint: '',
+  }
 }
 
-function HzmDrivePanel({ source }: { source: MemeSource }) {
+/**
+ * 一个房间至少要有 N 条梗,才有意义让 LLM 选 —— 太少的时候 LLM 选半天也只能
+ * 反复挑那几条,体验差。10 是经验阈值,可以根据反馈调。
+ */
+const MIN_MEMES_FOR_GENERIC_DRIVE = 10
+
+export function HzmDrivePanelMount() {
+  const roomId = resolveCurrentRoomIdSync()
+  if (roomId === null) return null
+  const source = getMemeSourceForRoom(roomId)
+  // 有注册 source(目前仅灰泽满):完整两档(启发式 + LLM)
+  if (source) return <HzmDrivePanel source={source} hasNativeSource />
+  // 无 source:只在烂梗库 ≥10 条时挂载,且强制 LLM 模式(启发式没有关键词配置会退化成随机选)
+  const memesCount = currentMemesList.value.length
+  if (memesCount < MIN_MEMES_FOR_GENERIC_DRIVE) return null
+  return <HzmDrivePanel source={makeSyntheticSource(roomId)} hasNativeSource={false} />
+}
+
+function HzmDrivePanel({ source, hasNativeSource }: { source: MemeSource; hasNativeSource: boolean }) {
   const roomId = cachedRoomId.value
   const stats = getDailyStats(roomId)
   const selected = getSelectedTags(roomId)
   const blacklist = getBlacklistTags(roomId)
   const isOn = hzmDriveEnabled.value
-  const mode = hzmDriveMode.value
+  // 无原生 source 的房间没有 keywordToTag,启发式会退化成纯随机 —— 强制 LLM。
+  // 这覆盖了用户在持久化里曾经选过 'heuristic' 的情况。
+  const mode: HzmDriveMode = hasNativeSource ? hzmDriveMode.value : 'llm'
 
   // 当前梗集里出现过的 tag（偏好 / 黑名单选项源）
   const memes = currentMemesList.value
@@ -122,14 +165,18 @@ function HzmDrivePanel({ source }: { source: MemeSource }) {
         ? 'var(--cb-accent)'
         : 'var(--cb-success-text)'
 
+  const sendMode = hzmDriveSendMode.value
+  const isLive = sendMode === 'live'
+
   const toggleEnabled = async () => {
     if (isOn) {
       hzmDriveEnabled.value = false
       stopHzmAutoDrive()
       return
     }
-    // Footgun #1：与文字独轮车同时开启会叠加每分钟限速。开车前强制二次确认。
-    if (sendMsg.value && !hzmDryRun.value) {
+    // Footgun #1:与文字独轮车同时开启会叠加每分钟限速。开车前强制二次确认。
+    // 只在 live 模式下提示——dry/candidate 都不实际占用 B 站发送配额。
+    if (sendMsg.value && isLive) {
       const ok = await showConfirm({
         title: '文字独轮车正在运行',
         body: '与智驾叠加后两边一起发，可能超过每分钟限速被风控/封禁。建议先停一边再开。继续吗？',
@@ -138,7 +185,7 @@ function HzmDrivePanel({ source }: { source: MemeSource }) {
       })
       if (!ok) return
     }
-    // Footgun #2：LLM 模式需要 API key。没填就开车会反复在日志报错或回落到启发式，
+    // Footgun #2:LLM 模式需要 API key。没填就开车会反复在日志报错或回落到启发式,
     // 用户摸不着头脑。提前拦住并跳设置。
     if (mode === 'llm' && llmApiKey.value.trim() === '') {
       const ok = await showConfirm({
@@ -150,13 +197,13 @@ function HzmDrivePanel({ source }: { source: MemeSource }) {
       if (ok) activeTab.value = 'settings'
       return
     }
-    // 关 → 开：非试运行且未确认过，先弹一次提示。用 showConfirm 替代 native confirm()
-    // ——后者在浏览器里会被 anti-popup 抑制 / 不参与暗色模式 / 没法做样式与 dialog
-    // 一致。同样的安全护栏要用同一种 UI primitive。
-    if (!hzmDryRun.value && !hasConfirmedHzmRealFire.value) {
+    // 关 → 开:只在 live 档且未确认过时弹真发提示。dry/candidate 不发到 B 站,
+    // 不需要这一层确认。用 showConfirm 替代 native confirm() —— 后者在浏览器里
+    // 会被 anti-popup 抑制 / 不参与暗色模式 / 没法做样式与 dialog 一致。
+    if (isLive && !hasConfirmedHzmRealFire.value) {
       const ok = await showConfirm({
         title: '智能辅助驾驶将以你的账号真实发送弹幕',
-        body: '试运行已关闭。建议先打开「试运行」观察一段时间。是否继续直接开车？',
+        body: '当前已选「直接发送」。建议先用「候选」或「试运行」观察一段时间。是否继续直接开车？',
         confirmText: '我已了解，开车',
         cancelText: '取消',
       })
@@ -165,7 +212,7 @@ function HzmDrivePanel({ source }: { source: MemeSource }) {
     }
     hzmDriveEnabled.value = true
     void startHzmAutoDrive({ source, getMemes: () => currentMemesList.value })
-    // 智驾 + 独轮车 已有显式 showConfirm 阻塞（Footgun #1）；这里再补一条 toast
+    // 智驾 + 独轮车 已有显式 showConfirm 阻塞(Footgun #1);这里再补一条 toast
     // 兜底覆盖 智驾 + 自动跟车 / 智驾 + 任意其他组合的并发场景。
     void warnIfOtherSourcesActive('hzm')
   }
@@ -195,8 +242,11 @@ function HzmDrivePanel({ source }: { source: MemeSource }) {
   return (
     <>
       <div className='cb-heading' style={{ display: 'flex', alignItems: 'center', gap: '.5em' }}>
-        <span>{source.name}</span>
+        <span>智能辅助驾驶</span>
         {isOn && <span className='cb-soft'>运行中</span>}
+      </div>
+      <div className='cb-note' style={{ marginTop: '-.25em', marginBottom: '.25em' }}>
+        当前梗源:{source.name}
       </div>
       <div className='cb-body cb-stack'>
         <div className='cb-note' style={{ marginBottom: '.25em' }}>
@@ -219,49 +269,60 @@ function HzmDrivePanel({ source }: { source: MemeSource }) {
           </span>
         </div>
 
+        {hasNativeSource ? (
+          <div>
+            <div className='cb-segment'>
+              {(['heuristic', 'llm'] as const).map(m => (
+                <button
+                  key={m}
+                  type='button'
+                  aria-pressed={mode === m}
+                  onClick={() => {
+                    hzmDriveMode.value = m
+                  }}
+                  style={modeButtonStyle(mode === m)}
+                  title={MODE_HINT[m]}
+                >
+                  {MODE_LABEL[m]}
+                </button>
+              ))}
+            </div>
+            <div className='cb-note' style={{ marginTop: '.25em' }}>
+              当前：{MODE_HINT[mode]}
+            </div>
+          </div>
+        ) : (
+          // 非注册源房间(无 keywordToTag)只显示 LLM 模式 —— 启发式会退化成随机选,
+          // 体验差,索性不给这个选项。
+          <div className='cb-note' style={{ marginTop: '.25em' }}>
+            此房间无关键词配置,自动使用 LLM 模式选梗(需要 API key)
+          </div>
+        )}
+
         <div>
           <div className='cb-segment'>
-            {(['heuristic', 'llm'] as const).map(m => (
+            {(['dry', 'candidate', 'live'] as const).map(m => (
               <button
                 key={m}
                 type='button'
-                aria-pressed={mode === m}
+                aria-pressed={sendMode === m}
                 onClick={() => {
-                  hzmDriveMode.value = m
+                  hzmDriveSendMode.value = m
                 }}
-                style={modeButtonStyle(mode === m)}
-                title={MODE_HINT[m]}
+                style={modeButtonStyle(sendMode === m)}
+                title={SEND_MODE_HINT[m]}
               >
-                {MODE_LABEL[m]}
+                {SEND_MODE_LABEL[m]}
               </button>
             ))}
           </div>
           <div className='cb-note' style={{ marginTop: '.25em' }}>
-            当前：{MODE_HINT[mode]}
+            {SEND_MODE_HINT[sendMode]}
+            {sendMode === 'live' && (
+              <span style={{ marginLeft: '.5em', color: 'var(--cb-warning-text)' }}>会真实发送弹幕</span>
+            )}
           </div>
         </div>
-
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25em' }}>
-          <input
-            id='hzmDryRun'
-            type='checkbox'
-            checked={hzmDryRun.value}
-            onInput={e => {
-              hzmDryRun.value = e.currentTarget.checked
-            }}
-          />
-          <label htmlFor='hzmDryRun' title='开启后只在日志显示候选，不真发到弹幕——新手强烈建议先开'>
-            试运行（只观察，不发送）
-          </label>
-          {!hzmDryRun.value && (
-            <span
-              style={{ color: 'var(--cb-warning-text)', fontSize: '0.85em' }}
-              title='当前关闭试运行，会真实发送弹幕。'
-            >
-              关闭后会真实发送
-            </span>
-          )}
-        </span>
 
         <div
           className='cb-panel'

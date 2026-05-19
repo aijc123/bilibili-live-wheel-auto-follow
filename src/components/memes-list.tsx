@@ -1,5 +1,5 @@
 import { useSignal } from '@preact/signals'
-import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks'
+import { useEffect, useLayoutEffect, useRef } from 'preact/hooks'
 
 import type { LaplaceMemeWithSource } from '../lib/sbhzm-client'
 
@@ -23,7 +23,6 @@ import {
   enableMemeContribution,
   maxLength,
   memeContributorCandidates,
-  memesPanelOpen,
   msgSendInterval,
   optimizeLayout,
 } from '../lib/store'
@@ -412,38 +411,12 @@ export function MemesList() {
   }
 
   useEffect(() => {
-    // 在有专属梗源的房间（如灰泽满），即使梗库面板折叠也要拉取——
-    // 智能辅助驾驶面板独立于此面板，需要 memes 数据才能选梗。
-    if (!memesPanelOpen.value && !memeSource) return undefined
+    // 烂梗库已经从 supporting feature 升级为顶级 section,常驻可见。无需再按
+    // memesPanelOpen 闸门:进入直播间就拉一次,然后按 MEME_RELOAD_INTERVAL polling。
     void loadMemes()
     const timer = setInterval(() => void loadMemes({ silent: true }), MEME_RELOAD_INTERVAL)
     return () => clearInterval(timer)
-  }, [sortBy.value, memesPanelOpen.value, memeSource])
-
-  // Keep heavy content mounted during the close animation.
-  //
-  // The outer <details> wrapper (configurator.tsx 📚) collapses via a 200ms
-  // ::details-content block-size transition. If we unmount content the
-  // instant memesPanelOpen flips false, the browser captures the "from"
-  // height as 0 (empty pseudo) and the transition is a no-op snap.
-  //
-  // Defer unmount by 280ms (close duration 200ms + buffer) so the close
-  // transition has a real "from" height to animate from. Open is immediate
-  // — content shows up the moment memesPanelOpen flips true, then the
-  // outer ::details-content transitions from 0 → measured height.
-  //
-  // Without this defer, only the OPEN animation worked; CLOSE snapped.
-  // It's the same pattern React-Spring / Framer-Motion use under the hood:
-  // animating an unmount requires the DOM to outlive the unmount intent.
-  const [contentMounted, setContentMounted] = useState(memesPanelOpen.value)
-  useEffect(() => {
-    if (memesPanelOpen.value) {
-      setContentMounted(true)
-      return undefined
-    }
-    const t = setTimeout(() => setContentMounted(false), 280)
-    return () => clearTimeout(t)
-  }, [memesPanelOpen.value])
+  }, [sortBy.value, memeSource])
 
   // SBHZM 保鲜探测:每次 memes-list mount 时,30 分钟节流地拉一次 SBHZM 首页 +
   // mirror 推到后端。Phase D.1 起这是 SBHZM 数据保鲜的主要机制(后端 cron 只
@@ -452,27 +425,11 @@ export function MemesList() {
     void maybeProbeSbhzmFreshness(memeSource)
   }, [memeSource])
 
-  // Inner <details>/<summary>烂梗库</summary></details> removed:
-  //   - The summary's label ("烂梗库") just duplicated the outer wrapper's
-  //     "📚 从烂梗库挑模板" — two chevrons stacked for the same control.
-  //   - The inner <details> had ONLY the summary inside; the actual content
-  //     was rendered as siblings outside the <details>, so the inner toggle
-  //     had no ::details-content to animate (chevron rotated but content
-  //     just snapped). Removing it makes the outer toggle the single
-  //     animatable surface.
-  //
-  // The outer 📚 wrapper in configurator.tsx now binds to `memesPanelOpen`
-  // (preserves the persisted GM state). The gate below uses `contentMounted`
-  // (defined above via useState + delayed unmount) — NOT `memesPanelOpen`
-  // directly — so the heavy meme tree stays in DOM during the close
-  // animation. See the comment on the `contentMounted` useEffect for why
-  // unmounting on the immediate signal write would break the close
-  // transition (it would).
+  // 烂梗库现在是顶级 section,常驻可见 —— 不再需要 details 折叠 + delayed-unmount
+  // 的 close-animation hack。直接渲染。
   return (
     <>
-      {contentMounted && (
-        <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.5em', marginTop: '.5em', marginBottom: '.5em' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.5em', marginTop: '.5em', marginBottom: '.5em' }}>
             <select
               style={{ fontSize: '12px' }}
               value={sortBy.value}
@@ -736,8 +693,6 @@ export function MemesList() {
                 <MemeItem key={meme.id} meme={meme} onUpdateCount={updateCount} onTagClick={handleTagClick} />
               ))}
           </div>
-        </>
-      )}
     </>
   )
 }
