@@ -48,7 +48,8 @@ describe('parseDecision', () => {
   test('extracts JSON from a chatty wrapper (vendor ignored response_format)', () => {
     // Real vendors do this: "Sure, here is the JSON: {...}" — fork's
     // fallback path is to find the outermost {…} block.
-    const content = '好的，这是你要的 JSON：{"send": true, "message": "你太严格了", "reason": "杠一下"}\n希望对你有帮助。'
+    const content =
+      '好的，这是你要的 JSON：{"send": true, "message": "你太严格了", "reason": "杠一下"}\n希望对你有帮助。'
     const d = parseDecision(content, 40)
     expect(d.send).toBe(true)
     expect(d.message).toBe('你太严格了')

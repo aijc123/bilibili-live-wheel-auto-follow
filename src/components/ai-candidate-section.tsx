@@ -112,10 +112,7 @@ export function AiCandidateSection() {
   const gap = describeLlmGap('aiCandidate')
 
   return (
-    <div
-      class='cb-supporting-feature'
-      style={{ marginTop: '8px', padding: '6px 8px', borderTop: '1px dashed #ccc' }}
-    >
+    <div class='cb-supporting-feature' style={{ marginTop: '8px', padding: '6px 8px', borderTop: '1px dashed #ccc' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
         <strong style={{ fontSize: '0.95em' }}>{SECTION_HEADING}</strong>
         <span
@@ -149,16 +146,13 @@ export function AiCandidateSection() {
         AI 听主播 STT + 房间弹幕，生成候选弹幕放进下面的队列。**每条都需要你点确认才发** —— 不会自动发送。
       </div>
 
-      {enabled && gap && (
-        <div style={{ fontSize: '0.85em', color: '#c98a00', marginBottom: '6px' }}>
-          ⚠️ {gap}
-        </div>
-      )}
+      {enabled && gap && <div style={{ fontSize: '0.85em', color: '#c98a00', marginBottom: '6px' }}>⚠️ {gap}</div>}
 
       {enabled && (
         <>
           <div style={{ fontSize: '0.8em', color: '#888', marginBottom: '4px' }}>
-            上次生成：{relativeTime(aiCandidateLastGenAt.value, now.value)} · 自启动以来收到 {aiCandidateViewerCount.value} 条观众弹幕 · 同传 {sttRunning.value ? '已启动' : '未启动'}
+            上次生成：{relativeTime(aiCandidateLastGenAt.value, now.value)} · 自启动以来收到{' '}
+            {aiCandidateViewerCount.value} 条观众弹幕 · 同传 {sttRunning.value ? '已启动' : '未启动'}
           </div>
 
           <div style={{ display: 'flex', gap: '4px', marginBottom: '6px', flexWrap: 'wrap' }}>
@@ -277,9 +271,7 @@ function CandidateRow({ cand }: { cand: AiCandidateItem }) {
           style={{ width: '100%', padding: '2px 4px', fontSize: '0.95em', marginBottom: '4px' }}
         />
       ) : (
-        <div style={{ fontSize: '0.95em', wordBreak: 'break-all', marginBottom: '4px' }}>
-          {cand.decision.message}
-        </div>
+        <div style={{ fontSize: '0.95em', wordBreak: 'break-all', marginBottom: '4px' }}>{cand.decision.message}</div>
       )}
       {cand.decision.reason && (
         <div style={{ fontSize: '0.8em', color: '#888', marginBottom: '4px' }}>理由：{cand.decision.reason}</div>
