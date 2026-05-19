@@ -125,6 +125,31 @@ describe('loadScript', () => {
     await expect(promise).rejects.toThrow(/script loaded but expected global not found/)
   })
 
+  test('onload + global still null also evicts so a retry can re-fetch (PR #34 Codex P2 regression)', async () => {
+    // Same shape as the onerror eviction test but for the failure mode where
+    // the script reports onload but the expected global never installed
+    // (200 + empty body, CDN serving the wrong bundle, etc.). Without
+    // evicting in this branch, the next call returns the cached rejected
+    // promise forever — toggling the feature off + on again can never retry.
+    const url = 'https://cdn.example.com/lib-empty-then-retry.js'
+    const failed = loadScript<FakeGlobal>(url, probe)
+    findAppendedFor(url).onload?.()
+    await expect(failed).rejects.toThrow(/script loaded but expected global not found/)
+
+    // Retry should inject a fresh <script>, not reuse the failed promise.
+    const before = countAppendedFor(url)
+    const retried = loadScript<FakeGlobal>(url, probe)
+    const after = countAppendedFor(url)
+    expect(after).toBe(before + 1)
+
+    // Resolve the retry so the test ends cleanly.
+    installed = { tag: 'retry-after-empty' }
+    const scripts = appendedScripts.filter(s => s.src === url)
+    scripts[scripts.length - 1].onload?.()
+    const result = await retried
+    expect(result.tag).toBe('retry-after-empty')
+  })
+
   test('two concurrent loadScript() calls for the same URL share one <script> and one Promise', () => {
     const url = 'https://cdn.example.com/lib-dedup.js'
     const p1 = loadScript<FakeGlobal>(url, probe)

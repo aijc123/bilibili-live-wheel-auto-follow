@@ -44,8 +44,16 @@ export function loadScript<T>(url: string, getGlobal: () => T | null): Promise<T
     script.crossOrigin = 'anonymous'
     script.onload = () => {
       const g = getGlobal()
-      if (g) resolve(g)
-      else reject(new Error(`script loaded but expected global not found: ${url}`))
+      if (g) {
+        resolve(g)
+      } else {
+        // 跟 onerror 路径对称：200 + 空 body / CDN 返回错误 bundle 之类的
+        // "script 跑过但全局没装上"也必须清 inFlight，否则 toggle 关掉再
+        // 打开会拿到 cached rejected promise，永远再也试不了。
+        // （Codex P2 review on PR #34 命中这条 — 上一版漏了对称 evict。）
+        inFlight.delete(url)
+        reject(new Error(`script loaded but expected global not found: ${url}`))
+      }
     }
     script.onerror = () => {
       // 清缓存让下一个调用者可以重试，不至于永远锁死在 failed promise 上。
