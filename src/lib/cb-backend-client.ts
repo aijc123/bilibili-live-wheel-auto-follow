@@ -132,10 +132,7 @@ const CB_FAILURE_LOG_THRESHOLD = 3
 function maybeLogCbFailure(message: string): void {
   consecutiveCbFailures++
   const now = Date.now()
-  if (
-    consecutiveCbFailures >= CB_FAILURE_LOG_THRESHOLD &&
-    now - lastCbFailureLogAt >= CB_FAILURE_LOG_COOLDOWN_MS
-  ) {
+  if (consecutiveCbFailures >= CB_FAILURE_LOG_THRESHOLD && now - lastCbFailureLogAt >= CB_FAILURE_LOG_COOLDOWN_MS) {
     lastCbFailureLogAt = now
     appendLog(message)
   }
