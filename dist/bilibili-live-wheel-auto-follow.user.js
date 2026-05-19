@@ -28420,7 +28420,7 @@ function MedalStatusPanel() {
 				fontWeight: "bold",
 				padding: "6px 10px",
 				display: "flex",
-				alignItems: "baseline",
+				alignItems: "center",
 				gap: ".4em",
 				flexWrap: "wrap"
 			},
