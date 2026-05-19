@@ -45,3 +45,15 @@ export const lastSeenVersion = gmSignal('lastSeenVersion', '')
  * 是否开启 —— 否则"搜索"会因为开关关着而搜不到东西，违反搜索的直觉。
  */
 export const settingsAdvancedVisible = gmSignal('settingsAdvancedVisible', false)
+
+/**
+ * 仅音频模式。打开时停掉 B 站原生 HLS 视频流，改用懒加载的 mpegts.js 从
+ * `only_audio=1` 的安卓 app 端流取真正的 audio-only FLV，挂到一个隐藏
+ * `<audio>` 元素上播放 —— 约 180 kbps 对比 1080P 流的 1700 kbps，省约
+ * 90% 带宽，CPU/GPU/风扇都下降。多房间同开的 heavy 多房观察者刚需。
+ *
+ * 默认 OFF。设置入口是右下角 ToggleButton 旁的"仅音频/恢复视频"小按钮
+ * （cherry-pick from laplace-live/chatterbox@ecc1b22）。逻辑实现见
+ * `src/lib/audio-only.ts`。
+ */
+export const audioOnlyEnabled = gmSignal('audioOnlyEnabled', false)

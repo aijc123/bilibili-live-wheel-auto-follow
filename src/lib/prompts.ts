@@ -12,6 +12,7 @@
  * 设计参考自 upstream chatterbox 090bd1e（PromptManager + 单独 prompts 模块）。
  */
 
+import { llmActivePromptAiCandidate, llmPromptsAiCandidate } from './store-ai-candidate'
 import {
   llmActivePromptAutoBlend,
   llmActivePromptAutoSend,
@@ -24,8 +25,15 @@ import {
 } from './store-llm'
 import { getGraphemes, trimText } from './utils'
 
-/** 用 LLM 的三个发送场景。Discriminator，跟 store-llm.ts 的 signal 命名对齐。 */
-export type LlmPromptFeature = 'normalSend' | 'autoBlend' | 'autoSend'
+/**
+ * 用 LLM 的四个场景。Discriminator，跟 store-llm.ts / store-ai-candidate.ts
+ * 的 signal 命名对齐。
+ *
+ * - `normalSend / autoBlend / autoSend` 都是「用户先有意图，AI 润色」类
+ * - `aiCandidate` 是「AI 提议候选，用户审核确认才发」 —— Review-only，**没有**
+ *   也不会有 auto-send 路径（设计约束，见 store-ai-candidate.ts）
+ */
+export type LlmPromptFeature = 'normalSend' | 'autoBlend' | 'autoSend' | 'aiCandidate'
 
 /**
  * 系统默认提示词(Jobs 式 #21)——用户开了 AI 润色但没填功能提示词时,以
@@ -48,6 +56,11 @@ export const DEFAULT_FEATURE_PROMPTS: Record<LlmPromptFeature, string> = {
     '用户在 B 站直播间想跟一句热门弹幕。请把命中的弹幕换个说法但保留意思，更像真实观众随口说出来的，避免连续重复；长度不超过原文，不加任何引号或前缀。',
   autoSend:
     '用户在循环发送同一句弹幕（独轮车）。请把它换种说法重新写一遍，保留核心意思，让连续发送时看起来不像复读机；尽量短，不重复用相同字句。',
+  // aiCandidate 默认走 4-persona array 里的 Index 0（杠精）。这里给的
+  // fallback 只是用户把整个 array 删空 + 没选任何 persona 时的兜底，
+  // 真正质量的 prompt 来自 `DEFAULT_AI_CANDIDATE_PROMPTS`。
+  aiCandidate:
+    '你是哔哩哔哩直播间里的一位观众，正在观看主播直播。请根据上下文生成一条自然、真诚、像真实观众的弹幕。不要复读、不要敏感话题、不要恶意攻击。当前内容不适合发弹幕时，请明示放弃。',
 }
 
 /**
@@ -86,6 +99,8 @@ export function getActiveFeaturePromptRaw(feature: LlmPromptFeature): string {
       return llmPromptsAutoBlend.value[llmActivePromptAutoBlend.value] ?? ''
     case 'autoSend':
       return llmPromptsAutoSend.value[llmActivePromptAutoSend.value] ?? ''
+    case 'aiCandidate':
+      return llmPromptsAiCandidate.value[llmActivePromptAiCandidate.value] ?? ''
     default:
       return ''
   }

@@ -1,11 +1,13 @@
 import { useEffect } from 'preact/hooks'
 
+import { startAiCandidateEngine, stopAiCandidateEngine } from '../lib/ai-candidate'
 import {
   installOptimizedLayoutStyle,
   installPanelStyles,
   startCbBackendHealthProbe,
   startCustomChatRoomRearm,
 } from '../lib/app-lifecycle'
+import { startAudioOnly, stopAudioOnly } from '../lib/audio-only'
 import { startAutoBlend, stopAutoBlend } from '../lib/auto-blend'
 import { installRemoteClusterLifecycle } from '../lib/chatfilter/remote-controller'
 import { startReplacementFeed, stopReplacementFeed } from '../lib/chatfilter-replacement-feed'
@@ -21,6 +23,7 @@ import { loop } from '../lib/loop'
 import { startNativeChatFold, stopNativeChatFold } from '../lib/native-chat-fold'
 import { startRadarReportLoop } from '../lib/radar-report'
 import {
+  aiCandidateEnabled,
   autoBlendEnabled,
   chatfilterFeedReplacementLearn,
   customChatEnabled,
@@ -117,6 +120,26 @@ export function App() {
     startUserBlacklistHijack()
     return () => stopUserBlacklistHijack()
   }, [])
+
+  // 仅音频模式：始终挂载 signal-driven effect & stylesheet，按钮的开关
+  // 由用户在右下角点击切换。模块本身 idempotent，feature 不启用时零成本
+  // （CDN 库不下载、player 不被动）。
+  useEffect(() => {
+    startAudioOnly()
+    return () => stopAudioOnly()
+  }, [])
+
+  // AI 陪聊（候选）引擎：用户在同传 tab 里打开开关时启动。Review-only —
+  // 引擎只生成候选，用户点确认才发。无 auto-send 路径（设计约束，见
+  // store-ai-candidate.ts）。
+  useEffect(() => {
+    if (aiCandidateEnabled.value) {
+      startAiCandidateEngine()
+    } else {
+      stopAiCandidateEngine()
+    }
+    return () => stopAiCandidateEngine()
+  }, [aiCandidateEnabled.value])
 
   useEffect(() => {
     if (guardRoomLiveDeskSessionId.value) {
