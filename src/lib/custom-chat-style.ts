@@ -150,7 +150,10 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   align-items: stretch;
   gap: 4px;
   min-height: 64px;
-  padding: 8px 12px 4px;
+  /* 下方 12px padding + border 给下一条消息一个明确的"分界" ——之前 4px 太挤,
+     pin strip 的 ¥500 金额 chip 会跟下一条消息用户名重叠(Jobs P0-1)。 */
+  padding: 8px 12px 12px;
+  margin-bottom: 8px;
   background: color-mix(in srgb, var(--lc-chat-panel) 88%, transparent);
   border-bottom: 1px solid var(--lc-chat-border);
   backdrop-filter: blur(16px);
@@ -490,22 +493,34 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
   color: var(--lc-chat-own-text);
   border-color: var(--lc-chat-own);
 }
+/* search input 现在常驻 toolbar(2026-05-18 Jobs 重构) ——它是 toolbar 的主要
+   控件,占据原 "直播聊天" 居中标题的位置。带左侧 🔍 SVG icon 当 leading
+   affordance,告诉用户"这是搜索",不需要单独的按钮。type=search 在 modern
+   browser 自带 × 清除按钮。 */
 #${ROOT_ID} .lc-chat-search {
   flex: 1 1 auto;
   min-width: 0;
   width: 0;
   max-width: 100%;
-  height: 24px;
+  height: 28px;
   border: 1px solid var(--lc-chat-border);
   border-radius: 999px;
   background: var(--lc-chat-chip);
   color: var(--lc-chat-text);
-  padding: 0 7px;
-  font-size: 11px;
+  padding: 0 10px 0 28px;
+  font-size: 12px;
   outline: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 8px center;
+  background-size: 14px 14px;
 }
 #${ROOT_ID} .lc-chat-search:focus {
   border-color: var(--lc-chat-own);
+  background-color: var(--lc-chat-bubble);
+}
+#${ROOT_ID} .lc-chat-search::placeholder {
+  color: var(--lc-chat-muted);
 }
 #${ROOT_ID} .lc-chat-list {
   position: relative;
@@ -614,12 +629,13 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 #${ROOT_ID} .lc-chat-card-event .lc-chat-bubble {
   width: 100%;
   max-width: 100%;
-  min-height: 64px;
+  /* min-height 砍掉 ——之前固定 64px,信息密度低的礼物(例如"嘉年华 × 1")会
+     在卡片中间留 100+px 真空,看着像 layout bug(Jobs P0-2)。让 content + padding
+     自己决定卡片高度,信息密度跟尺寸成正比。SC 长文本依然撑得开,小礼物自己
+     收缩。 */
   /* Card bubbles (gift / SC / guard / redpacket / lottery) get the iOS
-     "important card" treatment: padding 12/16 (was 11/14 — both off-grid),
-     border-radius 20/8 (was 18/8 — 20 is iOS Lock Screen card radius),
-     font-weight 800 (was 720, a non-standard CSS variant most fonts don't
-     ship; 800 is "Extra Bold" everywhere). */
+     "important card" treatment: padding 12/16, border-radius 20/8 (iOS Lock
+     Screen card radius), font-weight 800 (Extra Bold everywhere). */
   padding: 12px 16px;
   border-radius: 20px;
   border-bottom-left-radius: 8px;
@@ -878,19 +894,46 @@ html.lc-custom-chat-root-outside-history #${ROOT_ID} {
 #${ROOT_ID} .lc-chat-reply {
   color: var(--lc-chat-accent);
 }
+/* ×N 折叠徽章 ——挂在气泡的右上角作为"角标"(custom-chat-dom.ts:text.append(mergeBadge))。
+   先前曾尝试 inline-block 跟在文本后面,长文本换行后 chip 单独占一行变成视觉孤儿
+   (Jobs 批评 P0-4)。改成 iOS notification-badge 模式:absolute 浮在气泡右上角,
+   带 panel-color "cutout" 边框,让它跟任何气泡背景都有明显分隔,无论文本多长都
+   贴在右上,语义"这是消息的一个属性"自然成立。
+   注意:CSS 注释里不要写反引号 —— 整个 style 字符串是 JS template literal,
+   反引号会提前终止它。 */
 #${ROOT_ID} .lc-chat-merge-count {
-  flex: 0 0 auto;
-  margin-left: auto;
-  padding: 0 6px;
-  border-radius: 8px;
+  position: absolute;
+  top: -7px;
+  right: -6px;
+  z-index: 2;
+  min-width: 18px;
+  padding: 1px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
   background: var(--lc-chat-chip);
   color: var(--lc-chat-chip-text);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.45;
+  /* panel-color border 在任何气泡颜色上都形成"切口"对比,徽章自然浮起 */
+  border: 1.5px solid var(--lc-chat-panel);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
   white-space: nowrap;
   user-select: none;
-  opacity: .85;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .14);
+}
+/* card-event 上 ×N 用更不透明的深色芯片 + 更宽的白色边框,让它在 SC 红橙、
+   礼物黄、舰长紫等饱和气泡上都明确浮起。原先试过"白底白字"想跟卡片配色家族,
+   但白底在浅黄礼物卡上几乎隐形 ——visibility 比纯度重要。这里走"高对比 chip"
+   方案:深色芯,亮白halo,任何气泡都炸出来。 */
+#${ROOT_ID} .lc-chat-card-event .lc-chat-merge-count {
+  background: rgba(0, 0, 0, .55);
+  color: #fff;
+  border-color: rgba(255, 255, 255, .92);
+  border-width: 2px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .4);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .22);
 }
 #${ROOT_ID} .lc-chat-badge {
   flex: 0 1 auto;

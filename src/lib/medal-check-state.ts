@@ -143,6 +143,46 @@ export function getFilteredMedalResults(
   return sorted.filter(r => r.status === filter)
 }
 
+/**
+ * 把最近一次巡检的 timestamp + 总房间数渲染成一句人话,主面板"我的状态"
+ * section 底部用。返回:
+ *   - "刚刚巡检了 N 个房间"        (< 1 分钟)
+ *   - "X 分钟前巡检了 N 个房间"   (< 60 分钟)
+ *   - "X 小时前巡检了 N 个房间"   (< 24 小时)
+ *   - "昨天巡检了 N 个房间"        (exactly 1 天)
+ *   - "X 天前巡检了 N 个房间"     (>= 2 天)
+ *   - "共 N 个房间"               (latestCheckedAt 不可用 / falsy)
+ *   - ""                          (空 list)
+ *
+ * `now` 显式传入便于测试,跟 medal-check-state 的其它 helper 一样保持纯函数。
+ */
+export function formatMedalCheckSummaryLine(latestCheckedAt: number, totalRooms: number, now: number): string {
+  if (totalRooms === 0) return ''
+  if (!latestCheckedAt) return `共 ${totalRooms} 个房间`
+  const ageMs = now - latestCheckedAt
+  const ageMin = Math.floor(ageMs / 60_000)
+  const ageHr = Math.floor(ageMin / 60)
+  const ageDay = Math.floor(ageHr / 24)
+  let when: string
+  if (ageMin < 1) when = '刚刚'
+  else if (ageMin < 60) when = `${ageMin} 分钟前`
+  else if (ageHr < 24) when = `${ageHr} 小时前`
+  else if (ageDay === 1) when = '昨天'
+  else when = `${ageDay} 天前`
+  return `${when}巡检了 ${totalRooms} 个房间`
+}
+
+/**
+ * 主面板"我的状态"section 只回答一个问题:"我在哪些房间被限制?"
+ * 这个 helper 把全部 results 收窄到 restricted-only,并按主播名排序保证稳定。
+ * 其他状态(unknown / deactivated / ok)留给设置页详细巡检报告。
+ */
+export function getRestrictedRooms(results: MedalRestrictionCheck[]): MedalRestrictionCheck[] {
+  return results
+    .filter(r => r.status === 'restricted')
+    .sort((a, b) => a.room.anchorName.localeCompare(b.room.anchorName))
+}
+
 /** Short label for filter mode — used in detail-page chips and copy report header. */
 export function medalFilterLabel(filter: MedalCheckFilter): string {
   if (filter === 'issues') return '异常'
