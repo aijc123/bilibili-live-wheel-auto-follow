@@ -14,10 +14,9 @@
 [![Vite](https://img.shields.io/badge/Vite-646cff?logo=vite&logoColor=white)](https://vitejs.dev/)
 [![Bun](https://img.shields.io/badge/Bun-fbf0df?logo=bun&logoColor=black)](https://bun.sh/)
 
-> 在 B 站直播间替你说话，也替你看清弹幕。
-> **独轮车 · 自动跟车 · 手动发送 · 看清楚**。
+> **B站独轮车 + 自动跟车** — 在 B 站直播间替你说话，也替你看清弹幕。
 
-**做给谁的**：每天泡 B 站直播间、在弹幕里活跃的重度观众。你发得多，所以经常被屏蔽 / 被禁言 / 被影子屏蔽 / 被主播拉黑——这个脚本帮你**加速发言**，也帮你**看清自己在哪被禁了**。不是公会管理工具，不是直播间运营工具。
+**做给谁的**：每天泡 B 站直播间、在弹幕里特别活跃的观众。你发得多，所以经常被屏蔽 / 被禁言 / 被影子屏蔽 / 被主播拉黑——这个脚本帮你**发得更多更安全**，也帮你**看清自己今天在哪被禁了**。不是公会管理工具，不是直播间运营工具。
 
 **血脉**：本脚本最初从 [LAPLACE Chatterbox](https://github.com/laplace-live/chatterbox) fork 而来，产品方向已经走得比较远。原 Chatterbox 的同传、烂梗库、弹幕替换、AI 规避、Chatterbox Chat 全部保留并继续演进，新增自动跟车、粉丝牌巡检、多源烂梗库和针对国内直播文化的影子屏蔽自动学习。如果 LAPLACE 有好的修复 / 功能，按需 cherry-pick。
 
