@@ -29,7 +29,6 @@ import {
   sttTranscriptBuffer,
 } from '../lib/store'
 import { splitTextSmart, stripTrailingPunctuation } from '../lib/utils'
-import { AiCandidateSection } from './ai-candidate-section'
 
 const SONIOX_FLUSH_DELAY_MS = 5000
 
@@ -678,7 +677,6 @@ export function SttTab() {
             <span style={{ color: '#999' }}>{nonFinalText.value}</span>
           </div>
         </div>
-        <AiCandidateSection />
       </div>
     </>
   )
