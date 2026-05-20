@@ -20,10 +20,14 @@ import {
   aiCandidateContextMaxChars,
   aiCandidateEnabled,
   aiCandidateMaxMessageLength,
+  aiCandidateMaxTokens,
   aiCandidateViewerInterval,
   aiCandidateViewerWindow,
+  llmActivePromptAiCandidate,
+  llmPromptsAiCandidate,
   sttRunning,
 } from '../lib/store'
+import { PromptPicker } from './prompt-picker'
 import { Button } from './ui/button'
 
 /**
@@ -150,6 +154,28 @@ export function AiCandidateSection() {
         AI 听主播 STT + 房间弹幕，生成候选弹幕放进下面的队列。**每条都需要你点确认才发** —— 不会自动发送。
       </div>
 
+      {/* 角色选择 —— 内联 PromptPicker，让用户能直接在 杠精 / 吐槽役 / 暖男 /
+       * 互动引导 之间切换，不用钻进「设置 → LLM 提示词」深处。
+       * 4 个默认 persona 由 store-ai-candidate.ts 的 DEFAULT_AI_CANDIDATE_PROMPTS
+       * 在首次启动时 seed 进 GM 存储，所以这里总有可选项；用户也可以去设置
+       * 里增删改。 */}
+      <label
+        style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', fontSize: '0.85em' }}
+        title='AI 陪聊角色（在「设置 → LLM 提示词 → AI 陪聊（候选）」里管理 / 增删）'
+      >
+        <span style={{ color: '#666' }}>角色：</span>
+        <PromptPicker
+          prompts={llmPromptsAiCandidate.value}
+          activeIndex={llmActivePromptAiCandidate.value}
+          onActiveIndexChange={i => {
+            llmActivePromptAiCandidate.value = i
+          }}
+          previewGraphemes={14}
+          className='lc-min-w-[140px] lc-max-w-[220px] lc-truncate'
+          emptyText='暂无角色，请到设置里添加'
+        />
+      </label>
+
       {enabled && gap && <div style={{ fontSize: '0.85em', color: '#c98a00', marginBottom: '6px' }}>⚠️ {gap}</div>}
 
       {/* 候选队列单独跨在 enabled 闸门外 —— 智驾 candidate 档可能在 AI 陪聊本身
@@ -239,6 +265,22 @@ export function AiCandidateSection() {
                   aiCandidateViewerInterval.value = v
                 }}
               />
+              {/* max_tokens —— 默认 32768，推理模型友好。看到「返回内容为空」
+               * 又确认 API key 没问题时，提高这条到 65536 / 131072。详细
+               * rationale 见 store-ai-candidate.ts:aiCandidateMaxTokens。 */}
+              <NumLabel
+                label='LLM token 上限'
+                value={aiCandidateMaxTokens.value}
+                min={512}
+                max={131072}
+                onChange={v => {
+                  aiCandidateMaxTokens.value = v
+                }}
+              />
+            </div>
+            <div style={{ fontSize: '0.78em', color: '#888', padding: '0 0 4px' }}>
+              用推理模型（MiMo / DeepSeek-R1 / Qwen QwQ）出现「返回内容为空」时，把上面 token 上限调高（推荐
+              32768 起步，最高 131072）。普通模型保持 4096 也够用。
             </div>
           </details>
 

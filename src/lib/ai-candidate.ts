@@ -58,6 +58,7 @@ import { enqueueDanmaku, SendPriority } from './send-queue'
 import {
   aiCandidateContextMaxChars,
   aiCandidateMaxMessageLength,
+  aiCandidateMaxTokens,
   aiCandidateViewerInterval,
   aiCandidateViewerWindow,
   llmApiKey,
@@ -358,9 +359,14 @@ async function callAiCandidateLlm(sourceText: string): Promise<AiCandidateDecisi
       baseURL: llmBaseURL.value,
       systemPrompt: decoratedSystem,
       userText: userContent,
-      // 给 JSON + 简短理由留 300 token 足够。aiCandidateMaxMessageLength 默认
-      // 40 字 ≈ 80 token，加上 JSON 结构开销 + reason，300 安全。
-      maxTokens: 300,
+      // 用户可配置（aiCandidateMaxTokens，默认 32768）。看起来巨大，但推理
+      // 模型（MiMo / DeepSeek-R1）会把 reasoning_content 计入 max_tokens，
+      // 早期写死的 300 完全不够，导致 content 留空 → "返回内容为空"。
+      // 详细 rationale 见 store-ai-candidate.ts:aiCandidateMaxTokens。
+      maxTokens: aiCandidateMaxTokens.value,
+      // 推理模型 thinking 期 + 长输出可能 60s+，启用 reasoning_content
+      // fallback 让我们能从 thinking 里抓到 JSON。
+      allowReasoningFallback: true,
     })
     return parseDecision(content, maxLen)
   } catch (err) {

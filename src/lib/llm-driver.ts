@@ -318,15 +318,39 @@ export interface ChatCompletionOptions {
   maxTokens?: number
   /** Optional abort signal so callers can cancel in-flight requests. */
   signal?: AbortSignal
+  /**
+   * 当 `content` 字段为空时，是否回退到 `reasoning_content`。
+   *
+   * - 默认 `false`：润色路径（normalSend/autoBlend/autoSend）想要"成品弹幕"，
+   *   思考链不能直接当弹幕发，留 false 让它报"返回内容为空"早死早超生
+   * - `true`：AI 陪聊路径会用 `parseDecision` 的容错 JSON 抽取，从 reasoning
+   *   里捞出最后一段 `{...}` 也能用，所以打开 fallback 比报错强
+   *
+   * 推理模型即便给够 max_tokens，也常常把最终答案漏在 reasoning_content
+   * 而非 content（MiMo-V2.5-Pro 实测高频出现）。这条 fallback 是它们能用的
+   * 关键。
+   */
+  allowReasoningFallback?: boolean
+  /** Network timeout（毫秒）。默认 120s 适配推理模型；非推理模型一般 5-15s 就回。 */
+  timeoutMs?: number
 }
 
-function readContent(json: unknown): string | null {
+function readContent(json: unknown, allowReasoningFallback = false): string | null {
   if (!json || typeof json !== 'object') return null
   const choices = (json as { choices?: OpenAIChoice[] }).choices
   if (!Array.isArray(choices) || choices.length === 0) return null
   const choice = choices[0]
   const content = choice?.message?.content?.trim() ?? ''
-  return content || null
+  if (content) return content
+  if (allowReasoningFallback) {
+    // 推理模型（MiMo / DeepSeek-R1 / Qwen QwQ）经常把最终答案漏在
+    // reasoning_content 而非 content。AI 陪聊允许这条 fallback，因为它的
+    // parseDecision 会从大块文本里抽 JSON `{...}`，思考链里包含的最终
+    // JSON 答案能正常被抽出来；润色路径不允许，因为它需要"成品弹幕"。
+    const reasoning = choice?.message?.reasoning_content?.trim() ?? ''
+    if (reasoning) return reasoning
+  }
+  return null
 }
 
 function readAnthropicContent(json: unknown): string | null {
@@ -361,7 +385,9 @@ async function postOpenAIChatPolish(opts: ChatCompletionOptions, urlOverride?: s
         { role: 'user', content: opts.userText },
       ],
     }),
-    timeoutMs: 30000,
+    // 默认 120s 适配推理模型——MiMo/DeepSeek-R1 在 32k token 预算下可能跑 60s+。
+    // 非推理模型一般 5-15s 就回，不会因为 timeout 抬大而被罚等。
+    timeoutMs: opts.timeoutMs ?? 120000,
     signal: opts.signal,
   })
   if (!resp.ok) {
@@ -369,8 +395,12 @@ async function postOpenAIChatPolish(opts: ChatCompletionOptions, urlOverride?: s
     // 片段甚至 API key 残留(见 audit M9),不该流到 appendLog/notifyUser。
     throw new Error(`HTTP ${resp.status} ${resp.statusText || ''}`.trim())
   }
-  const content = readContent(resp.json())
-  if (!content) throw new Error('返回内容为空')
+  const content = readContent(resp.json(), opts.allowReasoningFallback)
+  if (!content) {
+    // 改进错误消息：90% 的"返回内容为空"是推理模型把 max_tokens 全花在
+    // reasoning 上，content 字段为空。给用户一个能直接行动的提示。
+    throw new Error('返回内容为空（推理模型常见症状：max_tokens 不够，或思考过程没收敛到答案）')
+  }
   return content
 }
 
@@ -389,7 +419,7 @@ async function postAnthropicPolish(opts: ChatCompletionOptions): Promise<string>
       system: [{ type: 'text', text: opts.systemPrompt, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: opts.userText }],
     }),
-    timeoutMs: 30000,
+    timeoutMs: opts.timeoutMs ?? 120000,
     signal: opts.signal,
   })
   if (!resp.ok) {

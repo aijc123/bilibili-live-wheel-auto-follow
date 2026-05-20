@@ -167,6 +167,34 @@ export const aiCandidateViewerInterval = gmSignal('aiCandidateViewerInterval', 1
  *  跟 upstream 字段对齐方便日后接 chat completion 时打开）。 */
 export const aiCandidateTemperature = gmSignal('aiCandidateTemperature', 0.7)
 
+/**
+ * LLM 调用的 max_tokens 上限。默认 32768 —— 看起来巨大，但理由：
+ *
+ * 推理模型（MiMo-V2.5-Pro / DeepSeek-R1 / Qwen QwQ 这类 openai-compat）会把
+ * 思考过程写进 `reasoning_content` 字段，**这部分计入 max_tokens**。一个简单
+ * 的"该不该发弹幕"决策都可能消耗 4k-16k 的思考 token，留太小会导致
+ * `content` 留空（被 `readContent` 当作"返回内容为空"抛错，UI 看到的就是
+ * "❌ LLM 调用失败：返回内容为空"）。
+ *
+ * 各 provider 的硬上限（2026-05 调研）：
+ *   - DeepSeek-R1：32,768（推荐 8,192 以下保质量，但推理任务必须给够）
+ *   - MiMo-V2.5-Pro：131,072
+ *   - Claude Opus 4.7：128,000（> 32k 容易撞 timeout）
+ *   - OpenAI o1/o3：max_completion_tokens **不计** reasoning_tokens，
+ *     所以这里设多大都没意义，但也不会出错
+ *   - 非推理模型（gpt-4o-mini / claude-haiku / deepseek-chat）：模型自己
+ *     早就 stop_reason=stop 了，不会真的吃满预算
+ *
+ * 32768 = DeepSeek-R1 硬上限对齐 + 留够 MiMo 推理空间 + 不到 Claude 的
+ * timeout 危险区。用户用更高需求的 provider 可以在 UI 里调到 131072。
+ *
+ * 范围 512 是给非推理模型保留的下限——纯短回复任务给 512 也够；下面再低
+ * （比如 64）会导致正常 chat 模型也输出截断。
+ */
+export const aiCandidateMaxTokens = gmSignal('aiCandidateMaxTokens', 32768, {
+  validate: (v): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 512 && v <= 131072,
+})
+
 // ===========================================================================
 // 4 个 persona 提示词的 GM 持久化（首次启动 seed 一次）
 // ===========================================================================
