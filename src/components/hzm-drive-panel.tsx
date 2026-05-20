@@ -118,18 +118,50 @@ function makeSyntheticSource(roomId: number): MemeSource {
  * 一个房间至少要有 N 条梗,才有意义让 LLM 选 —— 太少的时候 LLM 选半天也只能
  * 反复挑那几条,体验差。10 是经验阈值,可以根据反馈调。
  */
-const MIN_MEMES_FOR_GENERIC_DRIVE = 10
+export const MIN_MEMES_FOR_GENERIC_DRIVE = 10
+
+/** 智驾面板挂载决策类型(给纯函数 + JSX caller 共用)。 */
+export type HzmMountDecision =
+  | { kind: 'none' }
+  | { kind: 'native'; source: MemeSource }
+  | { kind: 'synthetic'; roomId: number }
+
+/**
+ * 纯函数:根据 roomId + 注册源 + 当前梗库大小 + drive 是否在跑,决定面板该不该挂载、
+ * 以及挂载时用什么 source。抽出来是为了在 tests/hzm-drive-panel-mount.test.ts 里能稳
+ * 定断言这套决策,不需要起 Preact 渲染。
+ *
+ * 关键不变量:
+ *  - 有注册源(灰泽满)→ 永远 native,与 memesCount / driveEnabled 无关。
+ *  - 无注册源 + drive 已在跑 → synthetic 挂载,即使 memesCount=0(用户必须能看到停车按钮)。
+ *  - 无注册源 + drive 没在跑 + memesCount≥10 → synthetic 挂载(常规入场)。
+ *  - 其他 → none。
+ */
+export function decideHzmMount(opts: {
+  roomId: number | null
+  source: MemeSource | null
+  memesCount: number
+  driveEnabled: boolean
+}): HzmMountDecision {
+  if (opts.roomId === null) return { kind: 'none' }
+  if (opts.source) return { kind: 'native', source: opts.source }
+  if (opts.memesCount >= MIN_MEMES_FOR_GENERIC_DRIVE || opts.driveEnabled) {
+    return { kind: 'synthetic', roomId: opts.roomId }
+  }
+  return { kind: 'none' }
+}
 
 export function HzmDrivePanelMount() {
   const roomId = resolveCurrentRoomIdSync()
-  if (roomId === null) return null
-  const source = getMemeSourceForRoom(roomId)
-  // 有注册 source(目前仅灰泽满):完整两档(启发式 + LLM)
-  if (source) return <HzmDrivePanel source={source} hasNativeSource />
-  // 无 source:只在烂梗库 ≥10 条时挂载,且强制 LLM 模式(启发式没有关键词配置会退化成随机选)
-  const memesCount = currentMemesList.value.length
-  if (memesCount < MIN_MEMES_FOR_GENERIC_DRIVE) return null
-  return <HzmDrivePanel source={makeSyntheticSource(roomId)} hasNativeSource={false} />
+  const decision = decideHzmMount({
+    roomId,
+    source: getMemeSourceForRoom(roomId),
+    memesCount: currentMemesList.value.length,
+    driveEnabled: hzmDriveEnabled.value,
+  })
+  if (decision.kind === 'none') return null
+  if (decision.kind === 'native') return <HzmDrivePanel source={decision.source} hasNativeSource />
+  return <HzmDrivePanel source={makeSyntheticSource(decision.roomId)} hasNativeSource={false} />
 }
 
 function HzmDrivePanel({ source, hasNativeSource }: { source: MemeSource; hasNativeSource: boolean }) {
