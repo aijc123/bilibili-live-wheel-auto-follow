@@ -26,7 +26,7 @@ import {
   msgSendInterval,
   optimizeLayout,
 } from '../lib/store'
-import { cbBackendEnabled } from '../lib/store-meme'
+import { cbBackendEnabled, currentMemesListRoomId } from '../lib/store-meme'
 import { processMessages } from '../lib/utils'
 import { CbSubmitRow } from './cb-submit-row'
 import { MemeTagsBar } from './meme-tags-bar'
@@ -327,6 +327,8 @@ export function MemesList() {
       if (data.length === 0) {
         memes.value = []
         currentMemesList.value = []
+        // 空结果也标记成"这是这个房间的结果",防止之后下游误用上一房间的列表。
+        currentMemesListRoomId.value = roomId
         status.value = '当前房间暂无烂梗'
         return
       }
@@ -346,6 +348,9 @@ export function MemesList() {
       status.value = parts.length > 1 ? parts.join(' + ') : `${data.length} 条`
       memes.value = data
       currentMemesList.value = data
+      // Atomically 标记 list 属于哪个房间(读取方:智驾 decideHzmMount 的 memesRoomId 校验)。
+      // 必须和 currentMemesList 同一同步 tick 写入,否则 SPA 切房间的窗口期会让下游误用旧列表。
+      currentMemesListRoomId.value = roomId
 
       // Fire-and-forget refresh of the cross-room trending map. TTL-gated
       // inside the helper so calling this from every 30s loadMemes tick

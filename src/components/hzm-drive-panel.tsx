@@ -9,6 +9,7 @@ import {
   activeTab,
   cachedRoomId,
   currentMemesList,
+  currentMemesListRoomId,
   getBlacklistTags,
   getDailyStats,
   getSelectedTags,
@@ -134,18 +135,27 @@ export type HzmMountDecision =
  * 关键不变量:
  *  - 有注册源(灰泽满)→ 永远 native,与 memesCount / driveEnabled 无关。
  *  - 无注册源 + drive 已在跑 → synthetic 挂载,即使 memesCount=0(用户必须能看到停车按钮)。
- *  - 无注册源 + drive 没在跑 + memesCount≥10 → synthetic 挂载(常规入场)。
+ *  - 无注册源 + drive 没在跑 + memesCount≥10 → synthetic 挂载(常规入场),**但** memesCount
+ *    必须来自当前房间(`memesRoomId === roomId`)。SPA 切房间到 loadMemes 完成是一个
+ *    1–10s 异步窗口,期间 `currentMemesList` 还是前一个房间的数据。如果不校验房间
+ *    归属,陈旧的 ≥10 会让 gate 通过 → 用户开车 → 智驾用旧房间的梗发到新房间(主播
+ *    一脸懵 + 用户被拉黑)。见 Codex round-2 on PR #36。
  *  - 其他 → none。
  */
 export function decideHzmMount(opts: {
   roomId: number | null
   source: MemeSource | null
   memesCount: number
+  /** `currentMemesList` 对应的房间号(由 store-meme.ts 的 currentMemesListRoomId 提供)。
+   *  若与 `roomId` 不匹配,memesCount 视为 0 —— 防止 SPA 切房间时陈旧 count 误通过 gate。 */
+  memesRoomId: number | null
   driveEnabled: boolean
 }): HzmMountDecision {
   if (opts.roomId === null) return { kind: 'none' }
   if (opts.source) return { kind: 'native', source: opts.source }
-  if (opts.memesCount >= MIN_MEMES_FOR_GENERIC_DRIVE || opts.driveEnabled) {
+  // Stale-room guard:list 不属于当前房间时,把 count 视为 0。
+  const effectiveCount = opts.memesRoomId === opts.roomId ? opts.memesCount : 0
+  if (effectiveCount >= MIN_MEMES_FOR_GENERIC_DRIVE || opts.driveEnabled) {
     return { kind: 'synthetic', roomId: opts.roomId }
   }
   return { kind: 'none' }
@@ -157,6 +167,7 @@ export function HzmDrivePanelMount() {
     roomId,
     source: getMemeSourceForRoom(roomId),
     memesCount: currentMemesList.value.length,
+    memesRoomId: currentMemesListRoomId.value,
     driveEnabled: hzmDriveEnabled.value,
   })
   if (decision.kind === 'none') return null

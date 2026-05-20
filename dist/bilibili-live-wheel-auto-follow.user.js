@@ -1991,6 +1991,23 @@ var cbBackendHealthDetail = y$1("");
 * 重复的网络请求。MemesList 默认 30s 轮询保证数据新鲜。
 */
 var currentMemesList = y$1([]);
+/**
+* `currentMemesList` 对应的 roomId —— 用来识别"列表是哪个房间的"。
+*
+* 为什么需要:B 站 live 支持在同一 tab 内 SPA 切房间(`ensureRoomId()` 注释 line 161-162
+* 有说明)。切房间到新房间 `loadMemes()` 完成是个 1–10s 的异步窗口,期间 `currentMemesList`
+* 里仍然是**前一个房间**的梗。任何按这个 list 做决策的兄弟组件(智能辅助驾驶的
+* 挂载 gate 是典型受害者:用旧梗 count ≥10 通过 gate,新房间数据空了又显示
+* "有 N 条梗,开车")必须先校验 roomId 匹配,否则就会跨房间使用陈旧素材。
+*
+* 写入方:`MemesList.loadMemes()` —— 永远和 `currentMemesList` 一起更新(同步 tick,
+* 利用 signal 同步语义保持原子)。
+*
+* 读取方:智驾 `decideHzmMount` 的 `memesRoomId` 参数(见 hzm-drive-panel.tsx)。
+*
+* 初始 `null` = 还从来没成功 load 过任何房间(MemesList 还没挂载完 / 第一次 load 还没回)。
+*/
+var currentMemesListRoomId = y$1(null);
 function isUnknownArray(val) {
 	return Array.isArray(val);
 }
@@ -27773,7 +27790,11 @@ function makeSyntheticSource(roomId) {
 * 关键不变量:
 *  - 有注册源(灰泽满)→ 永远 native,与 memesCount / driveEnabled 无关。
 *  - 无注册源 + drive 已在跑 → synthetic 挂载,即使 memesCount=0(用户必须能看到停车按钮)。
-*  - 无注册源 + drive 没在跑 + memesCount≥10 → synthetic 挂载(常规入场)。
+*  - 无注册源 + drive 没在跑 + memesCount≥10 → synthetic 挂载(常规入场),**但** memesCount
+*    必须来自当前房间(`memesRoomId === roomId`)。SPA 切房间到 loadMemes 完成是一个
+*    1–10s 异步窗口,期间 `currentMemesList` 还是前一个房间的数据。如果不校验房间
+*    归属,陈旧的 ≥10 会让 gate 通过 → 用户开车 → 智驾用旧房间的梗发到新房间(主播
+*    一脸懵 + 用户被拉黑)。见 Codex round-2 on PR #36。
 *  - 其他 → none。
 */
 function decideHzmMount(opts) {
@@ -27782,7 +27803,7 @@ function decideHzmMount(opts) {
 		kind: "native",
 		source: opts.source
 	};
-	if (opts.memesCount >= 10 || opts.driveEnabled) return {
+	if ((opts.memesRoomId === opts.roomId ? opts.memesCount : 0) >= 10 || opts.driveEnabled) return {
 		kind: "synthetic",
 		roomId: opts.roomId
 	};
@@ -27794,6 +27815,7 @@ function HzmDrivePanelMount() {
 		roomId,
 		source: getMemeSourceForRoom(roomId),
 		memesCount: currentMemesList.value.length,
+		memesRoomId: currentMemesListRoomId.value,
 		driveEnabled: hzmDriveEnabled.value
 	});
 	if (decision.kind === "none") return null;
@@ -30098,6 +30120,7 @@ function MemesList() {
 			if (data.length === 0) {
 				memes.value = [];
 				currentMemesList.value = [];
+				currentMemesListRoomId.value = roomId;
 				status.value = "当前房间暂无烂梗";
 				return;
 			}
@@ -30117,6 +30140,7 @@ function MemesList() {
 			status.value = parts.length > 1 ? parts.join(" + ") : `${data.length} 条`;
 			memes.value = data;
 			currentMemesList.value = data;
+			currentMemesListRoomId.value = roomId;
 			refreshTrendingMemes();
 		} catch (err) {
 			status.value = `加载失败: ${err instanceof Error ? err.message : String(err)}`;
