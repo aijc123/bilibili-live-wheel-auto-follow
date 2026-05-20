@@ -84,6 +84,7 @@ const { _getRecentDanmuForTests, _runOneTickForTests, startHzmAutoDrive, stopHzm
 )
 const { logLines } = await import('../src/lib/log')
 const { getMemeSourceForRoom } = await import('../src/lib/meme-sources')
+const { cachedRoomId } = await import('../src/lib/store')
 const {
   hzmActivityMinDanmu,
   hzmActivityMinDistinctUsers,
@@ -129,6 +130,12 @@ beforeEach(() => {
   activeSubscription = null
   mockRoomId = ROOM
   mockCsrfToken = 'csrf-fixture'
+  // Production `ensureRoomId` sets `cachedRoomId.value = roomId` (api.ts:173),
+  // but our mock just returns mockRoomId without writing the signal. The room-
+  // change watcher in hzm-auto-drive reads cachedRoomId, so we must seed it
+  // here to ROOM, otherwise the previous test's leftover value would make the
+  // watcher think the user switched rooms and auto-stop the drive.
+  cachedRoomId.value = ROOM
   hzmDriveEnabled.value = true
   hzmDriveMode.value = 'heuristic'
   hzmDryRun.value = true
@@ -228,6 +235,69 @@ describe('startHzmAutoDrive — wiring', () => {
     await startHzmAutoDrive({ source, getMemes: () => POOL })
     expect(activeSubscription).toBeNull()
     expect(logLines.value.some(l => l.includes('不匹配'))).toBe(true)
+  })
+})
+
+describe('SPA room-change auto-stop', () => {
+  // 真问题:智驾用模块级 activeRoomId 锁定启动房间。SPA 切到新房间时 cachedRoomId
+  // 变,activeRoomId 不变 → tick 会用旧 roomId 发新房间的内容(或被 csrf 拒)。
+  // 修复:启动期 effect 监听 cachedRoomId,变了就 stopHzmAutoDrive() + 通知用户。
+  //
+  // 注意:独轮车 + 自动跟车 NOT NEED 这个修复 —— 它们在每轮 send 调 ensureRoomId()
+  // 自然跟新房间。只有智驾绑了 source 配置不能 follow,只能 stop。
+
+  test('cachedRoomId 切到新房间 → 自动停车 + 提示用户', async () => {
+    cachedRoomId.value = ROOM // 启动时房间
+    await startHzmAutoDrive({ source, getMemes: () => POOL })
+    expect(activeSubscription).not.toBeNull()
+    expect(hzmDriveEnabled.value).toBe(true)
+
+    // 模拟 SPA 切房间
+    cachedRoomId.value = 8888888
+    await flushMicrotasks()
+
+    // 智驾被自动停了
+    expect(hzmDriveEnabled.value).toBe(false)
+    expect(activeSubscription).toBeNull() // unsubscribe 被调
+    // 日志里有自动停车记录
+    expect(logLines.value.some(l => l.includes('自动停车') && l.includes(String(ROOM)))).toBe(true)
+  })
+
+  test('cachedRoomId 从 null → 启动房间(初始解析)不触发停车', async () => {
+    // 启动时 cachedRoomId 可能还没解析出来(null),effect 第一次跑看到 null 应该忽略,
+    // 否则启动 + 第一次 cachedRoomId 写入 = 假阳性停车。
+    cachedRoomId.value = null
+    await startHzmAutoDrive({ source, getMemes: () => POOL })
+    expect(hzmDriveEnabled.value).toBe(true)
+
+    // 现在 cachedRoomId 解析出来,等于 activeRoomId(启动时 ensureRoomId 返回的 mockRoomId=ROOM)
+    cachedRoomId.value = ROOM
+    await flushMicrotasks()
+
+    // 没停车
+    expect(hzmDriveEnabled.value).toBe(true)
+    expect(activeSubscription).not.toBeNull()
+  })
+
+  test('cachedRoomId 重复写同一房间号(re-emit)不触发停车', async () => {
+    cachedRoomId.value = ROOM
+    await startHzmAutoDrive({ source, getMemes: () => POOL })
+    cachedRoomId.value = ROOM // 同值再写
+    await flushMicrotasks()
+    expect(hzmDriveEnabled.value).toBe(true)
+  })
+
+  test('stopHzmAutoDrive() 后切房间不会再触发 notifyUser(watcher 已 dispose)', async () => {
+    cachedRoomId.value = ROOM
+    await startHzmAutoDrive({ source, getMemes: () => POOL })
+    stopHzmAutoDrive()
+    logLines.value = [] // 清掉启动日志
+
+    cachedRoomId.value = 9999999
+    await flushMicrotasks()
+
+    // 没有"自动停车"日志(watcher 已 dispose)
+    expect(logLines.value.some(l => l.includes('自动停车'))).toBe(false)
   })
 })
 

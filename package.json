@@ -72,5 +72,8 @@
     "unocss": "^66.6.8",
     "vite": "^8.0.13",
     "vite-plugin-monkey": "^8.0.5"
+  },
+  "overrides": {
+    "ws": "^8.20.1"
   }
 }

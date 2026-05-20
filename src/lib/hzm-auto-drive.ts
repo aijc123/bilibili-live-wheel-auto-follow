@@ -30,6 +30,7 @@ import { subscribeDanmaku } from './danmaku-stream'
 import { formatHzmDriveStatus } from './hzm-drive-status'
 import { appendLog, notifyUser } from './log'
 import { enqueueDanmaku, SendPriority } from './send-queue'
+import { cachedRoomId } from './store'
 import {
   bumpDailyLlmCalls,
   bumpDailySent,
@@ -70,6 +71,23 @@ interface DanmuRecord {
 
 let recentDanmu: DanmuRecord[] = []
 let unsubscribe: (() => void) | null = null
+/**
+ * Dispose 房间切换观察者(SPA 切房间自动停车)。
+ *
+ * 智驾用模块级 `activeRoomId` 锁定启动时的房间。如果用户 SPA 切到新房间,`cachedRoomId`
+ * 变了但 `activeRoomId` 不变,tick 会用旧 roomId 继续 `enqueueDanmaku` 把旧房间的梗
+ * 发到新房间的 csrfToken 上(B 站会拒,但不一定每次拒;就算拒也会被风控记上一笔)。
+ *
+ * 修复方式:启动时记录 `activeRoomId`,然后 effect 监听 `cachedRoomId.value`;一旦
+ * 当前房间 ≠ 启动时的房间(且不是 null/还没解析出来),自动停车 + notifyUser。
+ *
+ * 为什么独轮车 / 自动跟车不需要这个修?
+ *  - 独轮车每轮调 `ensureRoomId()` 重新解析(loop.ts:80-85 注释),自然 follow 新房间。
+ *  - 自动跟车在 burst 触发时调 `ensureRoomId()`(auto-blend.ts:701),也自然 follow。
+ *  - **智驾不能 follow** —— 它绑了 `source.keywordToTag` 配置(灰泽满社区专属),
+ *    跨房间用旧源在新房间发完全是不相关内容。stop > follow。
+ */
+let roomChangeWatcher: (() => void) | null = null
 let tickTimer: ReturnType<typeof setTimeout> | null = null
 let pausedUntil = 0
 const sentTimestamps: number[] = []
@@ -586,6 +604,33 @@ export async function startHzmAutoDrive(opts: {
   activeSource = opts.source
   memesProvider = opts.getMemes
 
+  // SPA 切房间自动停车 —— 见 roomChangeWatcher 字段注释。
+  // effect 比 polling 更直接 + stopHzmAutoDrive() 时一并 dispose。
+  //
+  // 重要:effect 体里**不能**同步写 signal(notifyUser 会 push 到 logLines,
+  // hzmDriveEnabled 也是 signal),否则触发 "@preact/signals: Cycle detected"。
+  // 把实际动作放到 queueMicrotask,让 effect 只做检测。
+  roomChangeWatcher = effect(() => {
+    const current = cachedRoomId.value
+    // 还没解析出来(null)或还是启动时的房间 → 不做事。
+    if (current === null || current === activeRoomId) return
+    const fromRoom = activeRoomId
+    queueMicrotask(() => {
+      // 重新校验:有可能 effect 触发到 microtask 跑之间用户自己点了停车,
+      // 或者房间又切回原房间。
+      if (activeRoomId !== fromRoom) return
+      if (cachedRoomId.peek() === fromRoom) return
+      notifyUser(
+        'warning',
+        '智驾已停车',
+        `检测到你切到了新直播间,旧房间(${fromRoom})的智驾自动停了。需要时请在新房间重新开车。`
+      )
+      appendLog(`🛑 智驾自动停车:房间从 ${fromRoom} 切到 ${current}`)
+      hzmDriveEnabled.value = false
+      stopHzmAutoDrive()
+    })
+  })
+
   unsubscribe = subscribeDanmaku({
     onMessage: ev => {
       if (!ev.text) return
@@ -618,6 +663,10 @@ export function stopHzmAutoDrive(): void {
   if (unsubscribe) {
     unsubscribe()
     unsubscribe = null
+  }
+  if (roomChangeWatcher) {
+    roomChangeWatcher()
+    roomChangeWatcher = null
   }
   resetRuntime()
   updateHzmStatusText()
