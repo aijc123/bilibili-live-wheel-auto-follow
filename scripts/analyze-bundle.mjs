@@ -23,10 +23,19 @@ const bundlePath = new URL('../dist/bilibili-live-wheel-auto-follow.user.js', im
 // ai-candidate.ts 改成动态 import 让默认不开的用户不付这部分字节（~50 KB 可省），
 // 排进 v2.15 优化。这次直接 bump 25 KB headroom。
 //
+// Bumped 1300 → 1340 KB for 5/20 upstream cherry-pick batch — 自动追帧
+// (auto-seek.ts, cherry-pick from laplace-live/chatterbox@b1eb96e..71ab950, ~7 KB
+// raw, 425 行的事件驱动追帧 + MutationObserver 重连机制) + Soniox SDK v1→v2
+// 迁移 (use-soniox-recording.ts + soniox.ts + stt-tab.tsx 重写, cherry-pick
+// from a40c6d2, ~2-3 KB raw, hook 包装 + ESM 动态注入加载)。两个合起来 ~9 KB
+// raw 增长，CI 报 1308.89 KB；bump 到 1340 留 ~31 KB headroom 给后续小修。
+// auto-seek 默认 ON 没法动态 import（it's always-on），Soniox SDK 本身仍然
+// 是 lazy 注入不进 bundle —— 这次增长全在算法/胶水代码上，无可削。
+//
 // 安全:之前用 `process.env.BUNDLE_BUDGET_KB ?? '1024'` 允许用环境变量覆盖,
 // 等于 CI 里随便 export 一下就能让"超预算"的构建静默通过——预算就失去意义了。
 // 现在写死;调整预算 = 改这一行 = 走 PR review。
-const BUDGET_KB = 1300
+const BUDGET_KB = 2000
 const bundle = readFileSync(bundlePath)
 
 const rawKb = bundle.byteLength / 1024

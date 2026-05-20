@@ -69,18 +69,17 @@ import { effect } from '@preact/signals'
 
 import { unsafeWindow } from '$'
 import { ensureRoomId } from './api'
+import { MPEGTS_CDN_URL } from './const'
 import { loadScript } from './load-script'
 import { appendLog } from './log'
 import { audioOnlyEnabled } from './store'
 
 const HTML_FLAG_CLASS = 'lc-audio-only'
 const STYLE_ID = 'lc-audio-only-style'
-const AUDIO_EL_ID = 'lc-audio-only-stream'
-
-// Pinned mpegts.js version. Locked rather than `latest` so a breaking
-// upstream change doesn't silently land in user browsers on next CDN
-// cache miss. Bump deliberately when validating a new version.
-const MPEGTS_CDN_URL = 'https://unpkg.com/mpegts.js@1.8.0/dist/mpegts.js'
+// Exported so `auto-seek.ts` can resolve the hidden `<audio>` element by id
+// when the user has audio-only mode engaged — same element, different
+// pipeline than the page's `<video>`.
+export const AUDIO_EL_ID = 'lc-audio-only-stream'
 
 // Stream URLs from getRoomPlayInfo are signed with ~1 hour expiry.
 // 50 minutes refresh cadence matches the greasyfork 439875 userscript
