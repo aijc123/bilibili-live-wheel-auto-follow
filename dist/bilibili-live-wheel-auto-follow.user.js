@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.14.1
+// @version      2.14.2
 // @author       aijc123
 // @description  替你说，替你看 —— 给每天泡 B 站直播、在弹幕里特别活跃的观众。独轮车循环 / 自动跟车 / 手动发送 + AI 润色 / 影子屏蔽自动改写 / Chatterbox Chat 接管评论区 / 粉丝牌禁言巡检 / 同传 + 烂梗库。
 // @license      AGPL-3.0
@@ -27120,6 +27120,23 @@ var PAUSE_HOLD_MS = 6e4;
 var MIN_TICK_DELAY_MS = 2e3;
 var recentDanmu = [];
 var unsubscribe = null;
+/**
+* Dispose 房间切换观察者(SPA 切房间自动停车)。
+*
+* 智驾用模块级 `activeRoomId` 锁定启动时的房间。如果用户 SPA 切到新房间,`cachedRoomId`
+* 变了但 `activeRoomId` 不变,tick 会用旧 roomId 继续 `enqueueDanmaku` 把旧房间的梗
+* 发到新房间的 csrfToken 上(B 站会拒,但不一定每次拒;就算拒也会被风控记上一笔)。
+*
+* 修复方式:启动时记录 `activeRoomId`,然后 effect 监听 `cachedRoomId.value`;一旦
+* 当前房间 ≠ 启动时的房间(且不是 null/还没解析出来),自动停车 + notifyUser。
+*
+* 为什么独轮车 / 自动跟车不需要这个修?
+*  - 独轮车每轮调 `ensureRoomId()` 重新解析(loop.ts:80-85 注释),自然 follow 新房间。
+*  - 自动跟车在 burst 触发时调 `ensureRoomId()`(auto-blend.ts:701),也自然 follow。
+*  - **智驾不能 follow** —— 它绑了 `source.keywordToTag` 配置(灰泽满社区专属),
+*    跨房间用旧源在新房间发完全是不相关内容。stop > follow。
+*/
+var roomChangeWatcher = null;
 var tickTimer = null;
 var pausedUntil = 0;
 var sentTimestamps = [];
@@ -27481,6 +27498,19 @@ async function startHzmAutoDrive(opts) {
 	activeRoomId = roomId;
 	activeSource = opts.source;
 	memesProvider = opts.getMemes;
+	roomChangeWatcher = j$1(() => {
+		const current = cachedRoomId.value;
+		if (current === null || current === activeRoomId) return;
+		const fromRoom = activeRoomId;
+		queueMicrotask(() => {
+			if (activeRoomId !== fromRoom) return;
+			if (cachedRoomId.peek() === fromRoom) return;
+			notifyUser("warning", "智驾已停车", `检测到你切到了新直播间,旧房间(${fromRoom})的智驾自动停了。需要时请在新房间重新开车。`);
+			appendLog(`🛑 智驾自动停车:房间从 ${fromRoom} 切到 ${current}`);
+			hzmDriveEnabled.value = false;
+			stopHzmAutoDrive();
+		});
+	});
 	unsubscribe = subscribeDanmaku({ onMessage: (ev) => {
 		if (!ev.text) return;
 		if (ev.hasLargeEmote) return;
@@ -27504,6 +27534,10 @@ function stopHzmAutoDrive() {
 	if (unsubscribe) {
 		unsubscribe();
 		unsubscribe = null;
+	}
+	if (roomChangeWatcher) {
+		roomChangeWatcher();
+		roomChangeWatcher = null;
 	}
 	resetRuntime();
 	updateHzmStatusText();

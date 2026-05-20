@@ -13,15 +13,13 @@
 
 ## 当前发布说明
 
-- **仅音频模式**：面板顶部 speaker 图标一开关，停 B 站视频流只听音频，带宽省约 90%——多房间挂机不烤机。Tampermonkey 菜单也注册了切换命令。
-- **AI 陪聊（候选）**：配好 LLM key 后听主播 STT + 弹幕生成候选弹幕放队列，**每条要你点确认才发**——不做自动发送，避开 LLM 统计指纹被风控加重。4 个 persona：杠精 / 吐槽役 / 暖男 / 互动派。
-- **三档 AI 润色默认 prompt 可见**：手动发送 / 自动跟车 / 独轮车 的默认 prompt 不再藏在 runtime fallback——设置 → LLM 提示词直接 seed 进编辑器，开箱即用、可改可删。
-- **「我的状态」角标**：粉丝牌巡检结果压成 iOS 风角标（被禁房间数显示为红 ×N sticker），主面板第一眼就看到今天哪些房间禁了你。
-- **发送间隔抖动改高斯分布**：0–500ms 均匀随机 → σ=10% 钟形（±2σ 截断），更像真人节奏，独轮车 / 自动跟车 / 智驾 都受益。
-- **LLM 5 厂商一键预设**：Anthropic / OpenAI / DeepSeek / Moonshot / OpenRouter 一键填 base URL + 默认模型，AI 润色 / AI 规避 / 智驾 共用同一份配置。
-- **聊天面板视觉升级**：新增 `MIDNIGHT_INDIGO` 深色预设；SC 外发光改 CSS 变量（presets 可 tint）；SC 置顶条横向轮播 + 3 种输入模态；4px 基线网格 + 入场动画。
-- **命名清理**：「常规发送」→「手动发送」；YOLO →「AI 润色」。替换规则等偏门 section 从设置抽屉背景化（搜索仍能搜到），搜索框移除，外部点击直接关面板。
-- **修复**：软连字符不再撞坏 `[doge]` 等表情包括号；CDN 懒加载失败正确清缓存允许重试；landing 页 SEO 标题结构修正。
+- **自动追帧（默认开）**：cherry-pick from laplace-live/chatterbox。事件驱动微调播放器 `playbackRate` 把直播延迟从默认 5–8 秒压到 ~1.5 秒——同传更接近 streamer 实时说话、智驾的 LLM 看到的弹幕语境也跟上节奏，弹幕落到 streamer 视角时话题还在。视频和「仅音频」模式同一套机制；后台标签零唤醒。**没有 UI 开关，藏起来了**，正常用就是了。
+- **Soniox SDK v1→v2 迁移**：`@soniox/speech-to-text-web@1.4.0` 被官方 deprecated，主动升级 `@soniox/client@^2.0.2`。同传体验对用户无感（API key / 设备选择 / 翻译 / 自动发送全部沿用），底下：ESM-only SDK 改成动态注入加载（首次「开始同传」按需下载，B 站每页加载不再无脑 `@require` 一个 Soniox），模型 `stt-rt-v3`→`stt-rt-v4`（v3 已退役）。
+
+## 2.14.2
+
+- **自动追帧（默认开）**：cherry-pick from laplace-live/chatterbox。事件驱动微调播放器 `playbackRate` 把直播延迟从默认 5–8 秒压到 ~1.5 秒——同传更接近 streamer 实时说话、智驾的 LLM 看到的弹幕语境也跟上节奏，弹幕落到 streamer 视角时话题还在。视频和「仅音频」模式同一套机制；后台标签零唤醒。**没有 UI 开关，藏起来了**，正常用就是了。
+- **Soniox SDK v1→v2 迁移**：`@soniox/speech-to-text-web@1.4.0` 被官方 deprecated，主动升级 `@soniox/client@^2.0.2`。同传体验对用户无感（API key / 设备选择 / 翻译 / 自动发送全部沿用），底下：ESM-only SDK 改成动态注入加载（首次「开始同传」按需下载，B 站每页加载不再无脑 `@require` 一个 Soniox），模型 `stt-rt-v3`→`stt-rt-v4`（v3 已退役）。
 
 ## 2.14.1
 
