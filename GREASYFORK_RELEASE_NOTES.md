@@ -13,9 +13,13 @@
 
 ## 当前发布说明
 
-- **自动追帧（默认开）**：cherry-pick from laplace-live/chatterbox。事件驱动微调播放器 `playbackRate` 把直播延迟从默认 5–8 秒压到 ~1.5 秒——同传更接近 streamer 实时说话、智驾的 LLM 看到的弹幕语境也跟上节奏，弹幕落到 streamer 视角时话题还在。视频和「仅音频」模式同一套机制；后台标签零唤醒。**没有 UI 开关，藏起来了**，正常用就是了。
-- **Soniox SDK v1→v2 迁移**：`@soniox/speech-to-text-web@1.4.0` 被官方 deprecated，主动升级 `@soniox/client@^2.0.2`。同传体验对用户无感（API key / 设备选择 / 翻译 / 自动发送全部沿用），底下：ESM-only SDK 改成动态注入加载（首次「开始同传」按需下载，B 站每页加载不再无脑 `@require` 一个 Soniox），模型 `stt-rt-v3`→`stt-rt-v4`（v3 已退役）。
+- **智驾切房间自动停车**:用户在 A 房间开了智能辅助驾驶,然后(不刷新)跳到 B 房间 —— 之前智驾会继续用 A 房间的梗库往 B 房间发(灰泽满梗发到别的主播间,直接被拉黑)。现在切房间会自动停 + toast 提示「智驾已停车」,需要时在新房间重新开车。独轮车 / 自动跟车不受影响(它们本来就 follow 新房间设计)。
+- **ws 安全漏洞修复**:`ws@<8.20.1` 有 CVE-2026-45736(uninitialized memory disclosure)。本项目通过 lighthouse / miniflare 链路引入 ws,加 `overrides` 强制提到 `^8.20.1`。无运行时影响 —— ws 只在 dev/test,不进 userscript bundle。
 
+## 2.14.3
+
+- **智驾切房间自动停车**:用户在 A 房间开了智能辅助驾驶,然后(不刷新)跳到 B 房间 —— 之前智驾会继续用 A 房间的梗库往 B 房间发(灰泽满梗发到别的主播间,直接被拉黑)。现在切房间会自动停 + toast 提示「智驾已停车」,需要时在新房间重新开车。独轮车 / 自动跟车不受影响(它们本来就 follow 新房间设计)。
+- **ws 安全漏洞修复**:`ws@<8.20.1` 有 CVE-2026-45736(uninitialized memory disclosure)。本项目通过 lighthouse / miniflare 链路引入 ws,加 `overrides` 强制提到 `^8.20.1`。无运行时影响 —— ws 只在 dev/test,不进 userscript bundle。
 ## 2.14.2
 
 - **自动追帧（默认开）**：cherry-pick from laplace-live/chatterbox。事件驱动微调播放器 `playbackRate` 把直播延迟从默认 5–8 秒压到 ~1.5 秒——同传更接近 streamer 实时说话、智驾的 LLM 看到的弹幕语境也跟上节奏，弹幕落到 streamer 视角时话题还在。视频和「仅音频」模式同一套机制；后台标签零唤醒。**没有 UI 开关，藏起来了**，正常用就是了。
