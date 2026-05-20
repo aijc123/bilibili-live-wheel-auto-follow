@@ -160,11 +160,13 @@ export function AiCandidateSection() {
        * 在首次启动时 seed 进 GM 存储，所以这里总有可选项；用户也可以去设置
        * 里增删改。 */}
       <label
+        htmlFor='aiCandidatePersonaPicker'
         style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', fontSize: '0.85em' }}
         title='AI 陪聊角色（在「设置 → LLM 提示词 → AI 陪聊（候选）」里管理 / 增删）'
       >
         <span style={{ color: '#666' }}>角色：</span>
         <PromptPicker
+          id='aiCandidatePersonaPicker'
           prompts={llmPromptsAiCandidate.value}
           activeIndex={llmActivePromptAiCandidate.value}
           onActiveIndexChange={i => {
@@ -279,8 +281,8 @@ export function AiCandidateSection() {
               />
             </div>
             <div style={{ fontSize: '0.78em', color: '#888', padding: '0 0 4px' }}>
-              用推理模型（MiMo / DeepSeek-R1 / Qwen QwQ）出现「返回内容为空」时，把上面 token 上限调高（推荐
-              32768 起步，最高 131072）。普通模型保持 4096 也够用。
+              用推理模型（MiMo / DeepSeek-R1 / Qwen QwQ）出现「返回内容为空」时，把上面 token 上限调高（推荐 32768
+              起步，最高 131072）。普通模型保持 4096 也够用。
             </div>
           </details>
 
