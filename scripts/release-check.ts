@@ -15,6 +15,14 @@ interface StepResult {
 }
 
 const skipInstall = process.env.SKIP_INSTALL === '1'
+/**
+ * Local escape hatch — set when `bun install` on Windows + OneDrive can't
+ * stably extract `server/node_modules/vitest/vitest.mjs` (the file
+ * randomly disappears between install and run, leaving server tests
+ * unrunnable locally even though CI is fine). CI never sets this, so the
+ * gate still runs on every push / PR. Mirrors `SKIP_INSTALL` shape.
+ */
+const skipServerTests = process.env.SKIP_SERVER_TESTS === '1'
 
 const steps: Step[] = [
   ...(skipInstall
@@ -50,12 +58,16 @@ const steps: Step[] = [
       run(['bun', 'test', '--isolate', 'tests'])
     },
   },
-  {
-    name: 'Server tests (vitest pool-workers)',
-    fn: () => {
-      run(['bun', 'run', 'test'], { cwd: join(projectRoot, 'server') })
-    },
-  },
+  ...(skipServerTests
+    ? []
+    : [
+        {
+          name: 'Server tests (vitest pool-workers)',
+          fn: () => {
+            run(['bun', 'run', 'test'], { cwd: join(projectRoot, 'server') })
+          },
+        },
+      ]),
   {
     name: 'Version consistency (pre)',
     fn: () => {
