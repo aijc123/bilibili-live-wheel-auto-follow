@@ -21,8 +21,16 @@ const skipInstall = process.env.SKIP_INSTALL === '1'
  * randomly disappears between install and run, leaving server tests
  * unrunnable locally even though CI is fine). CI never sets this, so the
  * gate still runs on every push / PR. Mirrors `SKIP_INSTALL` shape.
+ *
+ * Truthy detection is lenient (any non-empty value enables skip) because
+ * PowerShell `$env:` setters have historically dropped tight `=== '1'`
+ * checks in some Bun-on-Windows subprocess paths.
  */
-const skipServerTests = process.env.SKIP_SERVER_TESTS === '1'
+const skipServerTests = !!process.env.SKIP_SERVER_TESTS && process.env.SKIP_SERVER_TESTS !== '0'
+// Debug breadcrumb so a future operator can see what bun actually saw.
+console.log(
+  `[release-check] env probe: SKIP_INSTALL=${JSON.stringify(process.env.SKIP_INSTALL ?? null)}, SKIP_SERVER_TESTS=${JSON.stringify(process.env.SKIP_SERVER_TESTS ?? null)} → skipServerTests=${skipServerTests}`
+)
 
 const steps: Step[] = [
   ...(skipInstall
