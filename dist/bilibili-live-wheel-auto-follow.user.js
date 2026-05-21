@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站独轮车 + 自动跟车 / Bilibili Live Auto Follow
 // @namespace    https://github.com/aijc123/bilibili-live-wheel-auto-follow
-// @version      2.14.3
+// @version      2.14.4
 // @author       aijc123
 // @description  替你说，替你看 —— 给每天泡 B 站直播、在弹幕里特别活跃的观众。独轮车循环 / 自动跟车 / 手动发送 + AI 润色 / 影子屏蔽自动改写 / Chatterbox Chat 接管评论区 / 粉丝牌禁言巡检 / 同传 + 烂梗库。
 // @license      AGPL-3.0
@@ -42,7 +42,7 @@ const _css = async (t) => {
 	if (typeof GM_addStyle === "function") GM_addStyle(c);
 	else (document.head || document.documentElement).appendChild(document.createElement("style")).append(c);
 })(t);
-};_css(" @property --lc-text-opacity{syntax:\"<percentage>\";inherits:false;initial-value:100%}@property --lc-leading{syntax:\"*\";inherits:false}@property --lc-border-opacity{syntax:\"<percentage>\";inherits:false;initial-value:100%}@property --lc-bg-opacity{syntax:\"<percentage>\";inherits:false;initial-value:100%}@property --lc-blur{syntax:\"*\";inherits:false}@property --lc-brightness{syntax:\"*\";inherits:false}@property --lc-contrast{syntax:\"*\";inherits:false}@property --lc-drop-shadow{syntax:\"*\";inherits:false}@property --lc-grayscale{syntax:\"*\";inherits:false}@property --lc-hue-rotate{syntax:\"*\";inherits:false}@property --lc-invert{syntax:\"*\";inherits:false}@property --lc-saturate{syntax:\"*\";inherits:false}@property --lc-sepia{syntax:\"*\";inherits:false}:root,:host{--spacing:.25rem;--radius-DEFAULT:.25rem;--default-transition-timingFunction:cubic-bezier(.4, 0, .2, 1);--default-transition-duration:.15s;--leading-none:1;--colors-brand:#007aff;--colors-white:#fff;--colors-danger:#ff3b30}#laplace-chatterbox-toggle,#laplace-chatterbox-dialog{box-sizing:border-box;letter-spacing:0;font-family:-apple-system,BlinkMacSystemFont,SF Pro Text,Segoe UI,sans-serif;font-size:12px}.lc-text-danger{color:color-mix(in srgb, var(--colors-danger) var(--lc-text-opacity), transparent) }.lc-text-white{color:color-mix(in srgb, var(--colors-white) var(--lc-text-opacity), transparent) }.lc-text-inherit{color:inherit}.lc-leading-\\[1\\.2\\]{--lc-leading:1.2;line-height:1.2}.lc-leading-\\[1\\.4\\]{--lc-leading:1.4;line-height:1.4}.lc-leading-none{--lc-leading:var(--leading-none);line-height:var(--leading-none)}.lc-mb-2{margin-bottom:calc(var(--spacing) * 2)}.lc-p-0{padding:calc(var(--spacing) * 0)}.lc-px-\\[10px\\]{padding-inline:10px}.lc-px-1{padding-inline:calc(var(--spacing) * 1)}.lc-px-1\\.5{padding-inline:calc(var(--spacing) * 1.5)}.lc-px-2\\.5{padding-inline:calc(var(--spacing) * 2.5)}.lc-px-3\\.5{padding-inline:calc(var(--spacing) * 3.5)}.lc-py-0\\.5{padding-block:calc(var(--spacing) * .5)}.lc-py-1{padding-block:calc(var(--spacing) * 1)}.lc-py-1\\.5{padding-block:calc(var(--spacing) * 1.5)}.lc-py-px{padding-block:1px}.lc-pb-\\[10px\\]{padding-bottom:10px}.lc-pl-0\\.5{padding-left:calc(var(--spacing) * .5)}.lc-pr-1{padding-right:calc(var(--spacing) * 1)}.lc-outline-none{--lc-outline-style:none;outline-style:none}.lc-border{border-width:1px}.lc-border-brand{border-color:color-mix(in srgb, var(--colors-brand) var(--lc-border-opacity), transparent) }.lc-border-danger{border-color:color-mix(in srgb, var(--colors-danger) var(--lc-border-opacity), transparent) }.lc-border-ga4{border-color:color-mix(in srgb, var(--Ga4,#999) var(--lc-border-opacity), transparent) }.lc-border-transparent{border-color:#0000}.focus\\:lc-border-brand:focus{border-color:color-mix(in srgb, var(--colors-brand) var(--lc-border-opacity), transparent) }.lc-rounded{border-radius:var(--radius-DEFAULT)}.lc-border-solid{--lc-border-style:solid;border-style:solid}.lc-bg-bg1{background-color:color-mix(in srgb, var(--bg1,#fff) var(--lc-bg-opacity), transparent) }.lc-bg-brand{background-color:color-mix(in srgb, var(--colors-brand) var(--lc-bg-opacity), transparent) }.lc-bg-ga1s{background-color:color-mix(in srgb, var(--Ga1_s,#0000000a) var(--lc-bg-opacity), transparent) }.lc-bg-transparent{background-color:#0000}.disabled\\:lc-opacity-50:disabled{opacity:.5}.disabled\\:lc-opacity-60:disabled{opacity:.6}.lc-underline{text-decoration-line:underline}.lc-underline-offset-2{text-underline-offset:2px}.lc-flex{display:flex}.lc-inline-flex{display:inline-flex}.lc-flex-1{flex:1}.lc-flex-wrap{flex-wrap:wrap}.lc-gap-1{gap:calc(var(--spacing) * 1)}.lc-h-\\[100px\\]{height:100px}.lc-h-6{height:calc(var(--spacing) * 6)}.lc-max-h-\\[70vh\\]{max-height:70vh}.lc-max-w-\\[180px\\]{max-width:180px}.lc-max-w-\\[calc\\(100vw_-_16px\\)\\]{max-width:calc(100vw - 16px)}.lc-min-h-\\[18px\\]{min-height:18px}.lc-min-h-\\[auto\\]{min-height:auto}.lc-min-h-10{min-height:calc(var(--spacing) * 10)}.lc-min-h-5{min-height:calc(var(--spacing) * 5)}.lc-min-h-6{min-height:calc(var(--spacing) * 6)}.lc-min-h-7{min-height:calc(var(--spacing) * 7)}.lc-min-w-\\[120px\\]{min-width:120px}.lc-min-w-\\[160px\\]{min-width:160px}.lc-w-\\[320px\\]{width:320px}.lc-w-6{width:calc(var(--spacing) * 6)}.lc-w-full{width:100%}.lc-block{display:block}.lc-hidden{display:none}.lc-cursor-pointer{cursor:pointer}.lc-cursor-text{cursor:text}.disabled\\:lc-cursor-not-allowed:disabled{cursor:not-allowed}.lc-resize-y{resize:vertical}.lc-select-none{-webkit-user-select:none;user-select:none}.lc-whitespace-nowrap{white-space:nowrap}.lc-truncate{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.lc-transition{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,--un-gradient-from,--un-gradient-via,--un-gradient-to,opacity,box-shadow,transform,translate,scale,rotate,filter,-webkit-backdrop-filter,backdrop-filter;transition-timing-function:var(--lc-ease,var(--default-transition-timingFunction));transition-duration:var(--lc-duration,var(--default-transition-duration))}.lc-items-center{align-items:center}.lc-box-border{box-sizing:border-box}.lc-bottom-\\[46px\\]{bottom:46px}.lc-right-2{right:calc(var(--spacing) * 2)}.lc-justify-center{justify-content:center}.lc-fixed{position:fixed}.lc-z-\\[2147483647\\]{z-index:2147483647}.lc-overflow-y-auto{overflow-y:auto}.\\[\\&\\:not\\(\\:disabled\\)\\:active\\]\\:lc-brightness-\\[\\.9\\]:not(:disabled):active{--lc-brightness:brightness(.9);filter:var(--lc-blur,) var(--lc-brightness,) var(--lc-contrast,) var(--lc-grayscale,) var(--lc-hue-rotate,) var(--lc-invert,) var(--lc-saturate,) var(--lc-sepia,) var(--lc-drop-shadow,)}.\\[\\&\\:not\\(\\:disabled\\)\\:hover\\]\\:lc-brightness-\\[\\.96\\]:not(:disabled):hover{--lc-brightness:brightness(.96);filter:var(--lc-blur,) var(--lc-brightness,) var(--lc-contrast,) var(--lc-grayscale,) var(--lc-hue-rotate,) var(--lc-invert,) var(--lc-saturate,) var(--lc-sepia,) var(--lc-drop-shadow,)}@supports (color:color-mix(in lab, red, red)){.lc-text-danger{color:color-mix(in oklab, var(--colors-danger) var(--lc-text-opacity), transparent) }.lc-text-white{color:color-mix(in oklab, var(--colors-white) var(--lc-text-opacity), transparent) }.lc-border-brand{border-color:color-mix(in oklab, var(--colors-brand) var(--lc-border-opacity), transparent) }.lc-border-danger{border-color:color-mix(in oklab, var(--colors-danger) var(--lc-border-opacity), transparent) }.focus\\:lc-border-brand:focus{border-color:color-mix(in oklab, var(--colors-brand) var(--lc-border-opacity), transparent) }.lc-bg-brand{background-color:color-mix(in oklab, var(--colors-brand) var(--lc-bg-opacity), transparent) }}\n/*$vite$:1*/ ");var __defProp = Object.defineProperty;
+};_css(" @property --lc-text-opacity{syntax:\"<percentage>\";inherits:false;initial-value:100%}@property --lc-leading{syntax:\"*\";inherits:false}@property --lc-border-opacity{syntax:\"<percentage>\";inherits:false;initial-value:100%}@property --lc-bg-opacity{syntax:\"<percentage>\";inherits:false;initial-value:100%}@property --lc-blur{syntax:\"*\";inherits:false}@property --lc-brightness{syntax:\"*\";inherits:false}@property --lc-contrast{syntax:\"*\";inherits:false}@property --lc-drop-shadow{syntax:\"*\";inherits:false}@property --lc-grayscale{syntax:\"*\";inherits:false}@property --lc-hue-rotate{syntax:\"*\";inherits:false}@property --lc-invert{syntax:\"*\";inherits:false}@property --lc-saturate{syntax:\"*\";inherits:false}@property --lc-sepia{syntax:\"*\";inherits:false}:root,:host{--spacing:.25rem;--radius-DEFAULT:.25rem;--default-transition-timingFunction:cubic-bezier(.4, 0, .2, 1);--default-transition-duration:.15s;--leading-none:1;--colors-brand:#007aff;--colors-white:#fff;--colors-danger:#ff3b30}#laplace-chatterbox-toggle,#laplace-chatterbox-dialog{box-sizing:border-box;letter-spacing:0;font-family:-apple-system,BlinkMacSystemFont,SF Pro Text,Segoe UI,sans-serif;font-size:12px}.lc-text-danger{color:color-mix(in srgb, var(--colors-danger) var(--lc-text-opacity), transparent) }.lc-text-white{color:color-mix(in srgb, var(--colors-white) var(--lc-text-opacity), transparent) }.lc-text-inherit{color:inherit}.lc-leading-\\[1\\.2\\]{--lc-leading:1.2;line-height:1.2}.lc-leading-\\[1\\.4\\]{--lc-leading:1.4;line-height:1.4}.lc-leading-none{--lc-leading:var(--leading-none);line-height:var(--leading-none)}.lc-mb-2{margin-bottom:calc(var(--spacing) * 2)}.lc-p-0{padding:calc(var(--spacing) * 0)}.lc-px-\\[10px\\]{padding-inline:10px}.lc-px-1{padding-inline:calc(var(--spacing) * 1)}.lc-px-1\\.5{padding-inline:calc(var(--spacing) * 1.5)}.lc-px-2\\.5{padding-inline:calc(var(--spacing) * 2.5)}.lc-px-3\\.5{padding-inline:calc(var(--spacing) * 3.5)}.lc-py-0\\.5{padding-block:calc(var(--spacing) * .5)}.lc-py-1{padding-block:calc(var(--spacing) * 1)}.lc-py-1\\.5{padding-block:calc(var(--spacing) * 1.5)}.lc-py-px{padding-block:1px}.lc-pb-\\[10px\\]{padding-bottom:10px}.lc-pl-0\\.5{padding-left:calc(var(--spacing) * .5)}.lc-pr-1{padding-right:calc(var(--spacing) * 1)}.lc-outline-none{--lc-outline-style:none;outline-style:none}.lc-border{border-width:1px}.lc-border-brand{border-color:color-mix(in srgb, var(--colors-brand) var(--lc-border-opacity), transparent) }.lc-border-danger{border-color:color-mix(in srgb, var(--colors-danger) var(--lc-border-opacity), transparent) }.lc-border-ga4{border-color:color-mix(in srgb, var(--Ga4,#999) var(--lc-border-opacity), transparent) }.lc-border-transparent{border-color:#0000}.focus\\:lc-border-brand:focus{border-color:color-mix(in srgb, var(--colors-brand) var(--lc-border-opacity), transparent) }.lc-rounded{border-radius:var(--radius-DEFAULT)}.lc-border-solid{--lc-border-style:solid;border-style:solid}.lc-bg-bg1{background-color:color-mix(in srgb, var(--bg1,#fff) var(--lc-bg-opacity), transparent) }.lc-bg-brand{background-color:color-mix(in srgb, var(--colors-brand) var(--lc-bg-opacity), transparent) }.lc-bg-ga1s{background-color:color-mix(in srgb, var(--Ga1_s,#0000000a) var(--lc-bg-opacity), transparent) }.lc-bg-transparent{background-color:#0000}.disabled\\:lc-opacity-50:disabled{opacity:.5}.disabled\\:lc-opacity-60:disabled{opacity:.6}.lc-underline{text-decoration-line:underline}.lc-underline-offset-2{text-underline-offset:2px}.lc-flex{display:flex}.lc-inline-flex{display:inline-flex}.lc-flex-1{flex:1}.lc-flex-wrap{flex-wrap:wrap}.lc-gap-1{gap:calc(var(--spacing) * 1)}.lc-h-\\[100px\\]{height:100px}.lc-h-6{height:calc(var(--spacing) * 6)}.lc-max-h-\\[70vh\\]{max-height:70vh}.lc-max-w-\\[180px\\]{max-width:180px}.lc-max-w-\\[220px\\]{max-width:220px}.lc-max-w-\\[calc\\(100vw_-_16px\\)\\]{max-width:calc(100vw - 16px)}.lc-min-h-\\[18px\\]{min-height:18px}.lc-min-h-\\[auto\\]{min-height:auto}.lc-min-h-10{min-height:calc(var(--spacing) * 10)}.lc-min-h-5{min-height:calc(var(--spacing) * 5)}.lc-min-h-6{min-height:calc(var(--spacing) * 6)}.lc-min-h-7{min-height:calc(var(--spacing) * 7)}.lc-min-w-\\[120px\\]{min-width:120px}.lc-min-w-\\[140px\\]{min-width:140px}.lc-min-w-\\[160px\\]{min-width:160px}.lc-w-\\[320px\\]{width:320px}.lc-w-6{width:calc(var(--spacing) * 6)}.lc-w-full{width:100%}.lc-block{display:block}.lc-hidden{display:none}.lc-cursor-pointer{cursor:pointer}.lc-cursor-text{cursor:text}.disabled\\:lc-cursor-not-allowed:disabled{cursor:not-allowed}.lc-resize-y{resize:vertical}.lc-select-none{-webkit-user-select:none;user-select:none}.lc-whitespace-nowrap{white-space:nowrap}.lc-truncate{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.lc-transition{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,--un-gradient-from,--un-gradient-via,--un-gradient-to,opacity,box-shadow,transform,translate,scale,rotate,filter,-webkit-backdrop-filter,backdrop-filter;transition-timing-function:var(--lc-ease,var(--default-transition-timingFunction));transition-duration:var(--lc-duration,var(--default-transition-duration))}.lc-items-center{align-items:center}.lc-box-border{box-sizing:border-box}.lc-bottom-\\[46px\\]{bottom:46px}.lc-right-2{right:calc(var(--spacing) * 2)}.lc-justify-center{justify-content:center}.lc-fixed{position:fixed}.lc-z-\\[2147483647\\]{z-index:2147483647}.lc-overflow-y-auto{overflow-y:auto}.\\[\\&\\:not\\(\\:disabled\\)\\:active\\]\\:lc-brightness-\\[\\.9\\]:not(:disabled):active{--lc-brightness:brightness(.9);filter:var(--lc-blur,) var(--lc-brightness,) var(--lc-contrast,) var(--lc-grayscale,) var(--lc-hue-rotate,) var(--lc-invert,) var(--lc-saturate,) var(--lc-sepia,) var(--lc-drop-shadow,)}.\\[\\&\\:not\\(\\:disabled\\)\\:hover\\]\\:lc-brightness-\\[\\.96\\]:not(:disabled):hover{--lc-brightness:brightness(.96);filter:var(--lc-blur,) var(--lc-brightness,) var(--lc-contrast,) var(--lc-grayscale,) var(--lc-hue-rotate,) var(--lc-invert,) var(--lc-saturate,) var(--lc-sepia,) var(--lc-drop-shadow,)}@supports (color:color-mix(in lab, red, red)){.lc-text-danger{color:color-mix(in oklab, var(--colors-danger) var(--lc-text-opacity), transparent) }.lc-text-white{color:color-mix(in oklab, var(--colors-white) var(--lc-text-opacity), transparent) }.lc-border-brand{border-color:color-mix(in oklab, var(--colors-brand) var(--lc-border-opacity), transparent) }.lc-border-danger{border-color:color-mix(in oklab, var(--colors-danger) var(--lc-border-opacity), transparent) }.focus\\:lc-border-brand:focus{border-color:color-mix(in oklab, var(--colors-brand) var(--lc-border-opacity), transparent) }.lc-bg-brand{background-color:color-mix(in oklab, var(--colors-brand) var(--lc-bg-opacity), transparent) }}\n/*$vite$:1*/ ");var __defProp = Object.defineProperty;
 var __exportAll = (all, no_symbols) => {
 	let target = {};
 	for (var name in all) __defProp(target, name, {
@@ -2213,6 +2213,31 @@ var aiCandidateViewerWindow = gmSignal("aiCandidateViewerWindow", 50);
 */
 var aiCandidateViewerInterval = gmSignal("aiCandidateViewerInterval", 10);
 gmSignal("aiCandidateTemperature", .7);
+/**
+* LLM 调用的 max_tokens 上限。默认 32768 —— 看起来巨大，但理由：
+*
+* 推理模型（MiMo-V2.5-Pro / DeepSeek-R1 / Qwen QwQ 这类 openai-compat）会把
+* 思考过程写进 `reasoning_content` 字段，**这部分计入 max_tokens**。一个简单
+* 的"该不该发弹幕"决策都可能消耗 4k-16k 的思考 token，留太小会导致
+* `content` 留空（被 `readContent` 当作"返回内容为空"抛错，UI 看到的就是
+* "❌ LLM 调用失败：返回内容为空"）。
+*
+* 各 provider 的硬上限（2026-05 调研）：
+*   - DeepSeek-R1：32,768（推荐 8,192 以下保质量，但推理任务必须给够）
+*   - MiMo-V2.5-Pro：131,072
+*   - Claude Opus 4.7：128,000（> 32k 容易撞 timeout）
+*   - OpenAI o1/o3：max_completion_tokens **不计** reasoning_tokens，
+*     所以这里设多大都没意义，但也不会出错
+*   - 非推理模型（gpt-4o-mini / claude-haiku / deepseek-chat）：模型自己
+*     早就 stop_reason=stop 了，不会真的吃满预算
+*
+* 32768 = DeepSeek-R1 硬上限对齐 + 留够 MiMo 推理空间 + 不到 Claude 的
+* timeout 危险区。用户用更高需求的 provider 可以在 UI 里调到 131072。
+*
+* 范围 512 是给非推理模型保留的下限——纯短回复任务给 512 也够；下面再低
+* （比如 64）会导致正常 chat 模型也输出截断。
+*/
+var aiCandidateMaxTokens = gmSignal("aiCandidateMaxTokens", 32768, { validate: (v) => typeof v === "number" && Number.isInteger(v) && v >= 512 && v <= 131072 });
 /**
 * AI 候选 prompt 列表。用户可以增删改、可以重排。首次启动时 seed 4 个
 * 默认 persona；之后用户清空也不会自动 re-seed（避免"删了又长回来"的
@@ -9036,11 +9061,18 @@ async function chooseMemeWithLLM(opts) {
 	}
 	return effectiveOpts.candidates.find((c) => c.content === raw || raw.includes(c.content) || c.content.includes(raw))?.content ?? null;
 }
-function readContent(json) {
+function readContent(json, allowReasoningFallback = false) {
 	if (!json || typeof json !== "object") return null;
 	const choices = json.choices;
 	if (!Array.isArray(choices) || choices.length === 0) return null;
-	return (choices[0]?.message?.content?.trim() ?? "") || null;
+	const choice = choices[0];
+	const content = choice?.message?.content?.trim() ?? "";
+	if (content) return content;
+	if (allowReasoningFallback) {
+		const reasoning = choice?.message?.reasoning_content?.trim() ?? "";
+		if (reasoning) return reasoning;
+	}
+	return null;
 }
 function readAnthropicContent(json) {
 	if (!json || typeof json !== "object") return null;
@@ -9068,12 +9100,12 @@ async function postOpenAIChatPolish(opts, urlOverride) {
 				content: opts.userText
 			}]
 		}),
-		timeoutMs: 3e4,
+		timeoutMs: opts.timeoutMs ?? 12e4,
 		signal: opts.signal
 	});
 	if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText || ""}`.trim());
-	const content = readContent(resp.json());
-	if (!content) throw new Error("返回内容为空");
+	const content = readContent(resp.json(), opts.allowReasoningFallback);
+	if (!content) throw new Error("返回内容为空（推理模型常见症状：max_tokens 不够，或思考过程没收敛到答案）");
 	return content;
 }
 async function postAnthropicPolish(opts) {
@@ -9098,7 +9130,7 @@ async function postAnthropicPolish(opts) {
 				content: opts.userText
 			}]
 		}),
-		timeoutMs: 3e4,
+		timeoutMs: opts.timeoutMs ?? 12e4,
 		signal: opts.signal
 	});
 	if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText || ""}`.trim());
@@ -9548,7 +9580,8 @@ async function callAiCandidateLlm(sourceText) {
 			baseURL: llmBaseURL.value,
 			systemPrompt: decoratedSystem,
 			userText: userContent,
-			maxTokens: 300
+			maxTokens: aiCandidateMaxTokens.value,
+			allowReasoningFallback: true
 		}), maxLen);
 	} catch (err) {
 		appendLog(`❌ [AI 陪聊] LLM 调用失败：${err instanceof Error ? err.message : String(err)}`);
@@ -25063,6 +25096,66 @@ function AboutTab() {
 		})
 	] });
 }
+function NativeSelect({ disabled, className, children, ...props }) {
+	return /* @__PURE__ */ u("select", {
+		disabled,
+		class: cn("lc-box-border lc-pr-1 lc-pl-0.5 lc-py-px", "lc-border lc-border-solid lc-border-ga4 lc-rounded", "lc-bg-bg1 lc-text-inherit lc-outline-none lc-leading-none lc-min-h-5", "lc-cursor-pointer disabled:lc-cursor-not-allowed disabled:lc-opacity-60", "lc-transition focus:lc-border-brand", className),
+		...props,
+		children
+	});
+}
+/**
+* Shared dropdown for picking the active draft from a per-feature
+* prompt list.
+*
+* Owns three concerns that would otherwise duplicate at every call
+* site:
+*   1. Index clamping for render — a persisted out-of-range index gets
+*      visually anchored to a real option here. The next pick the user
+*      makes writes a clean value back through `onActiveIndexChange`.
+*   2. Option rendering — each row is `${i+1}: ${preview}` where
+*      `preview` is the prompt's first line, grapheme-trimmed by
+*      `getPromptPreview`. Numeric prefix gives users a stable handle
+*      to refer to ("the 3rd prompt") even when previews look similar.
+*   3. Empty-state handling — renders a single sentinel option labelled
+*      `emptyText ?? '(空)'` and auto-disables the select. We don't
+*      return null on empty so the layout doesn't reflow as the user
+*      adds / removes prompts; callers that *need* the picker to
+*      disappear should gate the JSX themselves.
+*
+* Used by the Settings PromptManager (with 24-grapheme previews and a
+* domain-specific empty hint) and the inline picker on each feature
+* tab (smaller previews to fit alongside the AI 润色 toggles, internal
+* name still `yolo`).
+*
+* 设计参考自 upstream chatterbox 090bd1e。
+*/
+function PromptPicker({ prompts, activeIndex, onActiveIndexChange, id, className, title, disabled, previewGraphemes, emptyText }) {
+	const safeIndex = prompts.length > 0 ? Math.min(Math.max(0, activeIndex), prompts.length - 1) : 0;
+	const isEmpty = prompts.length === 0;
+	return /* @__PURE__ */ u(NativeSelect, {
+		id,
+		className,
+		title,
+		disabled: disabled || isEmpty,
+		value: isEmpty ? "" : String(safeIndex),
+		onChange: (e) => {
+			const v = Number.parseInt(e.currentTarget.value, 10);
+			if (!Number.isNaN(v)) onActiveIndexChange(v);
+		},
+		children: isEmpty ? /* @__PURE__ */ u("option", {
+			value: "",
+			children: emptyText ?? "(空)"
+		}) : prompts.map((p, i) => /* @__PURE__ */ u("option", {
+			value: String(i),
+			children: [
+				i + 1,
+				": ",
+				getPromptPreview(p, previewGraphemes)
+			]
+		}, i))
+	});
+}
 var BASE_CLASS = [
 	"lc-inline-flex lc-items-center lc-justify-center",
 	"lc-gap-1 lc-rounded",
@@ -25252,6 +25345,31 @@ function AiCandidateSection() {
 				},
 				children: "AI 听主播 STT + 房间弹幕，生成候选弹幕放进下面的队列。**每条都需要你点确认才发** —— 不会自动发送。"
 			}),
+			/* @__PURE__ */ u("label", {
+				htmlFor: "aiCandidatePersonaPicker",
+				style: {
+					display: "flex",
+					alignItems: "center",
+					gap: "6px",
+					marginBottom: "6px",
+					fontSize: "0.85em"
+				},
+				title: "AI 陪聊角色（在「设置 → LLM 提示词 → AI 陪聊（候选）」里管理 / 增删）",
+				children: [/* @__PURE__ */ u("span", {
+					style: { color: "#666" },
+					children: "角色："
+				}), /* @__PURE__ */ u(PromptPicker, {
+					id: "aiCandidatePersonaPicker",
+					prompts: llmPromptsAiCandidate.value,
+					activeIndex: llmActivePromptAiCandidate.value,
+					onActiveIndexChange: (i) => {
+						llmActivePromptAiCandidate.value = i;
+					},
+					previewGraphemes: 14,
+					className: "lc-min-w-[140px] lc-max-w-[220px] lc-truncate",
+					emptyText: "暂无角色，请到设置里添加"
+				})]
+			}),
 			enabled && gap && /* @__PURE__ */ u("div", {
 				style: {
 					fontSize: "0.85em",
@@ -25339,60 +25457,80 @@ function AiCandidateSection() {
 				}),
 				/* @__PURE__ */ u("details", {
 					style: { marginTop: "6px" },
-					children: [/* @__PURE__ */ u("summary", {
-						style: {
-							cursor: "pointer",
-							fontSize: "0.85em",
-							color: "#666"
-						},
-						children: "⚙ 设置"
-					}), /* @__PURE__ */ u("div", {
-						style: {
-							display: "flex",
-							flexWrap: "wrap",
-							gap: "8px",
-							padding: "6px 0",
-							fontSize: "0.85em"
-						},
-						children: [
-							/* @__PURE__ */ u(NumLabel, {
-								label: "候选字数上限",
-								value: aiCandidateMaxMessageLength.value,
-								min: 5,
-								max: 100,
-								onChange: (v) => {
-									aiCandidateMaxMessageLength.value = v;
-								}
-							}),
-							/* @__PURE__ */ u(NumLabel, {
-								label: "上下文字符预算",
-								value: aiCandidateContextMaxChars.value,
-								min: 256,
-								max: 8192,
-								onChange: (v) => {
-									aiCandidateContextMaxChars.value = v;
-								}
-							}),
-							/* @__PURE__ */ u(NumLabel, {
-								label: "Viewer 窗口",
-								value: aiCandidateViewerWindow.value,
-								min: 5,
-								max: 200,
-								onChange: (v) => {
-									aiCandidateViewerWindow.value = v;
-								}
-							}),
-							/* @__PURE__ */ u(NumLabel, {
-								label: "Viewer 触发间隔",
-								value: aiCandidateViewerInterval.value,
-								min: 1,
-								max: 100,
-								onChange: (v) => {
-									aiCandidateViewerInterval.value = v;
-								}
-							})
-						]
-					})]
+					children: [
+						/* @__PURE__ */ u("summary", {
+							style: {
+								cursor: "pointer",
+								fontSize: "0.85em",
+								color: "#666"
+							},
+							children: "⚙ 设置"
+						}),
+						/* @__PURE__ */ u("div", {
+							style: {
+								display: "flex",
+								flexWrap: "wrap",
+								gap: "8px",
+								padding: "6px 0",
+								fontSize: "0.85em"
+							},
+							children: [
+								/* @__PURE__ */ u(NumLabel, {
+									label: "候选字数上限",
+									value: aiCandidateMaxMessageLength.value,
+									min: 5,
+									max: 100,
+									onChange: (v) => {
+										aiCandidateMaxMessageLength.value = v;
+									}
+								}),
+								/* @__PURE__ */ u(NumLabel, {
+									label: "上下文字符预算",
+									value: aiCandidateContextMaxChars.value,
+									min: 256,
+									max: 8192,
+									onChange: (v) => {
+										aiCandidateContextMaxChars.value = v;
+									}
+								}),
+								/* @__PURE__ */ u(NumLabel, {
+									label: "Viewer 窗口",
+									value: aiCandidateViewerWindow.value,
+									min: 5,
+									max: 200,
+									onChange: (v) => {
+										aiCandidateViewerWindow.value = v;
+									}
+								}),
+								/* @__PURE__ */ u(NumLabel, {
+									label: "Viewer 触发间隔",
+									value: aiCandidateViewerInterval.value,
+									min: 1,
+									max: 100,
+									onChange: (v) => {
+										aiCandidateViewerInterval.value = v;
+									}
+								}),
+								/* @__PURE__ */ u(NumLabel, {
+									label: "LLM token 上限",
+									value: aiCandidateMaxTokens.value,
+									min: 512,
+									max: 131072,
+									onChange: (v) => {
+										aiCandidateMaxTokens.value = v;
+									}
+								})
+							]
+						}),
+						/* @__PURE__ */ u("div", {
+							style: {
+								fontSize: "0.78em",
+								color: "#888",
+								padding: "0 0 4px"
+							},
+							children: "用推理模型（MiMo / DeepSeek-R1 / Qwen QwQ）出现「返回内容为空」时，把上面 token 上限调高（推荐 32768 起步，最高 131072）。普通模型保持 4096 也够用。"
+						})
+					]
 				}),
 				history.length > 0 && /* @__PURE__ */ u("details", {
 					style: { marginTop: "6px" },
@@ -25646,66 +25784,6 @@ function warnIfOtherSourcesActive(starting) {
 	const otherLabels = others.map((s) => SOURCE_LABEL[s]).join("、");
 	const startingLabel = SOURCE_LABEL[starting];
 	notifyUser("warning", `已同时运行 ${others.length + 1} 个自动发送（${otherLabels}、${startingLabel}）`, "叠加发送会增加每分钟弹幕量，更容易被风控/封号。如非必要，建议只开一个，或先调低各自频率。");
-}
-function NativeSelect({ disabled, className, children, ...props }) {
-	return /* @__PURE__ */ u("select", {
-		disabled,
-		class: cn("lc-box-border lc-pr-1 lc-pl-0.5 lc-py-px", "lc-border lc-border-solid lc-border-ga4 lc-rounded", "lc-bg-bg1 lc-text-inherit lc-outline-none lc-leading-none lc-min-h-5", "lc-cursor-pointer disabled:lc-cursor-not-allowed disabled:lc-opacity-60", "lc-transition focus:lc-border-brand", className),
-		...props,
-		children
-	});
-}
-/**
-* Shared dropdown for picking the active draft from a per-feature
-* prompt list.
-*
-* Owns three concerns that would otherwise duplicate at every call
-* site:
-*   1. Index clamping for render — a persisted out-of-range index gets
-*      visually anchored to a real option here. The next pick the user
-*      makes writes a clean value back through `onActiveIndexChange`.
-*   2. Option rendering — each row is `${i+1}: ${preview}` where
-*      `preview` is the prompt's first line, grapheme-trimmed by
-*      `getPromptPreview`. Numeric prefix gives users a stable handle
-*      to refer to ("the 3rd prompt") even when previews look similar.
-*   3. Empty-state handling — renders a single sentinel option labelled
-*      `emptyText ?? '(空)'` and auto-disables the select. We don't
-*      return null on empty so the layout doesn't reflow as the user
-*      adds / removes prompts; callers that *need* the picker to
-*      disappear should gate the JSX themselves.
-*
-* Used by the Settings PromptManager (with 24-grapheme previews and a
-* domain-specific empty hint) and the inline picker on each feature
-* tab (smaller previews to fit alongside the AI 润色 toggles, internal
-* name still `yolo`).
-*
-* 设计参考自 upstream chatterbox 090bd1e。
-*/
-function PromptPicker({ prompts, activeIndex, onActiveIndexChange, id, className, title, disabled, previewGraphemes, emptyText }) {
-	const safeIndex = prompts.length > 0 ? Math.min(Math.max(0, activeIndex), prompts.length - 1) : 0;
-	const isEmpty = prompts.length === 0;
-	return /* @__PURE__ */ u(NativeSelect, {
-		id,
-		className,
-		title,
-		disabled: disabled || isEmpty,
-		value: isEmpty ? "" : String(safeIndex),
-		onChange: (e) => {
-			const v = Number.parseInt(e.currentTarget.value, 10);
-			if (!Number.isNaN(v)) onActiveIndexChange(v);
-		},
-		children: isEmpty ? /* @__PURE__ */ u("option", {
-			value: "",
-			children: emptyText ?? "(空)"
-		}) : prompts.map((p, i) => /* @__PURE__ */ u("option", {
-			value: String(i),
-			children: [
-				i + 1,
-				": ",
-				getPromptPreview(p, previewGraphemes)
-			]
-		}, i))
-	});
 }
 /**
 * 把"AI 润色（原 YOLO）已开但 LLM 还没配齐"这句话集中渲染。
@@ -32800,7 +32878,7 @@ function ChatfilterSection({ query = "" }) {
 								color: "#888",
 								marginTop: ".5em"
 							},
-							children: ["字典版本 v", "2026-05-20"]
+							children: ["字典版本 v", "2026-05-21"]
 						})
 					]
 				}),
