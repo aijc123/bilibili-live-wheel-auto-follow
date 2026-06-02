@@ -18,11 +18,11 @@
     "hono": "^4.12.23"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260525.1",
+    "@cloudflare/workers-types": "^4.20260602.1",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.7",
+    "vitest": "^4.1.8",
     "@cloudflare/vitest-pool-workers": "^0.16.3",
-    "wrangler": "^4.94.0"
+    "wrangler": "^4.96.0"
   },
   "overrides": {
     "ws": "^8.20.1"
