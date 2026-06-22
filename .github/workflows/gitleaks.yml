@@ -19,7 +19,7 @@ jobs:
   gitleaks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history so the scanner can audit prior commits
       # SHA pinned to v2.3.9 (resolved 2026-05-11). Refreshable via:
