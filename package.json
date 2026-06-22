@@ -51,7 +51,7 @@
   },
   "dependencies": {
     "@laplace.live/ws": "^7.1.10",
-    "@preact/signals": "^2.9.1",
+    "@preact/signals": "^2.9.2",
     "preact": "^10.29.2"
   },
   "devDependencies": {
