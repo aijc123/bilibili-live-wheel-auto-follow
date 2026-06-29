@@ -52,7 +52,7 @@
   "dependencies": {
     "@laplace.live/ws": "^7.1.10",
     "@preact/signals": "^2.9.2",
-    "preact": "^10.29.2"
+    "preact": "^10.29.3"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
