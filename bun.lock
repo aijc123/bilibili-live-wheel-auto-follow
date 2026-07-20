@@ -5,7 +5,7 @@
     "": {
       "name": "laplace-userscripts",
       "dependencies": {
-        "@laplace.live/ws": "^7.1.10",
+        "@laplace.live/ws": "^8.0.2",
         "@preact/signals": "^2.9.4",
         "preact": "^10.29.7",
       },
@@ -132,7 +132,7 @@
 
     "@laplace.live/internal": ["@laplace.live/internal@1.3.19", "", { "peerDependencies": { "typescript": "^5.9.3" } }, "sha512-/4y1kngo/xQJp6Ng+3OAPyXpQEaAUN5gIklEf6uVei7mm+R3gW6L26SyOTls/NJFGtjdeKBZvFnRuAicCQfEVg=="],
 
-    "@laplace.live/ws": ["@laplace.live/ws@7.1.10", "", { "dependencies": { "@laplace.live/internal": "^1.3.9" } }, "sha512-3FWgg/8xEjIT9sGBRCc51fx1kJhOnMKcUUWws8yJM0i83WBfIyLUa3QecF4gu6QjDTBUTZmW1t7h/wPR3czM+A=="],
+    "@laplace.live/ws": ["@laplace.live/ws@8.0.2", "", { "dependencies": { "@laplace.live/internal": "^1.3.26" } }, "sha512-0ADL6uN4pewQbbjDzerSiPpuKA7ENO5zl+QiaDnR8zsA5G8vaQJqlTTwGVGqMawzuwLw+sMfJW4FpHXZs+H17w=="],
 
     "@lhci/cli": ["@lhci/cli@0.15.1", "", { "dependencies": { "@lhci/utils": "0.15.1", "chrome-launcher": "^0.13.4", "compression": "^1.7.4", "debug": "^4.3.1", "express": "^4.17.1", "inquirer": "^6.3.1", "isomorphic-fetch": "^3.0.0", "lighthouse": "12.6.1", "lighthouse-logger": "1.2.0", "open": "^7.1.0", "proxy-agent": "^6.4.0", "tmp": "^0.1.0", "uuid": "^8.3.1", "yargs": "^15.4.1", "yargs-parser": "^13.1.2" }, "bin": { "lhci": "./src/cli.js" } }, "sha512-yhC0oXnXqGHYy1xl4D8YqaydMZ/khFAnXGY/o2m/J3PqPa/D0nj3V6TLoH02oVMFeEF2AQim7UbmdXMiXx2tOw=="],
 
@@ -1190,7 +1190,7 @@
 
     "@formatjs/intl-localematcher/tslib": ["tslib@2.8.1", "", {}, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
 
-    "@laplace.live/ws/@laplace.live/internal": ["@laplace.live/internal@1.3.9", "", { "peerDependencies": { "typescript": "^5.9.3" } }, "sha512-O9SKQcR2Iovag08Nj1DtBk5SRvE2gUkRuuvoyqLnKvoa8JC056S0xqJ3fX13qDtUbDgNUhxVLOg9stRQIdh7LQ=="],
+    "@laplace.live/ws/@laplace.live/internal": ["@laplace.live/internal@1.3.26", "", { "peerDependencies": { "typescript": "^7.0.2" } }, "sha512-xLMbwNJE+IR+iFU5yl8+sTkYiDjwODglYHiL6fmuGjVGSfpWeN2BWn7KaWRouesfLX80/amy+oIX0Jkoq1howw=="],
 
     "@paulirish/trace_engine/third-party-web": ["third-party-web@0.29.0", "", {}, "sha512-nBDSJw5B7Sl1YfsATG2XkW5qgUPODbJhXw++BKygi9w6O/NKS98/uY/nR/DxDq2axEjL6halHW1v+jhm/j1DBQ=="],
 

@@ -50,7 +50,7 @@
     "loadtest:server": "bun scripts/load-test-backend.mjs"
   },
   "dependencies": {
-    "@laplace.live/ws": "^7.1.10",
+    "@laplace.live/ws": "^8.0.2",
     "@preact/signals": "^2.9.4",
     "preact": "^10.29.7"
   },
