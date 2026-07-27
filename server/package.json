@@ -15,7 +15,7 @@
     "gen-admin-key": "bun scripts/gen-admin-key.ts"
   },
   "dependencies": {
-    "hono": "^4.12.31"
+    "hono": "^4.12.32"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260702.1",
