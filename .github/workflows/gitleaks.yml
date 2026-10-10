@@ -26,6 +26,6 @@ jobs:
       #   gh api repos/gitleaks/gitleaks-action/git/refs/tags/v2.3.9 --jq .object.sha
       # Dependabot's github-actions ecosystem (see .github/dependabot.yml)
       # opens an upgrade PR when a newer release lands.
-      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
